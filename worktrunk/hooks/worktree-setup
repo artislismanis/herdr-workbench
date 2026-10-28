@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# worktrunk pre-start hook from herdr-workbench. Sets up a new worktree for
+# whatever stack it holds. Runs in the new worktree; $1 is the primary one.
+# A failed step warns and moves on: a pre-start failure would abort the switch,
+# and a half-set-up worktree the agent can fix beats no worktree.
+set -uo pipefail
+
+primary="${1:-}"
+
+# Started from a shell with the primary's venv active, the hook inherits
+# VIRTUAL_ENV and its bin on PATH, and poetry would install into that venv
+# instead of this worktree's own.
+if [ -n "${VIRTUAL_ENV:-}" ]; then
+  PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$VIRTUAL_ENV/bin" | paste -sd: -)"
+  unset VIRTUAL_ENV VIRTUAL_ENV_PROMPT
+fi
+
+# wt may be launched from a shell that never sourced the wsl-starter:mise block.
+PATH="$PATH:$HOME/.local/bin"
+
+step() {
+  echo "wt-setup: $*"
+  if ! "$@"; then
+    echo "wt-setup: WARNING: '$*' failed; continuing" >&2
+  fi
+}
+
+# Without .worktreeinclude, copy-ignored copies every gitignored file,
+# .venv and node_modules included.
+if [ -n "$primary" ] && [ -f "$primary/.worktreeinclude" ]; then
+  step wt step copy-ignored
+fi
+
+if command -v mise >/dev/null 2>&1; then
+  step mise trust --quiet
+  step mise install
+  # 2>/dev/null: uv_venv_auto warns that .venv is missing, which it is until uv sync.
+  eval "$(mise env -s bash 2>/dev/null)"
+  if mise tasks info setup >/dev/null 2>&1; then
+    step mise run setup
+    exit 0
+  fi
+fi
+
+python_tool=""
+if [ -f uv.lock ] && [ -f poetry.lock ]; then
+  if grep -q '^\[tool\.poetry\]' pyproject.toml 2>/dev/null; then python_tool=poetry; else python_tool=uv; fi
+elif [ -f uv.lock ]; then
+  python_tool=uv
+elif [ -f poetry.lock ]; then
+  python_tool=poetry
+fi
+
+case "$python_tool" in
+  uv) step uv sync ;;
+  poetry)
+    if command -v poetry >/dev/null 2>&1; then
+      step env POETRY_VIRTUALENVS_IN_PROJECT=true poetry install
+      # mise's uv_venv_auto only finds venvs next to uv.lock; point it at this one.
+      if [ ! -f mise.local.toml ]; then
+        printf '[env]\n_.python.venv = ".venv"\n' > mise.local.toml
+        if ! git check-ignore -q mise.local.toml; then
+          echo mise.local.toml >> "$(git rev-parse --git-common-dir)/info/exclude"
+        fi
+        if command -v mise >/dev/null 2>&1; then step mise trust --quiet; fi
+      fi
+    else
+      echo "wt-setup: WARNING: poetry.lock found but poetry isn't installed; skipping. Install it (MISE_TOOLS=poetry) or pin it in the repo's mise config." >&2
+    fi
+    ;;
+esac
+
+if [ -d .venv/bin ]; then PATH="$PWD/.venv/bin:$PATH"; fi
+if [ -f package-lock.json ]; then step npm ci; fi
+if [ -f .terraform.lock.hcl ]; then step terraform init -input=false; fi
+if [ -f dbt_project.yml ]; then step dbt deps; fi
+
+exit 0

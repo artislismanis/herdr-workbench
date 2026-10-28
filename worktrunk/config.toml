@@ -1,0 +1,18 @@
+# Managed by herdr-workbench's install.sh, which rewrites this block on every
+# run. Put your own settings below the closing marker. Dotted keys only: a
+# [table] header here would capture every top-level key you add below.
+
+# herdr's own worktree layout, so herdr and worktrunk agree on paths.
+worktree-path = "~/.herdr/worktrees/{{ repo }}/{{ branch | sanitize }}"
+
+# New branches start from the local default branch; bring it up to date first.
+pre-switch.sync-default-branch = "~/.config/worktrunk/hooks/sync-default-branch {{ primary_worktree_path }} {{ default_branch }} {{ remote }}"
+
+# Blocking, so the worktree opens with dependencies already installed.
+pre-start.worktree-setup = "~/.config/worktrunk/hooks/worktree-setup {{ primary_worktree_path }}"
+
+# wt remove decides whether a branch is merged before any hook runs, so the
+# fetch has to come first. `wt rm` is remove with a fresh view of the remote.
+aliases.rm = "git fetch --quiet --prune {{ remote }} || echo 'wt rm: fetch failed; removing with stale remote refs' >&2; wt remove {{ args }}"
+
+step.copy-ignored.exclude = [".venv/", "node_modules/"]
