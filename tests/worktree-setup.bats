@@ -56,13 +56,12 @@ called() { grep -qx "$1" "$STUB_LOG"; }
   ! grep -q '^poetry' "$STUB_LOG"
 }
 
-@test "poetry repo runs poetry install and points mise at the in-project venv" {
+@test "poetry repo runs poetry install with an in-project venv" {
   touch "$WT/poetry.lock"
   run_hook
   [ "$status" -eq 0 ]
   called "poetry install"
-  grep -q '_.python.venv = ".venv"' "$WT/mise.local.toml"
-  git -C "$WT" check-ignore -q mise.local.toml
+  [ ! -e "$WT/mise.local.toml" ]
 }
 
 @test "poetry repo without poetry warns and skips" {
@@ -71,7 +70,6 @@ called() { grep -qx "$1" "$STUB_LOG"; }
   run_hook
   [ "$status" -eq 0 ]
   echo "$stderr" | grep -q "poetry isn't installed"
-  [ ! -f "$WT/mise.local.toml" ]
 }
 
 @test "mixed repo with [tool.poetry] follows poetry" {
