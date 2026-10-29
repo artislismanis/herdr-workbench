@@ -58,7 +58,10 @@ install_file "$REPO_ROOT/claude/rules/workbench.md" "$RULES_DIR/workbench.md" 64
 
 # herdr's config check is strict (duplicate tables, unknown keys), so run it on
 # the prepared file instead of parsing TOML here.
-_herdr_config_ok() { HERDR_CONFIG_PATH="$1" herdr config check >&2; }
+_herdr_config_ok() {
+  local out
+  out="$(HERDR_CONFIG_PATH="$1" herdr config check 2>&1)" || { printf '%s\n' "$out" >&2; return 1; }
+}
 
 if ! command -v herdr >/dev/null 2>&1; then
   warn "herdr not installed; skipping its config, skill and Claude integration."
