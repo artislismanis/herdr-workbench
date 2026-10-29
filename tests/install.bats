@@ -25,6 +25,14 @@ toml() {
   [ -x "$HOME/.config/worktrunk/hooks/worktree-setup" ]
   [ -x "$HOME/.config/worktrunk/hooks/sync-default-branch" ]
   [ "$(head -1 "$CONFIG")" = "# >>> herdr-workbench:worktrunk >>>" ]
+  cmp "$REPO_ROOT/claude/rules/workbench.md" "$HOME/.claude/rules/herdr-workbench/workbench.md"
+}
+
+@test "the Claude rule follows CLAUDE_CONFIG_DIR" {
+  CLAUDE_CONFIG_DIR="$BATS_TEST_TMPDIR/claude" install
+  [ "$status" -eq 0 ]
+  [ -f "$BATS_TEST_TMPDIR/claude/rules/herdr-workbench/workbench.md" ]
+  [ ! -e "$HOME/.claude" ]
 }
 
 @test "re-run is a no-op" {

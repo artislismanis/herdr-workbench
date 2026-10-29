@@ -10,6 +10,7 @@ source "$REPO_ROOT/lib/common.sh"
 
 WT_DIR="$HOME/.config/worktrunk"
 WT_HOOKS=(worktree-setup sync-default-branch)
+RULES_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/rules/herdr-workbench"
 
 usage() {
   cat <<USAGE
@@ -29,6 +30,7 @@ rm -f$(printf ' "%s"' "${WT_HOOKS[@]/#/$WT_DIR/hooks/}")
 rmdir --ignore-fail-on-non-empty "$WT_DIR/hooks" 2>/dev/null || true
 # Strips only our block; your own worktrunk settings below it stay.
 sed -i '/^# >>> herdr-workbench:worktrunk >>>$/,/^# <<< herdr-workbench:worktrunk <<<$/d' "$WT_DIR/config.toml"
+rm -rf "$RULES_DIR"
 RECIPE
 }
 
@@ -47,6 +49,7 @@ for hook in "${WT_HOOKS[@]}"; do
   install_file "$REPO_ROOT/worktrunk/hooks/$hook" "$WT_DIR/hooks/$hook" 755
 done
 ensure_top_block herdr-workbench:worktrunk "$REPO_ROOT/worktrunk/config.toml" "$WT_DIR/config.toml"
+install_file "$REPO_ROOT/claude/rules/workbench.md" "$RULES_DIR/workbench.md" 644
 
 if [ "$MODE" = check ] && [ "$DRIFT" -gt 0 ]; then
   die "$DRIFT file(s) differ from the repo; run ./install.sh to refresh."
