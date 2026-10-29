@@ -9,7 +9,7 @@ Config and glue for a terminal workbench built on [herdr](https://github.com/her
 | `~/.config/worktrunk/config.toml` | A marked block at the top: worktrees at `~/.herdr/worktrees/<repo>/<branch>` (herdr's layout), the two hooks below, a `wt rm` alias, copy-ignored excludes | Block rewritten; anything below it is yours and stays |
 | `~/.config/worktrunk/hooks/worktree-setup` | `pre-start`: sets up a new worktree for its stack (mise, uv, poetry, npm, terraform, dbt). Drops a `VIRTUAL_ENV` inherited from the calling shell | Refreshed if it drifts |
 | `~/.config/worktrunk/hooks/sync-default-branch` | `pre-switch`: fast-forwards the local default branch to its remote, so new branches start from the latest | Refreshed if it drifts |
-| `~/.claude/rules/herdr-workbench/workbench.md` | Claude rule, loaded in every session: one worktree per task, `uv run` / `poetry run`, PR size, git-spice stacks. Under `$CLAUDE_CONFIG_DIR` when that's set | Refreshed if it drifts |
+| `~/.claude/rules/herdr-workbench/workbench.md` | Claude rule, loaded in every session: one worktree per task, `uv run` / `poetry run`, PR size, stacks with `gh stack`. Under `$CLAUDE_CONFIG_DIR` when that's set | Refreshed if it drifts |
 
 `wt rm` fetches, then runs `wt remove`. worktrunk decides whether a branch is merged before any hook runs, so a fetch inside a `pre-remove` hook would be too late to spot a branch that was squash-merged on GitHub.
 
