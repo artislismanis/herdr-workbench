@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# worktrunk pre-switch hook: fast-forward the local default branch to its
+# remote, because `wt switch --create` branches from the local one.
+# Usage: sync-default-branch <primary-worktree> <default-branch> <remote>
+# Best effort: a pre-switch failure aborts the switch, so every problem warns
+# and exits 0.
+set -uo pipefail
+
+primary="$1" branch="$2" remote="${3:-}"
+
+warn() { echo "sync-default-branch: $*; continuing" >&2; exit 0; }
+
+[ -n "$remote" ] || exit 0
+git -C "$primary" fetch --quiet "$remote" "$branch" || warn "fetch from $remote failed"
+
+local_ref="refs/heads/$branch"
+remote_ref="refs/remotes/$remote/$branch"
+git -C "$primary" rev-parse -q --verify "$remote_ref" >/dev/null || exit 0
+git -C "$primary" rev-parse -q --verify "$local_ref" >/dev/null || exit 0
+git -C "$primary" merge-base --is-ancestor "$remote_ref" "$local_ref" && exit 0
+git -C "$primary" merge-base --is-ancestor "$local_ref" "$remote_ref" ||
+  warn "$branch has diverged from $remote/$branch; not touching it"
+
+if [ "$(git -C "$primary" symbolic-ref -q HEAD)" = "$local_ref" ]; then
+  git -C "$primary" merge --ff-only --quiet "$remote_ref" ||
+    warn "couldn't fast-forward $branch in $primary (local changes in the way?)"
+elif git -C "$primary" worktree list --porcelain | grep -qxF "branch $local_ref"; then
+  warn "$branch is checked out in another worktree; not touching it"
+else
+  git -C "$primary" update-ref "$local_ref" "$remote_ref" ||
+    warn "couldn't update $branch"
+fi
+exit 0
