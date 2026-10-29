@@ -20,6 +20,7 @@ Strong guidelines, not hard limits. When you go over, say so and why.
 - Each PR is one small, self-contained change that builds and passes its tests on its own.
 - Aim for 300 changed lines or fewer, 500 at most. Count code and tests you wrote, not lockfiles or generated files. Reviewers find markedly fewer defects past about 400 lines.
 - Bigger than that: split it into a stack.
+- Open PRs as drafts. Mark one ready for review, or merge it, when I ask you to; not on your own judgement.
 
 ## Stacks (gh stack)
 
@@ -29,5 +30,5 @@ GitHub's native stacked PRs, through `gh stack`. Its `gh-stack` skill has the co
 - Plan the layers before writing code, and start the stack at the beginning: `wt switch -c <first-branch>`, then `gh stack init <first-branch>` to adopt it. Add each next layer with `gh stack add <branch>`.
 - Everything that shapes the stack goes through `gh stack`: creating, moving between, rebasing, reordering, pushing and syncing stack branches, and opening or updating their PRs. Plain git or gh leaves GitHub's record of the stack wrong. If `gh stack` has no command for what you need, stop and ask.
 - Work inside one layer is ordinary: `git add`, `git commit`, `git diff`, `git status`, and `gh` for viewing PRs, checks and review comments. After committing to a layer with others above it, run `gh stack rebase --upstack`.
-- PRs open as drafts (`gh stack submit --auto`). Never merge: no `gh stack merge`, no `gh pr merge`. I merge.
+- Drafts and merges follow the PR rule above: `gh stack submit --auto` opens drafts, `gh stack submit --auto --open` marks them ready when I ask, and `gh stack merge <target> --yes` merges when I ask. `gh pr merge` can't merge a stack.
 - Layers may sit in different worktrees; `gh stack` rebases each in the worktree that holds it. Keep those worktrees clean before rebasing or syncing, or it stops.
