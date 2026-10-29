@@ -1,0 +1,6 @@
+# Managed by herdr-workbench's install.sh, which rewrites this block on every
+# run. It stays at the bottom: put your own settings above the opening marker.
+
+# The starter's pin is the only thing that moves herdr's version.
+[update]
+version_check = false
