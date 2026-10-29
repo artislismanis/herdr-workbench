@@ -14,6 +14,18 @@ Config and glue for a terminal workbench built on [herdr](https://github.com/her
 
 Both hooks warn and carry on rather than fail: a failing `pre-*` hook aborts the switch.
 
+## Running commands in a worktree
+
+Nothing activates a venv. Commands go through the project's own tool, which always picks the worktree's `.venv`, in any shell, for people and agents alike:
+
+| Project has | Run |
+|---|---|
+| `uv.lock` | `uv run pytest`, `uv run python -m app` |
+| `poetry.lock` | `poetry run pytest` |
+| `package.json` | `npm run test`, `npx eslint` (node finds `node_modules` itself) |
+
+Don't `source .venv/bin/activate`: an activated venv stays on PATH after you switch worktrees, so `python` quietly runs the other worktree's environment. `uv run` also syncs the venv from `uv.lock` first, so it's never stale after a pull.
+
 Machine-local worktrunk settings, such as `[projects."<id>"]` entries, go below the block. Never commit them here.
 
 ## Install
