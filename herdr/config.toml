@@ -21,6 +21,20 @@ width = 70
 height = 12
 
 [[keys.command]]
+key = "prefix+shift+r"
+type = "shell"
+command = "\"$HOME/.config/herdr/bin/hunk-review-open\""
+description = "Review: open hunk with the PR's GitHub threads"
+
+[[keys.command]]
+key = "prefix+shift+u"
+type = "popup"
+command = "\"$HOME/.config/herdr/bin/hunk-pr-push\""
+description = "Review: post the agent's notes to the PR"
+width = 90
+height = 30
+
+[[keys.command]]
 key = "prefix+shift+s"
 type = "plugin_action"
 command = "jhochenbaum.hunkdiff.send-review"

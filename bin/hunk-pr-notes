@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Loads a PR's GitHub review threads into the hunk review open for its branch.
+# Read-only towards GitHub. Re-running refreshes: earlier notes are replaced.
+# Usage: hunk-pr-notes [--quiet] [worktree]
+set -euo pipefail
+
+quiet=0
+if [ "${1:-}" = --quiet ]; then quiet=1; shift; fi
+repo="$(git -C "${1:-$PWD}" rev-parse --show-toplevel)"
+cd "$repo"
+
+# A branch with no PR is normal. Anything else (network, auth) must show, or
+# the review silently opens without its threads.
+if ! number="$(gh pr view --json number --jq .number 2>&1)"; then
+  case "$number" in
+    *"no pull requests found"*) [ "$quiet" = 1 ] || echo "No PR for this branch."; exit 0 ;;
+    *) printf "Couldn't read the PR's threads: %s\n" "$number"; exit 1 ;;
+  esac
+fi
+
+comments="$(gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$number/comments")"
+review="$(hunk session review --repo "$repo" --json)"
+
+hunk session comment list --repo "$repo" --type all --json \
+  | jq -r '.comments[] | select((.author // "") | startswith("github:")) | .noteId' \
+  | while read -r id; do hunk session comment rm --repo "$repo" "$id" >/dev/null; done
+
+# One note per thread. GitHub's line is null once a comment is outdated, and a
+# note only lands inside a hunk of the side it belongs to.
+threads="$(jq -n --argjson pages "$comments" --argjson review "$review" '
+  [$pages[][]] as $all
+  | $review.review.files as $files
+  | def range: if .side == "LEFT" then "oldRange" else "newRange" end;
+    def in_diff: . as $t | any($files[] | select(.path == $t.path) | .hunks[][$t | range];
+      .[0] <= $t.line and $t.line <= .[1]);
+    [$all[] | select(.in_reply_to_id == null)
+      | . as $root
+      | {path, line, side, url: .html_url, login: .user.login,
+         text: ([$root] + [$all[] | select(.in_reply_to_id == $root.id)]
+                | map("\(.user.login): \(.body)") | join("\n\n"))}]
+    | {placed: map(select(.line != null and in_diff)),
+       outdated: map(select(.line == null)),
+       outside: map(select(.line != null and (in_diff | not)))}')"
+
+jq '{comments: [.placed[] | {filePath: .path, summary: .text, author: "github:\(.login)"}
+       + (if .side == "LEFT" then {oldLine: .line} else {newLine: .line} end)]}' <<<"$threads" \
+  | if [ "$(jq '.placed | length' <<<"$threads")" -gt 0 ]; then
+      hunk session comment apply --repo "$repo" --stdin >/dev/null
+    else
+      cat >/dev/null
+    fi
+
+placed="$(jq '.placed | length' <<<"$threads")"
+outdated="$(jq '.outdated | length' <<<"$threads")"
+outside="$(jq '.outside | length' <<<"$threads")"
+[ "$((placed + outdated + outside))" -gt 0 ] || [ "$quiet" = 0 ] || exit 0
+echo "Loaded $placed thread(s); $outdated outdated, $outside outside the diff."
+[ "$quiet" = 1 ] || jq -r '(.outdated + .outside)[] | "  \(.path): \(.url)"' <<<"$threads"

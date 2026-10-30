@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Opens the hunk review beside an agent and loads the PR's GitHub threads into
+# it. Run from a key (acts on the focused pane) or by Claude (its own pane).
+set -euo pipefail
+
+pane="${HERDR_PANE_ID:-${HERDR_ACTIVE_PANE_ID:-}}"
+[ -n "$pane" ] || { echo "Not running in herdr." >&2; exit 1; }
+# Plugin actions act on the focused pane, and that pane is who the review's
+# comments go back to.
+[ -z "${HERDR_PANE_ID:-}" ] || herdr agent focus "$pane" >/dev/null
+cwd="$(herdr pane get "$pane" | jq -r .result.pane.cwd)"
+repo="$(git -C "$cwd" rev-parse --show-toplevel)"
+
+herdr plugin action invoke review --plugin jhochenbaum.hunkdiff >/dev/null
+for _ in $(seq 20); do
+  hunk session get --repo "$repo" >/dev/null 2>&1 && break
+  sleep 0.5
+done
+
+summary="$("$(dirname "$0")/hunk-pr-notes" --quiet "$repo")" || { printf '%s\n' "$summary" >&2; rc=1; }
+[ -z "$summary" ] || herdr notification show "hunk review" --body "$summary" >/dev/null 2>&1 || true
+exit "${rc:-0}"
