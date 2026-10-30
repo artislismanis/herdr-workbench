@@ -19,3 +19,70 @@ command = "\"$HOME/.config/herdr/bin/wt-remove-current\""
 description = "Worktree: remove this one"
 width = 70
 height = 12
+
+[[keys.command]]
+key = "prefix+shift+s"
+type = "plugin_action"
+command = "jhochenbaum.hunkdiff.send-review"
+description = "Review: send hunk comments to the agent"
+
+[[keys.command]]
+key = "prefix+a"
+type = "plugin_action"
+command = "annotate.capture"
+description = "Annotate: comment on the selection"
+
+[[keys.command]]
+key = "prefix+ctrl+s"
+type = "plugin_action"
+command = "annotate.send-archive"
+description = "Annotate: send to the agent"
+
+[[keys.command]]
+key = "prefix+ctrl+v"
+type = "plugin_action"
+command = "annotate.paste-archive"
+description = "Annotate: paste without sending"
+
+[[keys.command]]
+key = "prefix+m"
+type = "plugin_action"
+command = "annotate.manage"
+description = "Annotate: manage annotations"
+
+[[keys.command]]
+key = "prefix+shift+a"
+type = "plugin_action"
+command = "annotate.copy-context"
+description = "Annotate: copy annotations"
+
+[[keys.command]]
+key = "prefix+ctrl+a"
+type = "plugin_action"
+command = "annotate.copy-archive"
+description = "Annotate: copy and archive"
+
+# Not annotate's usual prefix+o: that stays herdr's jump to notification.
+[[keys.command]]
+key = "prefix+shift+f"
+type = "plugin_action"
+command = "annotate.open"
+description = "Annotate: review Markdown in this folder"
+
+[[keys.command]]
+key = "prefix+shift+o"
+type = "plugin_action"
+command = "annotate.last"
+description = "Annotate: review the agent's recent replies"
+
+[[keys.command]]
+key = "prefix+ctrl+o"
+type = "plugin_action"
+command = "annotate.last-newest"
+description = "Annotate: review the agent's newest reply"
+
+[[keys.command]]
+key = "prefix+t"
+type = "plugin_action"
+command = "annotate.terminal"
+description = "Annotate: review this pane's last 200 lines"

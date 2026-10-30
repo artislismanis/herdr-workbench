@@ -23,12 +23,20 @@ case "$1 ${2:-}" in
   "integration uninstall") rm -f "$HOME/.claude-integration" ;;
   "plugin list") cat "$HOME/.plugin" 2>/dev/null || echo "No plugins installed." ;;
   "plugin install")
-    echo "- worktrunk (Worktrunk) enabled [github:$3@$5]" >"$HOME/.plugin"
-    echo "$3 $5" >>"$HOME/.plugin-installs" ;;
+    echo "- enabled [github:$3@$5]" >>"$HOME/.plugin"
+    echo "$3 $5" >>"$HOME/.plugin-installs"
+    case "$3" in */herdr-annotate)
+      [ -f "$HOME/.tui-download-fails" ] || { d="$HOME/.config/herdr/plugins/github-installations/annotate-1/2-0/checkout/bin"; mkdir -p "$d"; touch "$d/plannotator-tui.exe"; }
+    esac ;;
   "plugin uninstall") rm -f "$HOME/.plugin" ;;
 esac
 STUB
-  chmod +x "$BATS_TEST_TMPDIR/bin/herdr"
+  cat >"$BATS_TEST_TMPDIR/bin/hunk" <<'STUB'
+#!/bin/sh
+[ "$1 $2 $3" = "skill path hunk-review" ] && echo "$HOME/hunk-skill.md"
+STUB
+  echo 'stub hunk skill' >"$HOME/hunk-skill.md"
+  chmod +x "$BATS_TEST_TMPDIR/bin/herdr" "$BATS_TEST_TMPDIR/bin/hunk"
   export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
 }
 
@@ -83,10 +91,42 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   install
   [ "$status" -eq 0 ]
   source "$REPO_ROOT/pins"
-  [ "$(cat "$HOME/.plugin-installs")" = "$WORKTRUNK_PLUGIN $WORKTRUNK_PLUGIN_COMMIT" ]
+  grep -qx "$WORKTRUNK_PLUGIN $WORKTRUNK_PLUGIN_COMMIT" "$HOME/.plugin-installs"
   [ -x "$HOME/.config/herdr/bin/wt-remove-current" ]
+  installs="$(wc -l <"$HOME/.plugin-installs")"
   install
-  [ "$(wc -l <"$HOME/.plugin-installs")" -eq 1 ]
+  [ "$(wc -l <"$HOME/.plugin-installs")" -eq "$installs" ]
+}
+
+@test "the review plugins install at their pins" {
+  install
+  [ "$status" -eq 0 ]
+  source "$REPO_ROOT/pins"
+  grep -qx "$HUNKDIFF_PLUGIN $HUNKDIFF_PLUGIN_COMMIT" "$HOME/.plugin-installs"
+  grep -qx "$ANNOTATE_PLUGIN $ANNOTATE_PLUGIN_COMMIT" "$HOME/.plugin-installs"
+}
+
+@test "hunkdiff points at our hunk by full path" {
+  install
+  grep -qxF "bin = \"$HOME/.local/bin/hunk\"" "$HOME/.config/herdr/plugins/config/jhochenbaum.hunkdiff/config.toml"
+}
+
+@test "the hunk skill comes from the binary, hunk settings stay yours" {
+  mkdir -p "$HOME/.config/hunk"
+  echo 'theme = "mine"' >"$HOME/.config/hunk/config.toml"
+  install
+  grep -qx 'stub hunk skill' "$HOME/.claude/skills/hunk-review/SKILL.md"
+  grep -qx 'agent_notes = true' "$HOME/.config/hunk/config.toml"
+  grep -qx 'theme = "mine"' "$HOME/.config/hunk/config.toml"
+}
+
+@test "a failed plannotator-tui download fails --check" {
+  touch "$HOME/.tui-download-fails"
+  install
+  [ "$status" -eq 0 ]
+  echo "$stderr" | grep -q "plannotator-tui is missing"
+  install --check
+  [ "$status" -ne 0 ]
 }
 
 @test "--check fails when the plugin is at another commit" {
@@ -125,4 +165,7 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   [ ! -e "$HOME/.claude-integration" ]
   [ ! -e "$HOME/.config/herdr/bin" ]
   [ ! -e "$HOME/.plugin" ]
+  [ ! -e "$HOME/.claude/skills/hunk-review" ]
+  [ ! -e "$HOME/.config/herdr/plugins/config/jhochenbaum.hunkdiff/config.toml" ]
+  ! grep -q herdr-workbench "$HOME/.config/hunk/config.toml"
 }

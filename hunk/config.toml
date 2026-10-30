@@ -1,0 +1,4 @@
+# Managed by herdr-workbench's install.sh, which rewrites this block on every
+# run. Your own settings go below the closing marker.
+agent_notes = true
+wrap_lines = true

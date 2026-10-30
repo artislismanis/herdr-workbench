@@ -1,6 +1,6 @@
 <!-- Managed by herdr-workbench. Re-run its install.sh to update. Local edits are overwritten. -->
 
-# Workbench: worktrees, commands, PR size, stacks
+# Workbench: worktrees, commands, documents, PR size, stacks
 
 ## Worktrees
 
@@ -12,6 +12,18 @@
 
 - Never activate a venv. Use the project's tool: `uv run ...` with `uv.lock`, `poetry run ...` with `poetry.lock`, `npm run` / `npx` with `package.json`.
 - Add dependencies with `uv add` / `poetry add`. A bare `pip install` is refused outside a venv, on purpose.
+
+## Documents
+
+Only when `HERDR_ENV=1`. A plan, spec or write-up I need to approve goes to a Markdown file, not into chat: in the repo if it keeps the document, otherwise your scratchpad. Open it beside your pane, then end your turn:
+
+```bash
+herdr plugin pane open --plugin annotate --entrypoint doc --placement split \
+  --direction right --target-pane "$HERDR_PANE_ID" --focus --cwd "$PWD" \
+  --env PLANNOTATOR_TUI_FILE="$FILE" --env PLANNOTATOR_TUI_DELIVER_TO="$HERDR_PANE_ID"
+```
+
+`$FILE` is the absolute path. Don't wait, poll or read the pane: my notes arrive as your next message. Address each one, revise the file and reopen it until I approve in chat.
 
 ## PR size
 
