@@ -73,7 +73,10 @@ else
   install_file "$skill" "$HERDR_SKILL" 644
   rm -f "$skill"
   # Lets herdr resume Claude sessions after a server restart.
-  if herdr integration status | grep -q '^claude: current'; then
+  # Captured first: grep -q quits at the claude line, and herdr then dies of
+  # SIGPIPE writing the rest, which pipefail reads as not current.
+  status="$(herdr integration status)"
+  if grep -q '^claude: current' <<<"$status"; then
     skip "herdr's Claude integration up to date"
   else
     case "$MODE" in
