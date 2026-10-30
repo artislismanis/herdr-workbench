@@ -1,0 +1,4 @@
+# Third-party herdr plugins at reviewed commits. A bump is a PR: review the
+# upstream diff, then move the commit here.
+WORKTRUNK_PLUGIN=devashish2203/herdr-worktrunk
+WORKTRUNK_PLUGIN_COMMIT=f9df9ba700b8a4f4d97ddfe3ea3eb345e80b880b

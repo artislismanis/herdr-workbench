@@ -21,6 +21,11 @@ case "$1 ${2:-}" in
     sleep 0.1; echo "codex: not installed (x)" ;;
   "integration install") touch "$HOME/.claude-integration" ;;
   "integration uninstall") rm -f "$HOME/.claude-integration" ;;
+  "plugin list") cat "$HOME/.plugin" 2>/dev/null || echo "No plugins installed." ;;
+  "plugin install")
+    echo "- worktrunk (Worktrunk) enabled [github:$3@$5]" >"$HOME/.plugin"
+    echo "$3 $5" >>"$HOME/.plugin-installs" ;;
+  "plugin uninstall") rm -f "$HOME/.plugin" ;;
 esac
 STUB
   chmod +x "$BATS_TEST_TMPDIR/bin/herdr"
@@ -74,11 +79,31 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   echo "$output" | grep -q "integration up to date"
 }
 
+@test "the worktrunk plugin installs at the pin, once" {
+  install
+  [ "$status" -eq 0 ]
+  source "$REPO_ROOT/pins"
+  [ "$(cat "$HOME/.plugin-installs")" = "$WORKTRUNK_PLUGIN $WORKTRUNK_PLUGIN_COMMIT" ]
+  [ -x "$HOME/.config/herdr/bin/wt-remove-current" ]
+  install
+  [ "$(wc -l <"$HOME/.plugin-installs")" -eq 1 ]
+}
+
+@test "--check fails when the plugin is at another commit" {
+  install
+  sed -i 's/@[0-9a-f]*\]/@0000]/' "$HOME/.plugin"
+  install --check
+  [ "$status" -ne 0 ]
+  echo "$stderr" | grep -q "worktrunk plugin isn't at"
+}
+
 @test "--dry-run runs no integration install" {
   install --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "would run herdr integration install claude"
   [ ! -e "$HOME/.claude-integration" ]
+  echo "$output" | grep -q "would install devashish2203/herdr-worktrunk"
+  [ ! -e "$HOME/.plugin" ]
 }
 
 @test "without herdr the rest still installs" {
@@ -89,7 +114,7 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   [ ! -e "$HCONFIG" ]
 }
 
-@test "the rollback recipe removes the block, the skill and the integration" {
+@test "the rollback recipe removes the block, the skill, the integration, the script and the plugin" {
   mkdir -p "$(dirname "$HCONFIG")"
   printf '[keys]\nprefix = "ctrl+a"\n' >"$HCONFIG"
   install
@@ -98,4 +123,6 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   grep -qx 'prefix = "ctrl+a"' "$HCONFIG"
   [ ! -e "$HOME/.claude/skills/herdr" ]
   [ ! -e "$HOME/.claude-integration" ]
+  [ ! -e "$HOME/.config/herdr/bin" ]
+  [ ! -e "$HOME/.plugin" ]
 }

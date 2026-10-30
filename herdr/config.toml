@@ -4,3 +4,18 @@
 # The starter's pin is the only thing that moves herdr's version.
 [update]
 version_check = false
+
+# Replaces herdr's built-in new_worktree, so worktrunk's hooks run.
+[[keys.command]]
+key = "prefix+shift+g"
+type = "plugin_action"
+command = "worktrunk.open"
+description = "Worktree: switch or create"
+
+[[keys.command]]
+key = "prefix+shift+e"
+type = "popup"
+command = "\"$HOME/.config/herdr/bin/wt-remove-current\""
+description = "Worktree: remove this one"
+width = 70
+height = 12
