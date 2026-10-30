@@ -35,7 +35,15 @@ case "$2 $3" in
   "comment apply") cat >"$STUB/applied.json" ;;
 esac
 HUNK
-  printf '#!/bin/sh\n' >"$STUB/bin/herdr"
+  # Like the real one, invoke takes the action id before its options.
+  cat >"$STUB/bin/herdr" <<'HERDR'
+#!/bin/sh
+echo "$*" >>"$STUB/herdr.log"
+case "$1 $2 $3" in
+  "pane get "*) printf '{"result": {"pane": {"cwd": "%s"}}}' "$PWD" ;;
+  "plugin action invoke") [ "$4" = review ] || { echo "unknown option" >&2; exit 2; } ;;
+esac
+HERDR
   chmod +x "$STUB/bin/"*
   export PATH="$STUB/bin:$PATH"
   unset HERDR_ACTIVE_PANE_ID HERDR_PANE_ID
@@ -203,4 +211,21 @@ JSON
   run "$REPO_ROOT/bin/hunk-pr-notes" --quiet "$REPO"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+@test "open: a key acts on the focused pane, without moving focus" {
+  touch "$STUB/no-pr"
+  cd "$REPO"
+  HERDR_ACTIVE_PANE_ID=p1 run "$REPO_ROOT/bin/hunk-review-open"
+  [ "$status" -eq 0 ]
+  grep -qx 'plugin action invoke review --plugin jhochenbaum.hunkdiff' "$STUB/herdr.log"
+  ! grep -q 'agent focus' "$STUB/herdr.log"
+}
+
+@test "open: Claude focuses its own pane first" {
+  touch "$STUB/no-pr"
+  cd "$REPO"
+  HERDR_PANE_ID=p2 run "$REPO_ROOT/bin/hunk-review-open"
+  [ "$status" -eq 0 ]
+  [ "$(head -1 "$STUB/herdr.log")" = "agent focus p2" ]
 }

@@ -11,7 +11,7 @@ pane="${HERDR_PANE_ID:-${HERDR_ACTIVE_PANE_ID:-}}"
 cwd="$(herdr pane get "$pane" | jq -r .result.pane.cwd)"
 repo="$(git -C "$cwd" rev-parse --show-toplevel)"
 
-herdr plugin action invoke --plugin jhochenbaum.hunkdiff review >/dev/null
+herdr plugin action invoke review --plugin jhochenbaum.hunkdiff >/dev/null
 for _ in $(seq 20); do
   hunk session get --repo "$repo" >/dev/null 2>&1 && break
   sleep 0.5
