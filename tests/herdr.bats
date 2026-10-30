@@ -15,7 +15,10 @@ case "$1 ${2:-}" in
   "config check")
     [ "$(grep -c '^\[update\]' "$HERDR_CONFIG_PATH" 2>/dev/null)" -le 1 ] || { echo "duplicate key update" >&2; exit 1; } ;;
   "integration status")
-    if [ -f "$HOME/.claude-integration" ]; then echo "claude: current (v11) (x)"; else echo "claude: not installed (x)"; fi ;;
+    # More agents follow claude, as in the real output; the pause makes a
+    # reader that quits early (grep -q) cost the stub a SIGPIPE every time.
+    if [ -f "$HOME/.claude-integration" ]; then echo "claude: current (v11) (x)"; else echo "claude: not installed (x)"; fi
+    sleep 0.1; echo "codex: not installed (x)" ;;
   "integration install") touch "$HOME/.claude-integration" ;;
   "integration uninstall") rm -f "$HOME/.claude-integration" ;;
 esac
@@ -62,6 +65,13 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   install --check
   [ "$status" -ne 0 ]
   echo "$stderr" | grep -q "Claude integration"
+}
+
+@test "--check is clean after an install" {
+  install
+  install --check
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "integration up to date"
 }
 
 @test "--dry-run runs no integration install" {
