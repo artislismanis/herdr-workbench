@@ -10,7 +10,10 @@ source "$REPO_ROOT/lib/common.sh"
 
 WT_DIR="$HOME/.config/worktrunk"
 WT_HOOKS=(worktree-setup sync-default-branch)
-RULES_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/rules/herdr-workbench"
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+RULES_DIR="$CLAUDE_DIR/rules/herdr-workbench"
+HERDR_CONFIG="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
+HERDR_SKILL="$CLAUDE_DIR/skills/herdr/SKILL.md"
 
 usage() {
   cat <<USAGE
@@ -30,7 +33,9 @@ rm -f$(printf ' "%s"' "${WT_HOOKS[@]/#/$WT_DIR/hooks/}")
 rmdir --ignore-fail-on-non-empty "$WT_DIR/hooks" 2>/dev/null || true
 # Strips only our block; your own worktrunk settings below it stay.
 sed -i '/^# >>> herdr-workbench:worktrunk >>>$/,/^# <<< herdr-workbench:worktrunk <<<$/d' "$WT_DIR/config.toml"
-rm -rf "$RULES_DIR"
+rm -rf "$RULES_DIR" "$(dirname "$HERDR_SKILL")"
+sed -i '/^# >>> herdr-workbench:herdr >>>$/,/^# <<< herdr-workbench:herdr <<<$/d' "$HERDR_CONFIG"
+herdr integration uninstall claude 2>/dev/null || true
 RECIPE
 }
 
@@ -50,6 +55,34 @@ for hook in "${WT_HOOKS[@]}"; do
 done
 ensure_top_block herdr-workbench:worktrunk "$REPO_ROOT/worktrunk/config.toml" "$WT_DIR/config.toml"
 install_file "$REPO_ROOT/claude/rules/workbench.md" "$RULES_DIR/workbench.md" 644
+
+# herdr's config check is strict (duplicate tables, unknown keys), so run it on
+# the prepared file instead of parsing TOML here.
+_herdr_config_ok() {
+  local out
+  out="$(HERDR_CONFIG_PATH="$1" herdr config check 2>&1)" || { printf '%s\n' "$out" >&2; return 1; }
+}
+
+if ! command -v herdr >/dev/null 2>&1; then
+  warn "herdr not installed; skipping its config, skill and Claude integration."
+else
+  ensure_bottom_block herdr-workbench:herdr "$REPO_ROOT/herdr/config.toml" "$HERDR_CONFIG" _herdr_config_ok
+  # The skill bundled with the binary, so it always matches the pinned herdr.
+  skill="$(mktemp "${TMPDIR:-/tmp}/herdr-workbench.XXXXXX")"
+  herdr --skill >"$skill"
+  install_file "$skill" "$HERDR_SKILL" 644
+  rm -f "$skill"
+  # Lets herdr resume Claude sessions after a server restart.
+  if herdr integration status | grep -q '^claude: current'; then
+    skip "herdr's Claude integration up to date"
+  else
+    case "$MODE" in
+      check)   DRIFT=$((DRIFT + 1)); warn "herdr's Claude integration isn't installed or current" ;;
+      dry-run) log "${C_DIM}  would run herdr integration install claude${C_RST}" ;;
+      install) herdr integration install claude >/dev/null; ok "installed herdr's Claude integration" ;;
+    esac
+  fi
+fi
 
 if [ "$MODE" = check ] && [ "$DRIFT" -gt 0 ]; then
   die "$DRIFT file(s) differ from the repo; run ./install.sh to refresh."

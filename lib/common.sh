@@ -1,6 +1,7 @@
 # shellcheck shell=bash
-# Helpers sourced by install.sh. Every write goes through install_file or
-# ensure_top_block, so --dry-run and --check cover all of them.
+# Helpers sourced by install.sh. Every write goes through install_file,
+# ensure_top_block or ensure_bottom_block, so --dry-run and --check cover all
+# of them.
 
 if [ -t 1 ]; then
   C_DIM=$'\033[2m' C_GRN=$'\033[32m' C_YLW=$'\033[33m' C_RED=$'\033[31m' C_RST=$'\033[0m'
@@ -63,6 +64,30 @@ ensure_top_block() {
       awk -v b="$begin" -v e="$end" '$0 == b { skip = 1; next } $0 == e { skip = 0; next } !skip' "$dst"
     fi
   } >"$tmp"
+  [ -f "$dst" ] && mode="$(stat -c %a "$dst")"
+  _apply "$tmp" "$dst" "$mode"
+}
+
+# ensure_bottom_block <marker> <src> <dst> [validate]: like ensure_top_block,
+# but our block goes last, for files whose settings are all [tables]: a table
+# at the end can't capture settings of yours. validate, if given, is called
+# with the prepared file and must succeed before anything is written.
+ensure_bottom_block() {
+  local marker="$1" src="$2" dst="$3" validate="${4:-}" tmp mode=644
+  local begin="# >>> $marker >>>" end="# <<< $marker <<<"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/herdr-workbench.XXXXXX")"
+  {
+    if [ -f "$dst" ]; then
+      awk -v b="$begin" -v e="$end" '$0 == b { skip = 1; next } $0 == e { skip = 0; next } !skip' "$dst"
+    fi
+    printf '%s\n' "$begin"
+    cat "$src"
+    printf '%s\n' "$end"
+  } >"$tmp"
+  if [ -n "$validate" ] && ! "$validate" "$tmp"; then
+    rm -f "$tmp"
+    die "$dst would be invalid with our block; fix the settings above it (a table can't appear twice)."
+  fi
   [ -f "$dst" ] && mode="$(stat -c %a "$dst")"
   _apply "$tmp" "$dst" "$mode"
 }
