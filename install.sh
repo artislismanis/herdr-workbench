@@ -17,6 +17,10 @@ RULES_DIR="$CLAUDE_DIR/rules/herdr-workbench"
 HERDR_CONFIG="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
 HERDR_SKILL="$CLAUDE_DIR/skills/herdr/SKILL.md"
 HERDR_BIN="$HOME/.config/herdr/bin"
+HERDR_PLUGINS="$HOME/.config/herdr/plugins"
+HUNKDIFF_CONFIG="$HERDR_PLUGINS/config/jhochenbaum.hunkdiff/config.toml"
+HUNK_CONFIG="$HOME/.config/hunk/config.toml"
+HUNK_SKILL="$CLAUDE_DIR/skills/hunk-review/SKILL.md"
 
 usage() {
   cat <<USAGE
@@ -42,6 +46,12 @@ herdr integration uninstall claude 2>/dev/null || true
 rm -f "$HERDR_BIN/wt-remove-current"
 rmdir --ignore-fail-on-non-empty "$HERDR_BIN" 2>/dev/null || true
 herdr plugin uninstall worktrunk 2>/dev/null || true
+herdr plugin uninstall jhochenbaum.hunkdiff 2>/dev/null || true
+herdr plugin uninstall annotate 2>/dev/null || true
+rm -f "$HUNKDIFF_CONFIG"
+rm -rf "$(dirname "$HUNK_SKILL")"
+# Strips only our block; your own hunk settings below it stay.
+sed -i '/^# >>> herdr-workbench:hunk >>>$/,/^# <<< herdr-workbench:hunk <<<$/d' "$HUNK_CONFIG"
 RECIPE
 }
 
@@ -61,12 +71,37 @@ for hook in "${WT_HOOKS[@]}"; do
 done
 ensure_top_block herdr-workbench:worktrunk "$REPO_ROOT/worktrunk/config.toml" "$WT_DIR/config.toml"
 install_file "$REPO_ROOT/claude/rules/workbench.md" "$RULES_DIR/workbench.md" 644
+ensure_top_block herdr-workbench:hunk "$REPO_ROOT/hunk/config.toml" "$HUNK_CONFIG"
+
+if command -v hunk >/dev/null 2>&1; then
+  # The skill bundled with the binary, so it always matches the pinned hunk.
+  install_file "$(hunk skill path hunk-review)" "$HUNK_SKILL" 644
+else
+  warn "hunk not installed; skipping its skill."
+fi
 
 # herdr's config check is strict (duplicate tables, unknown keys), so run it on
 # the prepared file instead of parsing TOML here.
 _herdr_config_ok() {
   local out
   out="$(HERDR_CONFIG_PATH="$1" herdr config check 2>&1)" || { printf '%s\n' "$out" >&2; return 1; }
+}
+
+# Reinstalling replaces the checkout, so only do it when the pin moved.
+_ensure_plugin() {
+  local id="$1" repo="$2" commit="$3"
+  if grep -qF "[github:$repo@$commit]" <<<"$(herdr plugin list --plugin "$id")"; then
+    skip "$id plugin at ${commit:0:12}"
+    return 0
+  fi
+  case "$MODE" in
+    check)   DRIFT=$((DRIFT + 1)); warn "$id plugin isn't at ${commit:0:12}" ;;
+    dry-run) log "${C_DIM}  would install $repo at ${commit:0:12}${C_RST}" ;;
+    install)
+      herdr plugin install "$repo" --ref "$commit" -y >/dev/null
+      ok "installed $repo at ${commit:0:12}"
+      ;;
+  esac
 }
 
 if ! command -v herdr >/dev/null 2>&1; then
@@ -92,20 +127,19 @@ else
     esac
   fi
   install_file "$REPO_ROOT/bin/wt-remove-current" "$HERDR_BIN/wt-remove-current" 755
-  # Reinstalling replaces the checkout, so only do it when the pin moved.
-  plugin="$(herdr plugin list --plugin worktrunk)"
-  if grep -qF "[github:$WORKTRUNK_PLUGIN@$WORKTRUNK_PLUGIN_COMMIT]" <<<"$plugin"; then
-    skip "worktrunk plugin at ${WORKTRUNK_PLUGIN_COMMIT:0:12}"
-  else
-    case "$MODE" in
-      check)   DRIFT=$((DRIFT + 1)); warn "worktrunk plugin isn't at ${WORKTRUNK_PLUGIN_COMMIT:0:12}" ;;
-      dry-run) log "${C_DIM}  would install $WORKTRUNK_PLUGIN at ${WORKTRUNK_PLUGIN_COMMIT:0:12}${C_RST}" ;;
-      install)
-        herdr plugin install "$WORKTRUNK_PLUGIN" --ref "$WORKTRUNK_PLUGIN_COMMIT" -y >/dev/null
-        ok "installed $WORKTRUNK_PLUGIN at ${WORKTRUNK_PLUGIN_COMMIT:0:12}"
-        ;;
-    esac
+  _ensure_plugin worktrunk "$WORKTRUNK_PLUGIN" "$WORKTRUNK_PLUGIN_COMMIT"
+  _ensure_plugin jhochenbaum.hunkdiff "$HUNKDIFF_PLUGIN" "$HUNKDIFF_PLUGIN_COMMIT"
+  _ensure_plugin annotate "$ANNOTATE_PLUGIN" "$ANNOTATE_PLUGIN_COMMIT"
+  # The plugin's build only warns when this download fails, so a broken review
+  # pane would otherwise look like a clean install.
+  if [ "$MODE" != dry-run ] && ! compgen -G "$HERDR_PLUGINS/github-installations/annotate-*/*/checkout/bin/plannotator-tui.exe" >/dev/null; then
+    DRIFT=$((DRIFT + 1))
+    warn "plannotator-tui is missing; reinstall the annotate plugin: herdr plugin uninstall annotate, then re-run this."
   fi
+  hunkdiff_config="$(mktemp "${TMPDIR:-/tmp}/herdr-workbench.XXXXXX")"
+  sed "s|__HOME__|$HOME|" "$REPO_ROOT/herdr/hunkdiff.toml" >"$hunkdiff_config"
+  install_file "$hunkdiff_config" "$HUNKDIFF_CONFIG" 644
+  rm -f "$hunkdiff_config"
 fi
 
 if [ "$MODE" = check ] && [ "$DRIFT" -gt 0 ]; then

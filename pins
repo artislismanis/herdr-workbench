@@ -2,3 +2,7 @@
 # upstream diff, then move the commit here.
 WORKTRUNK_PLUGIN=devashish2203/herdr-worktrunk
 WORKTRUNK_PLUGIN_COMMIT=f9df9ba700b8a4f4d97ddfe3ea3eb345e80b880b
+HUNKDIFF_PLUGIN=jhochenbaum/herdr-hunk-diff
+HUNKDIFF_PLUGIN_COMMIT=ac5eef7cec6a65fbf8f0c9bbd61b4383489beba5
+ANNOTATE_PLUGIN=plannotator/herdr-annotate
+ANNOTATE_PLUGIN_COMMIT=f09c4e5f7cd120b47d4a8409da2edb5e3a74c4da

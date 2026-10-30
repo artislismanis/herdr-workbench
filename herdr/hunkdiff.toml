@@ -1,0 +1,8 @@
+# Managed by herdr-workbench's install.sh; local edits are overwritten.
+[review]
+watch = true
+focus = true
+
+# Our pinned hunk, not the plugin's bundled copy: one hunk means one daemon.
+[hunk]
+bin = "__HOME__/.local/bin/hunk"
