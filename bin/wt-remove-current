@@ -26,4 +26,4 @@ case "$reply" in n|N|no|NO) exit 0 ;; esac
 wt remove --foreground -C "$(jq -r '.result.source.repo_root' <<<"$list")" "$top" || fail "wt remove failed (see above)."
 
 wsid="$(jq -r '.open_workspace_id // empty' <<<"$entry")"
-[ -z "$wsid" ] || "$herdr" workspace close "$wsid"
+[ -z "$wsid" ] || "$herdr" workspace close "$wsid" >/dev/null
