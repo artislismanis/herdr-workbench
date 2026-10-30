@@ -9,9 +9,13 @@ if [ "${1:-}" = --quiet ]; then quiet=1; shift; fi
 repo="$(git -C "${1:-$PWD}" rev-parse --show-toplevel)"
 cd "$repo"
 
-if ! number="$(gh pr view --json number --jq .number 2>/dev/null)"; then
-  [ "$quiet" = 1 ] || echo "No PR for this branch."
-  exit 0
+# A branch with no PR is normal. Anything else (network, auth) must show, or
+# the review silently opens without its threads.
+if ! number="$(gh pr view --json number --jq .number 2>&1)"; then
+  case "$number" in
+    *"no pull requests found"*) [ "$quiet" = 1 ] || echo "No PR for this branch."; exit 0 ;;
+    *) printf "Couldn't read the PR's threads: %s\n" "$number"; exit 1 ;;
+  esac
 fi
 
 comments="$(gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$number/comments")"

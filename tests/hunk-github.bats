@@ -17,7 +17,10 @@ setup() {
   cat >"$STUB/bin/gh" <<'GH'
 #!/bin/sh
 case "$*" in
-  "pr view --json number --jq .number") [ -f "$STUB/no-pr" ] && exit 1; echo 7 ;;
+  "pr view --json number --jq .number")
+    [ -f "$STUB/gh-down" ] && { echo "error connecting to api.github.com" >&2; exit 1; }
+    [ -f "$STUB/no-pr" ] && { echo 'no pull requests found for branch "x"' >&2; exit 1; }
+    echo 7 ;;
   "pr view --json"*) [ -f "$STUB/no-pr" ] && exit 1; cat "$STUB/pr.json" ;;
   "api user --jq .login") echo me ;;
   *pulls/7/reviews\ --input*) cat >"$STUB/posted.json"; echo https://example.test/review ;;
@@ -211,6 +214,23 @@ JSON
   run "$REPO_ROOT/bin/hunk-pr-notes" --quiet "$REPO"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+@test "notes: a GitHub failure isn't mistaken for no PR" {
+  touch "$STUB/gh-down"
+  run "$REPO_ROOT/bin/hunk-pr-notes" --quiet "$REPO"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "error connecting"
+}
+
+@test "open: a GitHub failure is reported, with the review still open" {
+  touch "$STUB/gh-down"
+  cd "$REPO"
+  HERDR_ACTIVE_PANE_ID=p1 run "$REPO_ROOT/bin/hunk-review-open"
+  [ "$status" -ne 0 ]
+  grep -q 'plugin action invoke review' "$STUB/herdr.log"
+  grep -q 'notification show' "$STUB/herdr.log"
+  echo "$output" | grep -q "error connecting"
 }
 
 @test "open: a key acts on the focused pane, without moving focus" {

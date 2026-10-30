@@ -17,5 +17,6 @@ for _ in $(seq 20); do
   sleep 0.5
 done
 
-summary="$("$(dirname "$0")/hunk-pr-notes" --quiet "$repo")"
+summary="$("$(dirname "$0")/hunk-pr-notes" --quiet "$repo")" || { printf '%s\n' "$summary" >&2; rc=1; }
 [ -z "$summary" ] || herdr notification show "hunk review" --body "$summary" >/dev/null 2>&1 || true
+exit "${rc:-0}"
