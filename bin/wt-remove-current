@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Removes the worktree of the focused pane, after a Y/n. Runs in a herdr popup,
+# which gets the pane under it as HERDR_ACTIVE_PANE_ID, not HERDR_PANE_ID.
+set -uo pipefail
+PATH="$HOME/.local/bin:$PATH"
+herdr="${HERDR_BIN_PATH:-herdr}"
+
+# The popup closes when this exits, so hold it open for the message.
+fail() {
+  printf '%s Press a key to close.' "$1"
+  read -rn1
+  exit 1
+}
+
+cwd="$("$herdr" pane get "$HERDR_ACTIVE_PANE_ID" | jq -r '.result.pane.cwd')"
+top="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || fail "Not in a git repository: $cwd."
+list="$("$herdr" worktree list --cwd "$top" --json)"
+entry="$(jq -c --arg p "$top" '.result.worktrees[] | select(.path == $p)' <<<"$list")"
+[ "$(jq -r '.is_linked_worktree' <<<"$entry")" = true ] || fail "$top is the main checkout, not a linked worktree."
+
+read -rp "Remove worktree $(jq -r '.branch // .path' <<<"$entry")? [Y/n] " reply
+case "$reply" in n|N|no|NO) exit 0 ;; esac
+
+# From the main checkout, so wt doesn't try to move this popup's shell. wt
+# refuses a dirty worktree and keeps an unmerged branch by itself.
+wt remove --foreground -C "$(jq -r '.result.source.repo_root' <<<"$list")" "$top" || fail "wt remove failed (see above)."
+
+wsid="$(jq -r '.open_workspace_id // empty' <<<"$entry")"
+[ -z "$wsid" ] || "$herdr" workspace close "$wsid" >/dev/null

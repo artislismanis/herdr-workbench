@@ -10,9 +10,18 @@ Config and glue for a terminal workbench built on [herdr](https://github.com/her
 | `~/.config/worktrunk/hooks/worktree-setup` | `pre-start`: sets up a new worktree for its stack (mise, uv, poetry, npm, terraform, dbt). Drops a `VIRTUAL_ENV` inherited from the calling shell | Refreshed if it drifts |
 | `~/.config/worktrunk/hooks/sync-default-branch` | `pre-switch`: fast-forwards the local default branch to its remote, so new branches start from the latest | Refreshed if it drifts |
 | `~/.claude/rules/herdr-workbench/workbench.md` | Claude rule, loaded in every session: one worktree per task, `uv run` / `poetry run`, PR size, stacks with `gh stack`. Under `$CLAUDE_CONFIG_DIR` when that's set | Refreshed if it drifts |
-| `~/.config/herdr/config.toml` | A marked block at the bottom: `[update] version_check = false`, so the starter's pin is the only thing that moves herdr. Checked with `herdr config check` before it's written; a clash with your settings (a table can't appear twice) stops the install | Block rewritten; everything above it is yours and stays |
+| `~/.config/herdr/config.toml` | A marked block at the bottom: `[update] version_check = false`, so the starter's pin is the only thing that moves herdr, plus the keys below. Checked with `herdr config check` before it's written; a clash with your settings (a table can't appear twice) stops the install | Block rewritten; everything above it is yours and stays |
 | `~/.claude/skills/herdr/SKILL.md` | herdr's agent skill, from `herdr --skill`, so it matches the installed binary | Refreshed if it drifts |
 | herdr's Claude integration | `herdr integration install claude`: a hook that lets herdr resume Claude sessions after a server restart | Installed if missing or not current |
+| `~/.config/herdr/bin/wt-remove-current` | Removes the focused pane's worktree after a Y/n, and closes its workspace | Refreshed if it drifts |
+| herdr's worktrunk plugin | [herdr-worktrunk](https://github.com/devashish2203/herdr-worktrunk) at the commit in `pins` | Installed if missing or at another commit |
+
+| Key, after herdr's prefix | Does |
+|---|---|
+| `shift+g` | Pick or create a worktree, with worktrunk's hooks. Replaces herdr's built-in `new_worktree` |
+| `shift+e` | Remove the focused worktree. `wt` refuses a dirty one and keeps an unmerged branch |
+
+A running herdr picks up new keys after `herdr server reload-config`.
 
 `wt rm` fetches, then runs `wt remove`. worktrunk decides whether a branch is merged before any hook runs, so a fetch inside a `pre-remove` hook would be too late to spot a branch that was squash-merged on GitHub.
 

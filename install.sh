@@ -7,6 +7,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$REPO_ROOT/lib/common.sh"
+# shellcheck source=pins
+source "$REPO_ROOT/pins"
 
 WT_DIR="$HOME/.config/worktrunk"
 WT_HOOKS=(worktree-setup sync-default-branch)
@@ -14,6 +16,7 @@ CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 RULES_DIR="$CLAUDE_DIR/rules/herdr-workbench"
 HERDR_CONFIG="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
 HERDR_SKILL="$CLAUDE_DIR/skills/herdr/SKILL.md"
+HERDR_BIN="$HOME/.config/herdr/bin"
 
 usage() {
   cat <<USAGE
@@ -36,6 +39,9 @@ sed -i '/^# >>> herdr-workbench:worktrunk >>>$/,/^# <<< herdr-workbench:worktrun
 rm -rf "$RULES_DIR" "$(dirname "$HERDR_SKILL")"
 sed -i '/^# >>> herdr-workbench:herdr >>>$/,/^# <<< herdr-workbench:herdr <<<$/d' "$HERDR_CONFIG"
 herdr integration uninstall claude 2>/dev/null || true
+rm -f "$HERDR_BIN/wt-remove-current"
+rmdir --ignore-fail-on-non-empty "$HERDR_BIN" 2>/dev/null || true
+herdr plugin uninstall worktrunk 2>/dev/null || true
 RECIPE
 }
 
@@ -64,7 +70,7 @@ _herdr_config_ok() {
 }
 
 if ! command -v herdr >/dev/null 2>&1; then
-  warn "herdr not installed; skipping its config, skill and Claude integration."
+  warn "herdr not installed; skipping its config, skill, Claude integration and worktrunk plugin."
 else
   ensure_bottom_block herdr-workbench:herdr "$REPO_ROOT/herdr/config.toml" "$HERDR_CONFIG" _herdr_config_ok
   # The skill bundled with the binary, so it always matches the pinned herdr.
@@ -83,6 +89,21 @@ else
       check)   DRIFT=$((DRIFT + 1)); warn "herdr's Claude integration isn't installed or current" ;;
       dry-run) log "${C_DIM}  would run herdr integration install claude${C_RST}" ;;
       install) herdr integration install claude >/dev/null; ok "installed herdr's Claude integration" ;;
+    esac
+  fi
+  install_file "$REPO_ROOT/bin/wt-remove-current" "$HERDR_BIN/wt-remove-current" 755
+  # Reinstalling replaces the checkout, so only do it when the pin moved.
+  plugin="$(herdr plugin list --plugin worktrunk)"
+  if grep -qF "[github:$WORKTRUNK_PLUGIN@$WORKTRUNK_PLUGIN_COMMIT]" <<<"$plugin"; then
+    skip "worktrunk plugin at ${WORKTRUNK_PLUGIN_COMMIT:0:12}"
+  else
+    case "$MODE" in
+      check)   DRIFT=$((DRIFT + 1)); warn "worktrunk plugin isn't at ${WORKTRUNK_PLUGIN_COMMIT:0:12}" ;;
+      dry-run) log "${C_DIM}  would install $WORKTRUNK_PLUGIN at ${WORKTRUNK_PLUGIN_COMMIT:0:12}${C_RST}" ;;
+      install)
+        herdr plugin install "$WORKTRUNK_PLUGIN" --ref "$WORKTRUNK_PLUGIN_COMMIT" -y >/dev/null
+        ok "installed $WORKTRUNK_PLUGIN at ${WORKTRUNK_PLUGIN_COMMIT:0:12}"
+        ;;
     esac
   fi
 fi
