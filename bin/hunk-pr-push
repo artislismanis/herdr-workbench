@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Posts the agent's hunk notes to the branch's PR as one GitHub review. A note
+# with author pr-level becomes the review's PR-level comment.
+# Usage: hunk-pr-push [--as comment|approve|request-changes|draft] [--body <text>] [worktree]
+set -euo pipefail
+
+die() { printf 'hunk-pr-push: %s\n' "$*" >&2; exit 1; }
+
+as="" extra="" path="${HERDR_ACTIVE_PANE_ID:+$(herdr pane get "$HERDR_ACTIVE_PANE_ID" | jq -r .result.pane.cwd)}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --as) as="$2"; shift 2 ;;
+    --body) extra="$2"; shift 2 ;;
+    *) path="$1"; shift ;;
+  esac
+done
+repo="$(git -C "${path:-$PWD}" rev-parse --show-toplevel)"
+cd "$repo"
+
+pr="$(gh pr view --json number,url,headRefOid,author,autoMergeRequest)" || die "no PR for this branch."
+number="$(jq -r .number <<<"$pr")"
+head="$(jq -r .headRefOid <<<"$pr")"
+me="$(gh api user --jq .login)"
+
+# GitHub pins comments to the commit, so any other state misplaces them.
+[ -z "$(git status --porcelain)" ] || die "uncommitted changes; commit and push first."
+[ "$(git rev-parse HEAD)" = "$head" ] || die "HEAD isn't the PR's pushed head; push or pull first."
+
+# GitHub allows one pending review per person.
+if gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$number/reviews" \
+  | jq -e --arg me "$me" 'any(.[][]; .state == "PENDING" and .user.login == $me)' >/dev/null; then
+  die "you already have a pending review on this PR; submit or delete it first."
+fi
+
+notes="$(hunk session comment list --repo "$repo" --type all --json)"
+review="$(hunk session review --repo "$repo" --json)"
+
+# Only the agent's notes: never yours, and never ones pulled from GitHub.
+draft="$(jq -n --argjson notes "$notes" --argjson review "$review" --arg extra "$extra" '
+  [$notes.comments[] | select(.source == "agent" and ((.author // "") | startswith("github:") | not))] as $mine
+  | $review.review.files as $files
+  | def inline: if .newRange then {side: "RIGHT", r: .newRange, key: "newRange"} else {side: "LEFT", r: .oldRange, key: "oldRange"} end;
+    def in_diff: . as $n | inline as $i | any($files[] | select(.path == $n.filePath) | .hunks[][$i.key];
+      .[0] <= $i.r[0] and $i.r[1] <= .[1]);
+    {body: ([$mine[] | select(.author == "pr-level") | .body | sub("^PR-level:\\s*"; "")] + (if $extra == "" then [] else [$extra] end) | join("\n\n")),
+     comments: [$mine[] | select(.author != "pr-level" and in_diff) | inline as $i
+       | {path: .filePath, body, side: $i.side, line: $i.r[1]}
+         + (if $i.r[0] == $i.r[1] then {} else {start_side: $i.side, start_line: $i.r[0]} end)],
+     skipped: [$mine[] | select(.author != "pr-level" and (in_diff | not)) | .filePath]}')"
+
+while read -r file; do
+  printf 'Left out, outside the diff: a note on %s\n' "$file" >&2
+done < <(jq -r '.skipped[]' <<<"$draft")
+
+body="$(jq -r .body <<<"$draft")"
+count="$(jq '.comments | length' <<<"$draft")"
+[ -n "$body" ] || [ "$count" -gt 0 ] || die "nothing to post: no agent notes in this review."
+
+own=0
+[ "$(jq -r .author.login <<<"$pr")" != "$me" ] || own=1
+
+if [ -z "$as" ]; then
+  [ -z "$body" ] || printf '%s\n\n' "$body"
+  printf '%s%s inline comment(s).\n' "${body:+Plus }" "$count"
+  if [ "$own" = 1 ]; then choices='[c]omment, [d]raft, [n] cancel'; else choices='[c]omment, [a]pprove, [r]equest changes, [d]raft, [n] cancel'; fi
+  read -rp "$choices: " answer || answer=n
+  case "${answer:-c}" in
+    c) as=comment ;;
+    a) as=approve ;;
+    r) as=request-changes ;;
+    d) as=draft ;;
+    *) echo "Cancelled."; exit 0 ;;
+  esac
+fi
+
+case "$as" in
+  comment)         event=COMMENT ;;
+  approve)         event=APPROVE ;;
+  request-changes) event=REQUEST_CHANGES ;;
+  draft)           event="" ;;
+  *) die "unknown outcome: $as" ;;
+esac
+case "$as" in approve|request-changes)
+  [ "$own" = 0 ] || die "GitHub refuses $as from a PR's author."
+esac
+[ "$as" != request-changes ] || [ -n "$body" ] || die "requesting changes needs a PR-level comment."
+if [ "$as" = approve ] && [ "$(jq '.autoMergeRequest != null' <<<"$pr")" = true ]; then
+  read -rp "Auto-merge is on, so approving may merge this PR. Approve? [y/N] " answer || answer=n
+  [ "$answer" = y ] || { echo "Cancelled."; exit 0; }
+fi
+
+url="$(jq --arg commit "$head" --arg event "$event" '
+    {commit_id: $commit, comments} + (if .body == "" then {} else {body} end)
+    + (if $event == "" then {} else {event: $event} end)' <<<"$draft" \
+  | gh api -X POST "repos/{owner}/{repo}/pulls/$number/reviews" --input - --jq .html_url)"
+echo "Posted: $url"
+herdr notification show "Review posted" --body "$url" >/dev/null 2>&1 || true

@@ -1,6 +1,6 @@
 <!-- Managed by herdr-workbench. Re-run its install.sh to update. Local edits are overwritten. -->
 
-# Workbench: worktrees, commands, documents, PR size, stacks
+# Workbench: worktrees, commands, reviews, documents, PR size, stacks
 
 ## Worktrees
 
@@ -12,6 +12,19 @@
 
 - Never activate a venv. Use the project's tool: `uv run ...` with `uv.lock`, `poetry run ...` with `poetry.lock`, `npm run` / `npx` with `package.json`.
 - Add dependencies with `uv add` / `poetry add`. A bare `pip install` is refused outside a venv, on purpose.
+
+## Reviews
+
+Only when `HERDR_ENV=1`. Every code review reaches me through hunk, whichever skill does the analysis. The `hunk-review` skill has the session commands; always pass `--repo`.
+
+- Open the review yourself with `~/.config/herdr/bin/hunk-review-open`. It shows uncommitted changes, or the branch if there are none, plus the PR's GitHub threads. Your own pane must be in the worktree under review; if it isn't, ask me to open one and start you there.
+- Review before `gh pr create`, and again for PR feedback. Commit first when you want the whole branch.
+- Post findings as hunk notes, not in chat, in one batch, then tell me it's ready. Flag only what I'd want to see: bugs, security, data loss, and the why behind odd changes. No nits, and no note on every hunk.
+- My comments arrive as your next message and are cleared from hunk, so answer in chat.
+- Hunk notes can't be edited: remove a note and add a new one to change it.
+- When the review is of a PR, your notes are the draft review: a confidence prefix (high, medium, low), about two sentences, a `suggestion` block where it helps. Anything that doesn't fit a changed line goes in one note with `--author pr-level` and a `PR-level:` prefix, anchored to the first hunk.
+- Post only when I name the outcome: `~/.config/herdr/bin/hunk-pr-push --as comment|approve|request-changes|draft`. It speaks for me on GitHub.
+- Ask before replying to or resolving GitHub threads.
 
 ## Documents
 
