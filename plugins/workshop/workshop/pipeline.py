@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 KINDS = ("agent", "draft_pr")
-STEP_KEYS = {"id", "kind", "prompt", "read_only", "fresh", "verdict", "then"}
+STEP_KEYS = {"id", "kind", "prompt", "read_only", "fresh", "verdict", "then", "model", "minutes"}
 RULE_KEYS = {"goto", "max", "prompt", "park"}
 
 
@@ -59,12 +59,18 @@ def validate(raw: Any) -> dict[str, Any]:
             if "prompt" not in step:
                 raise PipelineError(f"{where}: an agent step needs a prompt")
             prompt_text(step["prompt"])
+            if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
+                raise PipelineError(f"{where}: minutes must be 1 or more")
         elif set(step) - {"id", "kind"}:
             raise PipelineError(f"{where}: {step['kind']} takes no options")
         for verdict, rule in step.get("then", {}).items():
             if verdict not in step.get("verdict", []):
                 raise PipelineError(f"{where}: then names {verdict}, which isn't in verdict")
             _check_rule(f"{where}.then.{verdict}", rule, set(ids))
+    # They share the main agent, which has one model.
+    shared = {s.get("model") for s in steps if s["kind"] == "agent" and not s.get("fresh")}
+    if len(shared) > 1:
+        raise PipelineError(f"{raw['name']}: steps that aren't fresh share an agent, so they need the same model")
     return raw
 
 

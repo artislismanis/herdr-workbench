@@ -12,6 +12,7 @@ from .pipeline import prompt_text
 from .shell import ToolError
 from .sources import Source
 from .store import Run, Store
+from .throttle import Throttle
 from .tools import IGNORED, Tools, slug
 
 STEP_TIMEOUT = 45 * 60
@@ -23,8 +24,8 @@ class Park(Exception):
 
 
 class Engine:
-    def __init__(self, tools: Tools, store: Store, source_for: Callable[[Run], Source], clock: Callable[[], float] = time.time) -> None:
-        self.tools, self.store, self.source_for, self.clock = tools, store, source_for, clock
+    def __init__(self, tools: Tools, store: Store, source_for: Callable[[Run], Source], throttle: Throttle, clock: Callable[[], float] = time.time) -> None:
+        self.tools, self.store, self.source_for, self.throttle, self.clock = tools, store, source_for, throttle, clock
 
     def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False) -> Run:
         if not self.tools.identity_ok(repo_path):
@@ -77,6 +78,8 @@ class Engine:
         lines = [f"{run.key} on {run.repo}: {run.status} at {step}"]
         if run.status == "parked":
             lines += [f"Why: {run.reason}", f"Then: workshop resume {run.key}"]
+        elif run.held:
+            lines.append(f"Held: {run.held} The next tick after it clears carries on.")
         elif run.phase == "prompted":
             lines.append(f"Waiting for agent {run.step_agent or run.agent}. See it in herdr workspace {run.key}.")
         if run.pr:
@@ -106,12 +109,13 @@ class Engine:
 
     def _agent(self, run: Run, step: dict[str, Any]) -> None:
         if run.phase == "":
-            self._prompt_agent(run, step)
+            if not self._held(run):
+                self._prompt_agent(run, step)
             return
         agent = run.step_agent or run.agent
         status = self.tools.agent_status(agent)
         if status == "working":
-            if self.clock() - run.started_at > STEP_TIMEOUT:
+            if self.clock() - run.started_at > step.get("minutes", STEP_TIMEOUT / 60) * 60:
                 raise Park(f"{step['id']} ran past its time limit. Look at agent {agent}.")
             return
         if status == "blocked":
@@ -119,6 +123,13 @@ class Engine:
         if status == "gone":
             raise Park(f"Agent {agent} has gone, so {step['id']} didn't finish.")
         self._agent_finished(run, step)
+
+    def _held(self, run: Run) -> bool:
+        held = self.throttle.hold_steps()
+        if bool(held) != bool(run.held):
+            self.store.event(run, "held", reason=held)
+        run.held = held
+        return bool(held)
 
     def _prompt_agent(self, run: Run, step: dict[str, Any]) -> None:
         work = Path(run.worktree)
@@ -129,17 +140,17 @@ class Engine:
             run.loops[f"{step['id']}#"] = attempt = run.loops.get(f"{step['id']}#", 0) + 1
             run.step_agent = f"{run.agent}-{step['id']}-{attempt}"
             run.step_pane = self.tools.split(run.pane, work)
-            self.tools.start_agent(run.step_agent, run.step_pane)
+            self.tools.start_agent(run.step_agent, run.step_pane, step.get("model", ""))
             agent = run.step_agent
         else:
             agent = run.agent
             if self.tools.agent_status(agent) == "gone":
-                self.tools.start_agent(agent, run.pane)
+                self.tools.start_agent(agent, run.pane, step.get("model", ""))
         text = prompt_text(run.next_prompt or step["prompt"])
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()
-        self.store.event(run, "step", step=step["id"], state="running")
+        self.store.event(run, "step", step=step["id"], state="running", usage=self.throttle.snapshot())
 
     def _agent_finished(self, run: Run, step: dict[str, Any]) -> None:
         # The agent going quiet only triggers the check. The report decides.
@@ -158,7 +169,7 @@ class Engine:
             verdict = found[-1] if found else ""
             if verdict not in allowed:
                 raise Park(f"{step['id']} gave no valid verdict.")
-        self.store.event(run, "step", step=step["id"], state="done", verdict=verdict)
+        self.store.event(run, "step", step=step["id"], state="done", verdict=verdict, usage=self.throttle.snapshot())
         rule = step.get("then", {}).get(verdict)
         if rule is None:
             run.step, run.phase = run.step + 1, ""

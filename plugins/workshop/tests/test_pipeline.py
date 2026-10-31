@@ -26,6 +26,25 @@ class Validate(unittest.TestCase):
     def test_unknown_step_key(self):
         self.rejects({"name": "x", "steps": [agent(push=True)]}, "unknown keys")
 
+    def test_model_and_minutes_are_allowed(self):
+        validate({"name": "x", "steps": [agent(model="haiku", minutes=5)]})
+
+    def test_minutes_must_be_positive(self):
+        self.rejects({"name": "x", "steps": [agent(minutes=0)]}, "minutes")
+
+    def test_a_pr_step_takes_no_model(self):
+        self.rejects({"name": "x", "steps": [{"id": "a", "kind": "draft_pr", "model": "haiku"}]}, "takes no options")
+
+    def test_steps_sharing_an_agent_must_agree_on_the_model(self):
+        steps = [agent(id="a", model="opus"), agent(id="b", model="haiku")]
+        self.rejects({"name": "x", "steps": steps}, "same model")
+
+    def test_a_model_on_only_one_shared_step_is_rejected(self):
+        self.rejects({"name": "x", "steps": [agent(id="a", model="opus"), agent(id="b")]}, "same model")
+
+    def test_a_fresh_step_can_differ(self):
+        validate({"name": "x", "steps": [agent(id="a", model="opus"), agent(id="b", model="haiku", fresh=True)]})
+
     def test_duplicate_ids(self):
         self.rejects({"name": "x", "steps": [agent(), agent()]}, "unique id")
 

@@ -35,6 +35,17 @@ class FakeSource:
         return self.guard_reason
 
 
+class FakeThrottle:
+    def __init__(self):
+        self.held = ""
+
+    def hold_steps(self):
+        return self.held
+
+    def snapshot(self):
+        return {"5h": 10, "7d": 20}
+
+
 class FakeTools:
     """Agents are scripted: status says what each one is doing, write_on_prompt what it leaves."""
 
@@ -42,6 +53,7 @@ class FakeTools:
         self.root, self.work = root, root / "wt"
         self.identity = True
         self.statuses = {}
+        self.models = {}
         self.prompts, self.started, self.closed = [], [], []
         self.changed, self.commits, self.pushes = [], [], 0
         self.commit_fails = False
@@ -73,8 +85,9 @@ class FakeTools:
     def agent_status(self, name):
         return self.statuses.get(name, "gone")
 
-    def start_agent(self, name, pane):
+    def start_agent(self, name, pane, model=""):
         self.started.append(name)
+        self.models[name] = model
         self.statuses[name] = "idle"
 
     def prompt(self, name, text):
@@ -112,11 +125,12 @@ class Case(unittest.TestCase):
         self.tools = FakeTools(self.root)
         self.source = FakeSource()
         self.now = 1000.0
+        self.throttle = FakeThrottle()
         self.engine = self.fresh_engine()
 
     def fresh_engine(self):
         # A new engine on the same state folder: what a crash and restart leaves.
-        return Engine(self.tools, Store(self.root / "state"), lambda run: self.source, lambda: self.now)
+        return Engine(self.tools, Store(self.root / "state"), lambda run: self.source, self.throttle, lambda: self.now)
 
     def start(self):
         return self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source)
@@ -270,6 +284,76 @@ class Guard(Case):
         self.assertEqual(self.source.claimed, ["DE-1"])
         run = self.engine.store.find("DE-1")
         self.assertTrue(self.engine.store.events(run)[0]["override"])
+
+
+class Throttled(Case):
+    def test_a_held_step_starts_nothing_then_carries_on(self):
+        self.throttle.held = "5h usage is 90%, above 85%."
+        run = self.start()
+        self.assertEqual((run.status, run.phase, self.tools.prompts), ("running", "", []))
+        self.assertIn("Held: 5h usage", self.engine.explain(run))
+        self.throttle.held = ""
+        run = self.engine.advance(run)
+        self.assertEqual((run.phase, run.held), ("prompted", ""))
+        self.assertEqual(len(self.tools.prompts), 1)
+
+    def test_a_running_step_finishes_and_the_next_one_holds(self):
+        run = self.start()
+        self.throttle.held = "7d usage is 80%, inside the 25% reserve."
+        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        self.assertEqual((run.status, run.current["id"], len(self.tools.prompts)), ("running", "build", 1))
+
+    def test_a_hold_is_logged_once_and_so_is_its_end(self):
+        self.throttle.held = "held"
+        run = self.start()
+        self.engine.advance(run)
+        self.engine.advance(run)
+        self.throttle.held = ""
+        self.engine.advance(run)
+        self.assertEqual([e["reason"] for e in self.engine.store.events(run) if e["type"] == "held"], ["held", ""])
+
+    def test_a_parked_run_held_after_resume_stays_running(self):
+        run = self.start()
+        self.tools.statuses["ws-de-1"] = "gone"
+        run = self.engine.advance(run)
+        self.assertEqual(run.status, "parked")
+        self.throttle.held = "held"
+        run = self.engine.resume(run)
+        self.assertEqual((run.status, run.held), ("running", "held"))
+
+    def test_steps_log_usage_at_start_and_end(self):
+        run = self.start()
+        self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        plan = [e for e in self.engine.store.events(run) if e["type"] == "step" and e["step"] == "plan"]
+        self.assertEqual([(e["state"], e["usage"]) for e in plan], [("running", {"5h": 10, "7d": 20}), ("done", {"5h": 10, "7d": 20})])
+
+
+class Steps(Case):
+    def pipeline(self, **extra):
+        return {"name": "x", "steps": [{"id": "plan", "kind": "agent", "prompt": "plan.md", **extra}]}
+
+    def start_with(self, pipeline):
+        return self.engine.start("repo", "DE-1", self.root, "main", pipeline, self.source)
+
+    def test_a_step_starts_its_agent_on_its_model(self):
+        self.start_with(self.pipeline(model="haiku"))
+        self.assertEqual(self.tools.models["ws-de-1"], "haiku")
+
+    def test_a_fresh_step_gets_its_own_model(self):
+        self.start_with(self.pipeline(model="opus", fresh=True))
+        self.assertEqual(self.tools.models["ws-de-1-plan-1"], "opus")
+
+    def test_a_steps_own_limit_replaces_the_default(self):
+        run = self.start_with(self.pipeline(minutes=5))
+        self.now += 5 * 60 + 1
+        run = self.engine.advance(run)
+        self.assertEqual(run.status, "parked")
+        self.assertIn("time limit", run.reason)
+
+    def test_a_step_within_its_limit_keeps_going(self):
+        run = self.start_with(self.pipeline(minutes=5))
+        self.now += 5 * 60 - 1
+        self.assertEqual(self.engine.advance(run).status, "running")
 
 
 class Rework(Case):
