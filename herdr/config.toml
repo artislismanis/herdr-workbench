@@ -96,6 +96,12 @@ command = "annotate.last-newest"
 description = "Annotate: review the agent's newest reply"
 
 [[keys.command]]
+key = "prefix+shift+b"
+type = "plugin_action"
+command = "workshop.board"
+description = "Workshop: open the board"
+
+[[keys.command]]
 key = "prefix+t"
 type = "plugin_action"
 command = "annotate.terminal"
