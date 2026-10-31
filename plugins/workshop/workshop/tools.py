@@ -13,6 +13,7 @@ from . import cost
 from .shell import ToolError, run, run_json
 
 BOARD = "workshop"  # the board's workspace
+BOARD_TAB = "Dashboard"
 REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
@@ -47,6 +48,7 @@ class Tools:
                 run("herdr", "workspace", "focus", space["workspace_id"])
                 return
         made = run_json("herdr", "workspace", "create", "--cwd", str(Path.home()), "--label", BOARD, "--focus")
+        run("herdr", "tab", "rename", made["result"]["tab"]["tab_id"], BOARD_TAB)
         run("herdr", "pane", "run", made["result"]["root_pane"]["pane_id"], f"exec {Path.home()}/.local/bin/workshop board")
         self._to_top(made["result"]["workspace"]["workspace_id"])
 
