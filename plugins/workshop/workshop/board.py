@@ -178,7 +178,7 @@ class Board:
         elif key in (curses.KEY_NPAGE, curses.KEY_PPAGE):
             self.scroll(PAGE if key == curses.KEY_NPAGE else -PAGE, width)
         elif key in (TAB_KEY, curses.KEY_BTAB) and not self.open:
-            self.tab, self.offset = (self.tab + (1 if key == TAB_KEY else -1)) % len(TABS), 0
+            self.tab, self.viewing, self.offset, self.side = (self.tab + (1 if key == TAB_KEY else -1)) % len(TABS), "", 0, 0
         elif key == ord("r"):
             self.refresh()
         elif key == ord("g"):

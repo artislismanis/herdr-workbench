@@ -535,6 +535,11 @@ class Panel(Mouse):
         self.board.press(27, width)
         self.assertEqual(self.board.viewing, "")
 
+    def test_tab_leaves_the_report(self):
+        self.board.viewing = "x"
+        self.board.press(ord("\t"), 169)
+        self.assertEqual(self.board.viewing, "")
+
     def test_moving_on_leaves_the_report(self):
         self.board.viewing = "x"
         self.board.press(curses.KEY_DOWN, 169)
