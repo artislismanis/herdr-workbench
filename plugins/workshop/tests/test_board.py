@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, pipe, pull, pulls, run_style  # noqa: E402
+from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
@@ -151,9 +151,22 @@ class Drill(unittest.TestCase):
         staged = run()
         staged.pipeline = {"name": "x", "steps": steps}
         lines = texts(drill(staged, [], "", "", "/f", 80))
-        self.assertEqual(lines.count("Build"), 1)
-        self.assertLess(lines.index("Build"), lines.index("Test"))
-        self.assertTrue(lines[lines.index("Build") + 1].startswith("  "))
+        heads = [i for i, t in enumerate(lines) if t.startswith(" Build ")]
+        self.assertEqual(len(heads), 1)
+        self.assertLess(heads[0], next(i for i, t in enumerate(lines) if t.startswith(" Test ")))
+        self.assertTrue(lines[heads[0] + 1].startswith("  "))
+
+    def test_a_stage_shows_its_status_and_total(self):
+        steps = [{"id": "a", "kind": "agent", "stage": "Build"}, {"id": "b", "kind": "agent", "stage": "Build"}, {"id": "c", "kind": "agent", "stage": "Test"}]
+        staged = run(step=2, status="parked")
+        staged.pipeline = {"name": "x", "steps": steps}
+        spent = [event("spent", step="a", minutes=1.0, usd=0.1), event("spent", step="b", minutes=2.0, usd=0.2)]
+        lines = drill(staged, spent, "", "", "/f", 80)
+        build = next(line for line in lines if line.text.startswith(" Build "))
+        test = next(line for line in lines if line.text.startswith(" Test "))
+        self.assertEqual(build.text, " Build   done   3.0 min  $0.30")
+        self.assertEqual((build.spans[0].style, test.spans[0].style), ("on-green", "on-red"))
+        self.assertIn("stopped", test.text)
 
     def test_a_pipeline_without_stages_shows_plain_steps(self):
         lines = texts(drill(run(), [], "", "", "/f", 80))
@@ -304,6 +317,11 @@ class Strip(unittest.TestCase):
 
     def test_a_stage_that_went_round_again_stays_amber(self):
         self.assertEqual(self.marks(status="done", step=4, loops={"c": 1}), [("●", "green"), ("●", "yellow"), ("●", "green")])
+
+    def test_each_stage_has_a_word(self):
+        staged = run(status="done", step=4, loops={"c": 1})
+        staged.pipeline = {"name": "x", "steps": self.STEPS}
+        self.assertEqual([stage_state(staged, g)[2] for g in stage_groups(self.STEPS)], ["done", "done after rework", "done"])
 
     def test_attempt_counters_arent_rework(self):
         self.assertEqual(self.marks(status="done", step=4, loops={"c#": 2})[1], ("●", "green"))
