@@ -170,7 +170,7 @@ def delivery(run: Run, title: str, width: int) -> Line:
     detail = run.held or run.reason or run.landed or (f"PR #{number}" if number else "")
     room = max(width - 60, 30)
     title_width = room * 3 // 5
-    return Line([Span("  "), Span(" " + cell(run.landed or run.status, 8), run_style(run)), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
+    return Line([Span("  "), Span(" " + cell(run.landed or run.status, 8), "dim" if run.landed else COLOURS[run.status]), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
 
 
 def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, usage: Usage | None = None) -> list[Line]:
@@ -240,7 +240,7 @@ def pr_style(pr: dict[str, Any]) -> str:
 def pull_row(pr: dict[str, Any], width: int) -> Line:
     style = pr_style(pr)
     room = max(width - 56, 30)
-    return Line([Span(f"  {SYMBOLS[pr['mine']]} ", style), Span(cell(f"{pr['repo']}#{pr['number']}", 26) + " "), Span(" " + cell(pr["state"], 19), block(style)), Span(" "), Span(cell(pr["title"], room * 3 // 5) + " "), Span(cell(facts(pr), room - room * 3 // 5 - 1), "dim")], pr=pr)
+    return Line([Span(f"  {SYMBOLS[pr['mine']]} ", style), Span(cell(f"{pr['repo']}#{pr['number']}", 26) + " "), Span(" " + cell(pr["state"], 19), style), Span(" "), Span(cell(pr["title"], room * 3 // 5) + " "), Span(cell(facts(pr), room - room * 3 // 5 - 1), "dim")], pr=pr)
 
 
 def pulls(snapshot: dict[str, Any], width: int = 120) -> list[Line]:
