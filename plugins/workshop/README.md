@@ -144,7 +144,7 @@ Each agent step records its turns, tokens, minutes and API-equivalent dollars, r
 Nothing runs by itself by default: without a schedule, a run moves only on agent events or a `tick`, so held runs stay held and new tickets wait. A systemd user timer is installed but off. Turning it on means ready tickets start unattended:
 
 ```bash
-workshop schedule 5m    # on, every 5 minutes. Run it again with a new value to change the frequency
+workshop schedule 5m    # on, ticks now and then every 5 minutes. Run it again with a new value to change the frequency
 workshop schedule off
 workshop schedule       # shows on or off, and how often
 journalctl --user -u workshop-tick.service
