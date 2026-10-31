@@ -73,9 +73,6 @@ class FakeTools:
         self.work.mkdir(exist_ok=True)
         return self.work
 
-    def ignore_scratch(self, work):
-        pass
-
     def workspace(self, path, label):
         return "p1"
 
@@ -101,8 +98,9 @@ class FakeTools:
     def agent_status(self, name):
         return self.statuses.get(name, "gone")
 
-    def start_agent(self, name, pane, model=""):
+    def start_agent(self, name, pane, files, model=""):
         self.started.append(name)
+        self.files = files
         self.models[name] = model
         self.statuses[name] = "idle"
 
@@ -148,11 +146,16 @@ class Case(unittest.TestCase):
         # A new engine on the same state folder: what a crash and restart leaves.
         return Engine(self.tools, Store(self.root / "state"), lambda run: self.source, self.throttle, lambda: self.now)
 
+    def kept(self):
+        path = self.engine.store.root / "runs" / "repo--DE-1"
+        path.mkdir(exist_ok=True)
+        return path
+
     def start(self):
         return self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source)
 
     def finish_agent(self, run, agent, step, text="done"):
-        (self.tools.work / ".workshop" / f"{step}.txt").write_text(text, encoding="utf-8")
+        (self.kept() / f"{step}.md").write_text(text, encoding="utf-8")
         self.tools.statuses[agent] = "idle"
         return self.engine.advance(run)
 
@@ -173,7 +176,7 @@ class HappyPath(Case):
 
     def test_the_brief_is_written_for_the_agents(self):
         self.start()
-        self.assertIn("Body", (self.tools.work / ".workshop" / "brief.txt").read_text(encoding="utf-8"))
+        self.assertIn("Body", (self.kept() / "brief.md").read_text(encoding="utf-8"))
 
     def test_an_agent_still_working_leaves_the_run_where_it_is(self):
         run = self.engine.advance(self.start())
@@ -212,12 +215,12 @@ class Resume(Case):
         run = self.start()
         run.status, run.reason = "parked", "herdr not found"
         prompts = len(self.tools.prompts)
-        (self.tools.work / ".workshop" / "plan.txt").write_text("VERDICT: READY\n", encoding="utf-8")
+        (self.kept() / "plan.md").write_text("VERDICT: READY\n", encoding="utf-8")
         self.tools.statuses["ws-de-1"] = "idle"
         run = self.engine.resume(run)
         self.assertEqual(run.current["id"], "build")
         self.assertEqual(len(self.tools.prompts), prompts + 1)
-        self.assertNotIn("Read `.workshop/brief.txt`", self.tools.prompts[-1][1])
+        self.assertNotIn("`brief.md`", self.tools.prompts[-1][1])
 
     def test_resume_starts_the_step_again_when_its_agent_has_gone(self):
         run = self.start()
@@ -371,8 +374,8 @@ class Gates(Case):
     def test_rejection_goes_back_with_the_note(self):
         run = self.engine.reject(self.run_, "Use the existing client.")
         self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
-        self.assertIn("Use the existing client.", (self.tools.work / ".workshop" / "feedback.txt").read_text(encoding="utf-8"))
-        self.assertIn("feedback.txt", self.tools.prompts[-1][1])
+        self.assertIn("Use the existing client.", (self.kept() / "feedback.md").read_text(encoding="utf-8"))
+        self.assertIn("feedback.md", self.tools.prompts[-1][1])
 
     def test_rejection_rounds_are_limited(self):
         run = self.run_
@@ -394,7 +397,7 @@ class Gates(Case):
 class Questions(Case):
     def asked(self):
         run = self.start()
-        (self.tools.work / ".workshop" / "ask.txt").write_text("Which API version?\n", encoding="utf-8")
+        (self.kept() / "ask.md").write_text("Which API version?\n", encoding="utf-8")
         self.tools.statuses["ws-de-1"] = "idle"
         return self.engine.advance(run)
 
@@ -405,7 +408,7 @@ class Questions(Case):
 
     def test_a_question_beats_a_report(self):
         run = self.start()
-        (self.tools.work / ".workshop" / "ask.txt").write_text("Which?", encoding="utf-8")
+        (self.kept() / "ask.md").write_text("Which?", encoding="utf-8")
         run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
         self.assertEqual((run.status, run.current["id"]), ("waiting", "plan"))
 
@@ -414,10 +417,10 @@ class Questions(Case):
         self.now += 100
         run = self.engine.answer(run, "v2")
         self.assertEqual((run.status, run.phase, run.started_at), ("running", "prompted", self.now))
-        self.assertIn("answers.txt", self.tools.prompts[-1][1])
+        self.assertIn("answers.md", self.tools.prompts[-1][1])
         self.assertEqual(self.tools.prompts[-1][0], "ws-de-1")
-        self.assertIn("A: v2", (self.tools.work / ".workshop" / "answers.txt").read_text(encoding="utf-8"))
-        self.assertFalse((self.tools.work / ".workshop" / "ask.txt").exists())
+        self.assertIn("A: v2", (self.kept() / "answers.md").read_text(encoding="utf-8"))
+        self.assertFalse((self.kept() / "ask.md").exists())
 
     def test_an_answer_restarts_the_step_when_its_agent_has_gone(self):
         run = self.asked()
@@ -433,7 +436,7 @@ class Questions(Case):
 
     def test_a_question_in_a_fresh_step_keeps_its_pane(self):
         run = self.to_verify()
-        (self.tools.work / ".workshop" / "ask.txt").write_text("Which?", encoding="utf-8")
+        (self.kept() / "ask.md").write_text("Which?", encoding="utf-8")
         self.tools.statuses["ws-de-1-verify-1"] = "idle"
         run = self.engine.advance(run)
         self.assertEqual((run.status, run.step_agent), ("waiting", "ws-de-1-verify-1"))
@@ -448,7 +451,7 @@ class Questions(Case):
 class Review(Case):
     def finished(self):
         run = self.to_verify()
-        (self.tools.work / ".workshop" / "notes.txt").write_text('[{"file": "a.py", "line": 2, "note": "Look"}, {"file": "b.py", "line": 9, "note": "Elsewhere"}]', encoding="utf-8")
+        (self.kept() / "notes.json").write_text('[{"file": "a.py", "line": 2, "note": "Look"}, {"file": "b.py", "line": 9, "note": "Elsewhere"}]', encoding="utf-8")
         return self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
 
     def test_notes_land_in_hunk_and_the_rest_are_listed(self):
@@ -460,7 +463,7 @@ class Review(Case):
 
     def test_missing_notes_still_open_the_review(self):
         run = self.finished()
-        (self.tools.work / ".workshop" / "notes.txt").unlink()
+        (self.kept() / "notes.json").unlink()
         self.assertIn("Loaded 0 note(s)", self.engine.review(run))
         self.assertEqual(self.tools.review_notes, [])
 
@@ -519,7 +522,7 @@ class Rework(Case):
         run = self.finish_agent(run, "ws-de-1", "build")
         self.assertIn("ws-de-1-verify-2", self.tools.started)
         self.assertEqual(run.current["id"], "verify")
-        self.assertIn("CHANGES_NEEDED", (self.tools.work / ".workshop" / "verify-1.txt").read_text(encoding="utf-8"))
+        self.assertIn("CHANGES_NEEDED", (self.kept() / "verify-1.md").read_text(encoding="utf-8"))
 
     def test_each_round_is_costed_and_the_ticket_gets_the_summary(self):
         run = self.to_verify()
@@ -527,6 +530,21 @@ class Rework(Case):
         self.assertIn("Cost (API-equivalent USD)", self.engine.explain(run))
         spent = [e["step"] for e in self.engine.store.events(run) if e["type"] == "spent"]
         self.assertEqual(spent, ["plan", "build", "verify"])
+
+    def test_run_files_stay_out_of_the_worktree(self):
+        run = self.start()
+        self.assertIn(str(self.kept()), self.tools.prompts[-1][1])
+        self.assertNotIn("{run}", self.tools.prompts[-1][1])
+        self.assertEqual(self.tools.files, self.kept())
+        self.assertFalse((Path(run.worktree) / ".workshop").exists())
+
+    def test_a_step_can_publish_its_output_to_the_ticket(self):
+        pipeline = {"name": "x", "steps": [{"id": "spec", "kind": "agent", "prompt": "plan.md", "output": "spec.md", "publish": "ticket"}, {"id": "pr", "kind": "draft_pr"}]}
+        run = self.engine.start("repo", "DE-1", self.root, "main", pipeline, self.source)
+        (self.kept() / "spec.md").write_text("The design.", encoding="utf-8")
+        self.tools.statuses["ws-de-1"] = "idle"
+        self.engine.advance(run)
+        self.assertIn("The design.", self.source.reports)
 
     def test_rework_stops_at_the_limit(self):
         run = self.to_verify()

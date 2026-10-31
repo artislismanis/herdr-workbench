@@ -13,6 +13,7 @@ then.BLOCKED = { park = "The ticket needs clarifying before it can be built." }
 id = "build"
 kind = "agent"
 prompt = "build.md"
+publish = "pr"
 
 [[steps]]
 id = "verify"
