@@ -192,6 +192,16 @@ class Resume(Case):
         run = self.engine.resume(run)
         self.assertEqual(self.tools.started.count("ws-de-1"), 2)
 
+    def test_a_read_only_breach_reruns_the_step_on_resume(self):
+        run = self.start()
+        self.tools.changed = ["M src/a.py"]
+        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        self.tools.changed = []
+        prompts = len(self.tools.prompts)
+        run = self.engine.resume(run)
+        self.assertEqual(len(self.tools.prompts), prompts + 1)
+        self.assertEqual(run.current["id"], "plan")
+
     def test_only_a_parked_run_can_be_resumed(self):
         with self.assertRaises(KeyError):
             self.engine.resume(self.start())

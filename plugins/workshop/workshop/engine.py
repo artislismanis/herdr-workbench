@@ -142,7 +142,8 @@ class Engine:
         # The agent going quiet only triggers the check. The report decides.
         if run.step_pane:
             self.tools.close_pane(run.step_pane)
-        run.step_pane, run.step_agent = "", ""
+        # Done with this attempt: if it parks below, a resume runs the step afresh.
+        run.step_pane, run.step_agent, run.phase = "", "", ""
         report = self._report(run, step)
         if step.get("read_only") and self.tools.changes(Path(run.worktree)) != run.baseline:
             raise Park(f"{step['id']} is read-only but changed files.")
