@@ -52,6 +52,9 @@ class Text(unittest.TestCase):
         self.assertEqual(bar(1, 2, 4), "██░░")
         self.assertEqual(bar(0, 0, 2), "░░")
 
+    def test_a_dropped_run_shows_where_it_stopped(self):
+        self.assertTrue("".join(s.text for s in pipe(run(status="done", landed="dropped", step=1))).startswith("●─◐─○"))
+
     def test_the_step_strip_shows_where_a_run_is(self):
         self.assertTrue("".join(s.text for s in pipe(run(step=1))).startswith("●─◐─○"))
         self.assertTrue("".join(s.text for s in pipe(run(status="done", step=3))).startswith("●─●─●"))
