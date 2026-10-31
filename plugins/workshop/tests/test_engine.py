@@ -74,6 +74,7 @@ class Commands(unittest.TestCase):
         run = self.at_qa({"qa": "make test"})
         self.assertEqual(self.tools.commands, ["make test"])
         self.assertEqual((run.current["id"], run.phase), ("qa", "prompted"))
+        self.assertEqual(self.tools.then, "workshop advance")
         run = self.engine.advance(run)
         self.assertEqual(self.tools.commands, ["make test"])
 
@@ -113,9 +114,9 @@ class Commands(unittest.TestCase):
 class RealCommand(unittest.TestCase):
     def test_output_and_exit_code_are_kept(self):
         root = Path(tempfile.mkdtemp())
-        Tools().start_command("echo hello; exit 3", root, root / "qa.md", root / "qa.exit")
+        Tools().start_command("echo hello; exit 3", root, root / "qa.md", root / "qa.exit", "touch woke")
         for _ in range(200):
-            if (root / "qa.exit").exists():
+            if (root / "woke").exists():
                 break
             time.sleep(0.01)
         self.assertEqual((root / "qa.exit").read_text(encoding="utf-8").strip(), "3")
@@ -153,8 +154,9 @@ class FakeTools:
         self.worktrees = 0
 
 
-    def start_command(self, command, work, output, finished):
+    def start_command(self, command, work, output, finished, then=""):
         self.commands.append(command)
+        self.then = then
         return 4242
 
     def stop_command(self, pid):

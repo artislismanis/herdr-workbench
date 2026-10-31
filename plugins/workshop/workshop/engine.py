@@ -417,7 +417,7 @@ class Engine:
                 return
             self._keep_earlier(report)
             finished.unlink(missing_ok=True)
-            run.command_pid = self.tools.start_command(command, Path(run.worktree), report, finished)
+            run.command_pid = self.tools.start_command(command, Path(run.worktree), report, finished, "workshop advance")  # no agent event will wake the run
             run.phase, run.started_at = "prompted", self.clock()
             self.store.event(run, "step", step=step["id"], state="running")
             return
