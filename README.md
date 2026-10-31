@@ -17,7 +17,7 @@ Config and glue for a terminal workbench built on [herdr](https://github.com/her
 | herdr's worktrunk plugin | [herdr-worktrunk](https://github.com/devashish2203/herdr-worktrunk) at the commit in `pins` | Installed if missing or at another commit |
 | herdr's workshop plugin | `plugins/workshop`, linked with `herdr plugin link`, so it moves with this checkout | Linked if missing or linked to another checkout |
 | `~/.local/bin/workshop` | Symlink to the plugin's command: `workshop doctor`, `workshop start` and so on. See [its README](plugins/workshop/README.md) | Repointed if it drifts |
-| `~/.config/systemd/user/workshop-tick.{service,timer}` | A 5-minute `workshop tick`. Installed but off, because turning it on starts tickets unattended | Refreshed if it drifts; never enabled |
+| `~/.config/systemd/user/workshop-tick.{service,timer}` | `workshop tick`, every 5 minutes unless `workshop schedule` changes it. Installed but off, because turning it on starts tickets unattended | Refreshed if it drifts; never enabled |
 
 | Key, after herdr's prefix | Does |
 |---|---|

@@ -56,6 +56,7 @@ herdr plugin uninstall workshop 2>/dev/null || true
 rm -f "$WORKSHOP_CLI"
 systemctl --user disable --now workshop-tick.timer 2>/dev/null || true
 rm -f$(printf ' "%s"' "${WORKSHOP_UNITS[@]/#/$SYSTEMD_USER/}")
+rm -rf "$SYSTEMD_USER/workshop-tick.timer.d"
 rm -f "$HUNKDIFF_CONFIG"
 rm -rf "$(dirname "$HUNK_SKILL")"
 # Strips only our block; your own hunk settings below it stay.

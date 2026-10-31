@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch]"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch] | schedule [<every>|off]"""
 
 import fcntl
 import json
@@ -12,6 +12,7 @@ from typing import Any
 from .doctor import doctor
 from .engine import Engine, Park
 from .pipeline import PipelineError, load
+from .schedule import schedule
 from .shell import ToolError
 from .sources import Source, make_source
 from .store import Run, Store
@@ -20,7 +21,7 @@ from .tools import Tools
 
 
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0, "schedule": 0}
 
 
 def config_path() -> Path:
@@ -164,6 +165,8 @@ def main(argv: list[str]) -> int:
                     print(name, *make_source(name, repo, cfg.get("jira", {})).ready())
             case "doctor":
                 return show_doctor(cfg, "--no-launch" not in argv)
+            case "schedule":
+                print(schedule(argv[1:]))
         return 0
     except (Park, PipelineError, ToolError, KeyError) as stop:
         print(f"workshop: {stop}", file=sys.stderr)
