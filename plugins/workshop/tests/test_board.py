@@ -282,6 +282,36 @@ class PRs(unittest.TestCase):
         self.assertIn("  … alex: asked", lines)
 
 
+class Strip(unittest.TestCase):
+    STEPS = [{"id": "a", "kind": "agent", "stage": "Build"}, {"id": "b", "kind": "agent", "stage": "Build"}, {"id": "c", "kind": "agent", "stage": "Test"}, {"id": "d", "kind": "draft_pr", "stage": "Deploy"}]
+
+    def marks(self, **fields):
+        staged = run(**fields)
+        staged.pipeline = {"name": "x", "steps": self.STEPS}
+        return [(s.text, s.style) for s in pipe(staged) if s.text in "●◐○" and s.text]
+
+    def test_one_mark_per_stage(self):
+        self.assertEqual(self.marks(step=1), [("◐", "green"), ("○", "dim"), ("○", "dim")])
+
+    def test_finished_stages_are_green(self):
+        self.assertEqual(self.marks(status="done", step=4), [("●", "green")] * 3)
+
+    def test_a_stopped_stage_is_red(self):
+        self.assertEqual(self.marks(status="parked", step=2), [("●", "green"), ("◐", "red"), ("○", "dim")])
+
+    def test_waiting_on_a_person_is_amber(self):
+        self.assertEqual(self.marks(status="waiting", step=0)[0], ("◐", "yellow"))
+
+    def test_a_stage_that_went_round_again_stays_amber(self):
+        self.assertEqual(self.marks(status="done", step=4, loops={"c": 1}), [("●", "green"), ("●", "yellow"), ("●", "green")])
+
+    def test_attempt_counters_arent_rework(self):
+        self.assertEqual(self.marks(status="done", step=4, loops={"c#": 2})[1], ("●", "green"))
+
+    def test_a_dropped_stage_is_red(self):
+        self.assertEqual(self.marks(status="done", landed="dropped", step=2)[1], ("◐", "red"))
+
+
 class Statuses(unittest.TestCase):
     def test_waiting_on_people_and_finished_work_dont_look_like_buttons(self):
         self.assertEqual(run_style(run(status="done")), "on-others")
