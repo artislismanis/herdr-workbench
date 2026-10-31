@@ -144,10 +144,10 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   install
   [ "$status" -eq 0 ]
   grep -qF "[local:$REPO_ROOT/plugins/workshop]" "$HOME/.plugin"
-  "$HOME/.local/bin/workshop" --help | grep -q '^Usage: workshop'
+  "$HOME/.local/bin/workshop" --help 2>&1 | grep -q '^Usage: workshop'
   install
   [ "$(wc -l <"$HOME/.plugin-links")" -eq 1 ]
-  ! echo "$output" | grep -q linked
+  ! echo "$output" | grep -q "✓ linked"
 }
 
 @test "--check fails when workshop isn't linked to this repo, and install repoints it" {
