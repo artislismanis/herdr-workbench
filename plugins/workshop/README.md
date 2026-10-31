@@ -24,10 +24,14 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff |
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
 | `workshop answer <key> <text>` | Answers an agent's question |
+| `workshop retry <key> [note]` | Runs a stopped step again, with guidance if given |
+| `workshop pass <key> [note]` | Accepts a stopped agent step and moves on |
+| `workshop drop <key> [reason]` | Ends a stopped run. The worktree and branch stay |
+| `workshop comment <key> <text>` | Posts your comment on the ticket and acts on it now |
 | `workshop list` | Ready tickets |
 | `workshop schedule [<every>\|off]` | Shows, sets or stops the tick timer |
 | `workshop stats` | Tokens, cost, first-pass rate and stops across all runs |
-| `workshop refresh` | Saves the backlog and PR snapshot now, without starting anything |
+| `workshop refresh` | Reads ticket comments on stopped runs, and saves the backlog and PR snapshot, without starting anything new |
 | `workshop board` | The board. `prefix+shift+b` in herdr opens it in its own workspace |
 | `workshop doctor [--no-launch]` | Finds what would stop a run |
 
@@ -68,6 +72,18 @@ When a run stops on a question or a problem, the ticket moves to `blocked`. Comm
 Tab and Shift+Tab switch views. Tabs, rows and the buttons along the bottom work with the mouse as well as the keys, and the wheel scrolls. Clicking a row opens it. The board captures the mouse, so hold Shift to select text in it, if your terminal supports that.
 
 Delivery, where it opens, shows counts and usage meters, then runs by who they wait on, each with a strip of its steps (`●─◐─○`), and recent events below. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Backlog shows a bar per stage, then a card column per stage on a wide enough window. Review lists PRs, yours and others', by whose move it is: `●` in cyan is yours, `○` in magenta someone else's, and yellow means someone else reviewed a PR you're asked to review. Enter shows its reviews. `g` goes to a run's workspace, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. Colours follow herdr's theme, and a change shows within a second. The nearest of the terminal's 256 colours is used, so they're close rather than exact. With `auto_switch` it follows the dark theme. The board is read-only: approve, reject and answer stay on the command line.
+
+## Concluding a stopped run
+
+A stopped run always has a way out, from the terminal or the ticket:
+
+| Terminal | Your own ticket comment | Does |
+|---|---|---|
+| `workshop retry` | `/ai retry [note]`, or any plain comment | Runs the step again, with your note as guidance |
+| `workshop pass` | `/ai pass [note]` | Takes the step as good enough, even over a reviewer, and moves on. Parked or waiting agent steps only |
+| `workshop drop` | `/ai drop [reason]`, or close the ticket | Ends the run. It moves to Landed as `dropped` |
+
+Terminal actions happen at once. `workshop comment <key> "text"` posts a real comment and acts on it straight away, and takes `/ai` commands too. Comments made on the ticket itself are read on the next `tick` or `workshop refresh`, because nothing tells workshop about them sooner. Everything leaves a comment, so the ticket holds the full history. Guidance from a person gives the step a fresh set of review rounds, and every step can read it. `/ai` follows `comment_prefix`. Only your own unedited comment counts, and gates still need `approve` or `reject` from the terminal.
 
 ## Backlog
 

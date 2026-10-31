@@ -42,7 +42,7 @@ class Item:
 
 
 # Where a ticket has got to. Each source shows these its own way.
-STAGES = ("working", "blocked", "review", "approved", "merged")
+STAGES = ("working", "blocked", "review", "approved", "merged", "dropped")
 
 
 class Source(Protocol):
@@ -55,6 +55,7 @@ class Source(Protocol):
     def move(self, key: str, stage: str) -> None: ...
     def comments(self, key: str, since: float) -> list[Comment]: ...
     def backlog(self) -> list[Item]: ...
+    def closed(self, key: str) -> bool: ...
 
 
 GITHUB_HISTORY = """
@@ -100,6 +101,9 @@ class GitHubSource:
     def ready(self) -> list[str]:
         issues = run_json("gh", "issue", "list", "--label", self.label, "--json", "number", cwd=self.repo)
         return sorted((str(i["number"]) for i in issues), key=int)
+
+    def closed(self, key: str) -> bool:
+        return run_json("gh", "issue", "view", key, "--json", "state", cwd=self.repo)["state"] == "CLOSED"
 
     def backlog(self) -> list[Item]:
         issues = run_json("gh", "issue", "list", "--state", "open", "--limit", "200", "--json", "number,title,labels,url", cwd=self.repo)
@@ -205,6 +209,9 @@ class JiraSource:
         query = urllib.parse.urlencode({"jql": self.jql(), "fields": "key", "maxResults": 20})
         return [i["key"] for i in self._call("GET", f"search/jql?{query}")["issues"]]
 
+    def closed(self, key: str) -> bool:
+        return self._call("GET", f"issue/{key}?fields=status")["fields"]["status"]["statusCategory"]["key"] == "done"
+
     def backlog(self) -> list[Item]:
         # The repo's label is the scope, so new tickets show before anyone is assigned.
         jql = f'labels = "{self.repo_name}" AND labels != "{self.label}-claimed" AND statusCategory != Done ORDER BY updated DESC'
@@ -303,6 +310,9 @@ class MarkdownSource:
 
     def ready(self) -> list[str]:
         return sorted(p.stem for p in self.folder.glob("*.md"))
+
+    def closed(self, key: str) -> bool:
+        return False  # moving a file out of claimed/ isn't a signal anyone sends
 
     def backlog(self) -> list[Item]:
         return [Item(key, self.get(key).title, [], True, str(self.folder / f"{key}.md")) for key in self.ready()]

@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -24,7 +24,7 @@ from .tools import Tools
 
 
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 def config_path() -> Path:
@@ -186,6 +186,14 @@ def main(argv: list[str]) -> int:
                 locked(root, lambda: print(engine.explain(engine.reject(engine.store.find(argv[1]), argv[2]))))
             case "answer":
                 locked(root, lambda: print(engine.explain(engine.answer(engine.store.find(argv[1]), argv[2]))))
+            case "retry":
+                locked(root, lambda: print(engine.explain(engine.retry(engine.store.find(argv[1]), " ".join(argv[2:])))))
+            case "pass":
+                locked(root, lambda: print(engine.explain(engine.accept(engine.store.find(argv[1]), " ".join(argv[2:])))))
+            case "drop":
+                locked(root, lambda: print(engine.explain(engine.drop(engine.store.find(argv[1]), " ".join(argv[2:])))))
+            case "comment":
+                locked(root, lambda: print(engine.explain(engine.comment(engine.store.find(argv[1]), argv[2]))))
             case "list":
                 for name, repo in cfg["repos"].items():
                     print(name, *make_source(name, repo, cfg.get("jira", {})).ready())
@@ -196,6 +204,7 @@ def main(argv: list[str]) -> int:
             case "stats":
                 print(stats(engine.store.history()))
             case "refresh":
+                locked(root, lambda: check_tickets(engine))
                 show_refresh(cfg, engine.store)
             case "board":
                 show(engine, cfg)
