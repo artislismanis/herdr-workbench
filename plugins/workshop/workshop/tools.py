@@ -38,6 +38,13 @@ class Tools:
         made = run_json("herdr", "workspace", "create", "--cwd", str(path), "--label", label, "--no-focus")
         return made["result"]["root_pane"]["pane_id"]
 
+    def copy(self, text: str) -> None:
+        # Its own output, not a pipe: wl-copy stays behind holding the clipboard, and a pipe would wait for it.
+        try:
+            subprocess.run(["wl-copy"], input=text, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=True)
+        except (OSError, subprocess.SubprocessError) as failed:
+            raise ToolError(f"wl-copy failed: {failed}") from failed
+
     def workshop(self, *args: str) -> None:
         # The command, not the engine, so the board takes the same lock as everything else.
         run(f"{Path.home()}/.local/bin/workshop", *args)
