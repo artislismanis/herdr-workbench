@@ -12,6 +12,10 @@
 # planned = "planned"
 # designed = "designed"
 
+# The board's PRs tab covers everything GitHub shows you. This narrows it, in GitHub search terms.
+# [prs]
+# search = "org:my-company"
+
 # Paces work against Claude's limits, in percent. These are the defaults.
 # [throttle]
 # pause_new_at = 60          # no new tickets above this 5h usage
