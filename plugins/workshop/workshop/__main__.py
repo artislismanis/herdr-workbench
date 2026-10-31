@@ -193,7 +193,7 @@ def main(argv: list[str]) -> int:
             case "drop":
                 locked(root, lambda: print(engine.explain(engine.drop(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "comment":
-                locked(root, lambda: print(engine.explain(engine.comment(engine.store.find(argv[1]), argv[2]))))
+                locked(root, lambda: print(engine.explain(engine.comment(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "list":
                 for name, repo in cfg["repos"].items():
                     print(name, *make_source(name, repo, cfg.get("jira", {})).ready())

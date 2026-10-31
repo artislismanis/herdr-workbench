@@ -265,6 +265,24 @@ class Concluding(Case):
         run = self.engine.comment(self.parked_after_rounds(), "/ai drop Done with this")
         self.assertEqual((run.landed, run.reason), ("dropped", "Done with this"))
 
+    def test_a_command_needs_no_note(self):
+        self.assertEqual(self.engine.comment(self.parked_after_rounds(), "/ai drop").landed, "dropped")
+
+    def gate(self):
+        run = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
+        return self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+
+    def test_a_comment_cant_move_a_gate_and_posts_nothing(self):
+        run = self.gate()
+        before = len(self.source.reports)
+        for text in ("Looks fine", "/ai retry", "/ai pass"):
+            with self.assertRaises(KeyError):
+                self.engine.comment(run, text)
+        self.assertEqual((run.status, len(self.source.reports)), ("waiting", before))
+
+    def test_a_gate_can_be_dropped(self):
+        self.assertEqual(self.engine.drop(self.gate()).landed, "dropped")
+
     def test_the_command_follows_the_prefix(self):
         engine = Engine(self.tools, self.engine.store, lambda run: self.source, self.throttle, lambda: self.now, "[bot]")
         self.assertEqual(engine.command, "/bot")
