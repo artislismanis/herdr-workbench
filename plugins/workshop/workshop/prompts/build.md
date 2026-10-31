@@ -3,3 +3,5 @@ Build the change described in `.workshop/plan.md`, following this repo's convent
 Do not commit or push: the runner does that.
 
 Write the PR description to `.workshop/build.md`: what changed and why, and what a person still needs to check.
+
+If only a person can settle something and no safe choice exists, write the one question to `.workshop/ask.md` and stop, without a report. `.workshop/answers.md`, if it exists, has answers to earlier questions.

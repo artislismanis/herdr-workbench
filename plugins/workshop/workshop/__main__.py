@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | explain <key> | resume <key> | list | doctor [--no-launch]"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch]"""
 
 import fcntl
 import json
@@ -20,7 +20,7 @@ from .tools import Tools
 
 
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "explain": 1, "resume": 1, "list": 0, "doctor": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0}
 
 
 def config_path() -> Path:
@@ -95,6 +95,12 @@ def show_status(engine: Engine) -> None:
                 print(f"skipped  {ticket} {reason}")
 
 
+def show_needs_you(engine: Engine) -> None:
+    for run in engine.store.all():
+        if run.status in ("parked", "waiting"):
+            print(f"{run.status:8} {run.repo}/{run.key} {run.reason}\n         {engine.next_action(run)}")
+
+
 def show_doctor(cfg: dict[str, Any], launch: bool) -> int:
     results = doctor(cfg, launch)
     for r in results:
@@ -139,10 +145,18 @@ def main(argv: list[str]) -> int:
                 locked(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv))))
             case "status":
                 show_status(engine)
+            case "needs-you":
+                show_needs_you(engine)
             case "explain":
                 print(engine.explain(engine.store.find(argv[1])))
             case "resume":
                 locked(root, lambda: print(engine.explain(engine.resume(engine.store.find(argv[1])))))
+            case "approve":
+                locked(root, lambda: print(engine.explain(engine.approve(engine.store.find(argv[1])))))
+            case "reject":
+                locked(root, lambda: print(engine.explain(engine.reject(engine.store.find(argv[1]), argv[2]))))
+            case "answer":
+                locked(root, lambda: print(engine.explain(engine.answer(engine.store.find(argv[1]), argv[2]))))
             case "list":
                 for name, repo in cfg["repos"].items():
                     print(name, *make_source(name, repo, cfg.get("jira", {})).ready())

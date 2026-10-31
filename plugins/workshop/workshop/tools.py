@@ -46,6 +46,10 @@ class Tools:
     def close_pane(self, pane: str) -> None:
         subprocess.run(["herdr", "pane", "close", pane], capture_output=True)
 
+    def notify(self, title: str, body: str) -> None:
+        # Best effort: a notification must never stop a run.
+        subprocess.run(["herdr", "notification", "show", title, "--body", body, "--sound", "request"], capture_output=True)
+
     def agent_status(self, name: str) -> str:
         """The agent's status, or "gone" if herdr no longer knows it."""
         done = subprocess.run(["herdr", "agent", "get", name], capture_output=True, text=True)

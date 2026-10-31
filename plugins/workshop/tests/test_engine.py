@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -54,6 +55,7 @@ class FakeTools:
         self.identity = True
         self.statuses = {}
         self.models = {}
+        self.notes = []
         self.prompts, self.started, self.closed = [], [], []
         self.changed, self.commits, self.pushes = [], [], 0
         self.commit_fails = False
@@ -78,6 +80,9 @@ class FakeTools:
 
     def split(self, pane, path):
         return "p2"
+
+    def notify(self, title, body):
+        self.notes.append(title)
 
     def close_pane(self, pane):
         self.closed.append(pane)
@@ -326,6 +331,120 @@ class Throttled(Case):
         self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
         plan = [e for e in self.engine.store.events(run) if e["type"] == "step" and e["step"] == "plan"]
         self.assertEqual([(e["state"], e["usage"]) for e in plan], [("running", {"5h": 10, "7d": 20}), ("done", {"5h": 10, "7d": 20})])
+
+
+class Gates(Case):
+    def setUp(self):
+        super().setUp()
+        self.run_ = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
+        self.run_ = self.finish_agent(self.run_, "ws-de-1", "plan", "VERDICT: READY\n")
+
+    def test_a_gate_waits_and_says_so(self):
+        run = self.run_
+        self.assertEqual((run.status, run.current["id"]), ("waiting", "approve"))
+        self.assertIn("plan needs your approval", run.reason)
+        self.assertEqual(self.tools.notes, ["Workshop: DE-1 needs you"])
+        self.assertIn("waiting", self.source.reports[-1])
+        self.assertIn("workshop approve DE-1", self.engine.explain(run))
+
+    def test_a_waiting_run_doesnt_move_by_itself(self):
+        prompts = len(self.tools.prompts)
+        self.assertEqual(self.engine.advance(self.run_).status, "waiting")
+        self.assertEqual(len(self.tools.prompts), prompts)
+
+    def test_approval_carries_on(self):
+        run = self.engine.approve(self.run_)
+        self.assertEqual((run.status, run.current["id"], run.phase), ("running", "build", "prompted"))
+        self.assertEqual(run.reason, "")
+
+    def test_rejection_goes_back_with_the_note(self):
+        run = self.engine.reject(self.run_, "Use the existing client.")
+        self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
+        self.assertIn("Use the existing client.", (self.tools.work / ".workshop" / "feedback.md").read_text(encoding="utf-8"))
+        self.assertIn("feedback.md", self.tools.prompts[-1][1])
+
+    def test_rejection_rounds_are_limited(self):
+        run = self.run_
+        for _ in range(2):
+            run = self.engine.reject(run, "No.")
+            run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        run = self.engine.reject(run, "No.")
+        self.assertEqual(run.status, "parked")
+        self.assertIn("after 2 rounds", run.reason)
+
+    def test_only_a_gate_can_be_approved(self):
+        run = self.engine.approve(self.run_)
+        with self.assertRaises(KeyError):
+            self.engine.approve(run)
+        with self.assertRaises(KeyError):
+            self.engine.reject(run, "No.")
+
+
+class Questions(Case):
+    def asked(self):
+        run = self.start()
+        (self.tools.work / ".workshop" / "ask.md").write_text("Which API version?\n", encoding="utf-8")
+        self.tools.statuses["ws-de-1"] = "idle"
+        return self.engine.advance(run)
+
+    def test_a_question_waits_for_a_person(self):
+        run = self.asked()
+        self.assertEqual((run.status, run.reason), ("waiting", "plan asks: Which API version?"))
+        self.assertIn("workshop answer DE-1", self.engine.explain(run))
+
+    def test_a_question_beats_a_report(self):
+        run = self.start()
+        (self.tools.work / ".workshop" / "ask.md").write_text("Which?", encoding="utf-8")
+        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        self.assertEqual((run.status, run.current["id"]), ("waiting", "plan"))
+
+    def test_an_answer_goes_to_the_same_agent_and_the_step_goes_on(self):
+        run = self.asked()
+        self.now += 100
+        run = self.engine.answer(run, "v2")
+        self.assertEqual((run.status, run.phase, run.started_at), ("running", "prompted", self.now))
+        self.assertIn("answers.md", self.tools.prompts[-1][1])
+        self.assertEqual(self.tools.prompts[-1][0], "ws-de-1")
+        self.assertIn("A: v2", (self.tools.work / ".workshop" / "answers.md").read_text(encoding="utf-8"))
+        self.assertFalse((self.tools.work / ".workshop" / "ask.md").exists())
+
+    def test_an_answer_restarts_the_step_when_its_agent_has_gone(self):
+        run = self.asked()
+        self.tools.statuses.pop("ws-de-1")
+        run = self.engine.answer(run, "v2")
+        self.assertEqual(self.tools.started.count("ws-de-1"), 2)
+        self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
+
+    def test_a_failed_prompt_parks_the_run(self):
+        run = self.asked()
+        self.tools.prompt = mock.Mock(side_effect=ToolError("herdr failed"))
+        self.assertEqual(self.engine.answer(run, "v2").status, "parked")
+
+    def test_a_question_in_a_fresh_step_keeps_its_pane(self):
+        run = self.to_verify()
+        (self.tools.work / ".workshop" / "ask.md").write_text("Which?", encoding="utf-8")
+        self.tools.statuses["ws-de-1-verify-1"] = "idle"
+        run = self.engine.advance(run)
+        self.assertEqual((run.status, run.step_agent), ("waiting", "ws-de-1-verify-1"))
+        self.assertEqual(self.tools.closed, [])
+        self.assertEqual(self.engine.answer(run, "x").step_agent, "ws-de-1-verify-1")
+
+    def test_only_a_question_can_be_answered(self):
+        with self.assertRaises(KeyError):
+            self.engine.answer(self.start(), "v2")
+
+
+class Telling(Case):
+    def test_a_parked_run_notifies(self):
+        run = self.start()
+        self.tools.statuses["ws-de-1"] = "gone"
+        self.engine.advance(run)
+        self.assertEqual(self.tools.notes, ["Workshop: DE-1 needs you"])
+
+    def test_a_finished_run_notifies(self):
+        run = self.to_verify()
+        self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        self.assertEqual(self.tools.notes, ["Workshop: DE-1 ready"])
 
 
 class Steps(Case):
