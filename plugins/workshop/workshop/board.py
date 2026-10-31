@@ -111,13 +111,12 @@ class Board:
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:
             return []
-        action = self.engine.next_action(run) if run.status in ("parked", "waiting") or self.engine.delivered(run) else ""
+        action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
-        buttons = (("g review", ord("g")),) if self.engine.reviewable(run) else tuple((label, key) for key, label, *_ in self.run_actions(run))
-        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), buttons, self.earlier, self.engine.handover(run) if run.status == "done" else "")
+        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "")
 
     def panel(self, width: int) -> list[Line]:
-        """The selected item beside the list, with its actions at the top."""
+        """The selected item beside the list. Its actions are on the bottom row, as everywhere."""
         size = width - self.list_width(width) - 3
         lines = self.lines(width)
         if self.viewing:

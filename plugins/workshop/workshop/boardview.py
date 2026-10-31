@@ -16,7 +16,7 @@ Usage = dict[str, float]
 
 HEADINGS = {"parked": "Needs you", "waiting": "Needs you", "running": "With agents", "done": "With people"}
 ORDER = ("parked", "waiting", "running", "done")
-COLOURS = {"parked": "red", "waiting": "yellow", "running": "green", "done": "dim"}
+COLOURS = {"parked": "red", "waiting": "yellow", "running": "green", "done": "others"}
 BAD_EVENTS = ("parked", "check_failed", "move_failed", "report_failed")
 GOOD_EVENTS = ("finished", "approved", "landed")
 MOVES = (("you", "Your move"), ("others", "Waiting on others"), ("done", "Done lately"))
@@ -145,9 +145,18 @@ def recent(events: list[dict[str, Any]], count: int) -> list[Line]:
     return lines
 
 
+def block(style: str) -> str:
+    """A status as a coloured block. Finished work is plain text, so grey blocks stay the buttons'."""
+    return style if style == "dim" else f"on-{style}"
+
+
+def run_style(run: Run) -> str:
+    return block("dim" if run.landed else COLOURS[run.status])
+
+
 def tiles(runs: list[Run], usage: Usage) -> Line:
     waiting = [("parked", "waiting"), ("running",), ("done",)]
-    labels = ("on-red", "needs you"), ("on-green", "with agents"), ("on-dim", "with people")
+    labels = ("on-red", "needs you"), ("on-green", "with agents"), ("on-others", "with people")
     spans = []
     for statuses, (style, label) in zip(waiting, labels, strict=True):
         spans += [Span(f" {sum(r.status in statuses and not r.landed for r in runs)} ", style), Span(f" {label}    ")]
@@ -161,7 +170,7 @@ def delivery(run: Run, title: str, width: int) -> Line:
     detail = run.held or run.reason or run.landed or (f"PR #{number}" if number else "")
     room = max(width - 60, 30)
     title_width = room * 3 // 5
-    return Line([Span("  "), Span(" " + cell(run.landed or run.status, 8), f"on-{COLOURS[run.status]}"), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
+    return Line([Span("  "), Span(" " + cell(run.landed or run.status, 8), run_style(run)), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
 
 
 def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, usage: Usage | None = None) -> list[Line]:
@@ -231,7 +240,7 @@ def pr_style(pr: dict[str, Any]) -> str:
 def pull_row(pr: dict[str, Any], width: int) -> Line:
     style = pr_style(pr)
     room = max(width - 56, 30)
-    return Line([Span(f"  {SYMBOLS[pr['mine']]} ", style), Span(cell(f"{pr['repo']}#{pr['number']}", 26) + " "), Span(" " + cell(pr["state"], 19), f"on-{style}"), Span(" "), Span(cell(pr["title"], room * 3 // 5) + " "), Span(cell(facts(pr), room - room * 3 // 5 - 1), "dim")], pr=pr)
+    return Line([Span(f"  {SYMBOLS[pr['mine']]} ", style), Span(cell(f"{pr['repo']}#{pr['number']}", 26) + " "), Span(" " + cell(pr["state"], 19), block(style)), Span(" "), Span(cell(pr["title"], room * 3 // 5) + " "), Span(cell(facts(pr), room - room * 3 // 5 - 1), "dim")], pr=pr)
 
 
 def pulls(snapshot: dict[str, Any], width: int = 120) -> list[Line]:
@@ -249,7 +258,7 @@ def pulls(snapshot: dict[str, Any], width: int = 120) -> list[Line]:
 
 def pull(pr: dict[str, Any], width: int = 120) -> list[Line]:
     style = pr_style(pr)
-    lines = [*wrapped(f"{SYMBOLS[pr['mine']]} {pr['repo']}#{pr['number']}  {pr['title']}", width, "bold"), *wrapped(pr["url"], width, "dim"), Line([Span(f" {pr['state']} ", f"on-{style}"), Span(f"  by {pr['author']}")])]
+    lines = [*wrapped(f"{SYMBOLS[pr['mine']]} {pr['repo']}#{pr['number']}  {pr['title']}", width, "bold"), *wrapped(pr["url"], width, "dim"), Line([Span(f" {pr['state']} ", block(style)), Span(f"  by {pr['author']}")])]
     lines += wrapped(facts(pr), width)
     lines += [plain(), rule("Reviews", width)]
     for who, state in pr["reviews"].items():
@@ -328,13 +337,13 @@ def document(path: str, text: str, width: int) -> list[Line]:
     return lines
 
 
-def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), buttons: tuple[tuple[str, int], ...] = (), earlier: bool = False, handover: str = "") -> list[Line]:
+def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), earlier: bool = False, handover: str = "") -> list[Line]:
     spent = [e for e in events if e["type"] == "spent"]
     prices = [e["usd"] for e in spent]
     total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
     lines = wrapped(f"{name(run)}  {title}", width, "bold")
     lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
-    lines += [Line([Span(f" {run.landed or run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
+    lines += [Line([Span(f" {run.landed or run.status} ", run_style(run)), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
     if run.status in ("parked", "waiting"):
         lines += [plain(), *needs_you(run, stopped[1], width)]
     elif run.reason:
@@ -342,8 +351,6 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
     if handover:
         lines += [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))]
-    if buttons:
-        lines += [plain(), Line([Span("  "), *(part for label, key in buttons for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" ")))])]
     lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
     owned = {path for step in run.pipeline["steps"] for path in (files_of(step, reports)[0], *(p for _, p in files_of(step, reports)[1]))}
     others = [Line([Span("  "), Span(cell(path.rsplit("/", 1)[-1], 14), "mine"), Span(FILE_NOTES.get(path.rsplit("/", 1)[-1], ""), "dim")], path=path) for path in reports if path not in owned]
