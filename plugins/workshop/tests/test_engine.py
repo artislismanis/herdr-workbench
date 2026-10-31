@@ -431,6 +431,36 @@ class Questions(Case):
         self.assertIn("A: v2", (self.kept() / "answers.md").read_text(encoding="utf-8"))
         self.assertFalse((self.kept() / "ask.md").exists())
 
+    def test_an_answer_in_the_pane_carries_the_run_on(self):
+        run = self.asked()
+        (self.kept() / "ask.md").unlink()
+        run = self.engine.answered_in_pane(run)
+        self.assertEqual((run.status, run.reason, run.blocked_at, self.source.moves[-1]), ("running", "", 0.0, "working"))
+        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        self.assertEqual(run.current["id"], "build")
+
+    def test_a_pane_answer_still_being_worked_on_leaves_the_step_open(self):
+        run = self.asked()
+        (self.kept() / "ask.md").unlink()
+        self.tools.statuses["ws-de-1"] = "working"
+        run = self.engine.advance(self.engine.answered_in_pane(run))
+        self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
+
+    def test_an_open_question_keeps_waiting(self):
+        run = self.asked()
+        self.assertEqual(self.engine.answered_in_pane(run).status, "waiting")
+
+    def test_a_gate_never_clears_itself(self):
+        run = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
+        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        self.assertEqual(run.current["kind"], "gate")
+        self.assertEqual(self.engine.answered_in_pane(run).status, "waiting")
+
+    def test_cost_isnt_counted_twice_after_a_question(self):
+        self.now = 1100.0
+        run = self.asked()
+        self.assertEqual(run.started_at, 1100.0)
+
     def test_an_answer_restarts_the_step_when_its_agent_has_gone(self):
         run = self.asked()
         self.tools.statuses.pop("ws-de-1")

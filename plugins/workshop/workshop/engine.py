@@ -70,6 +70,17 @@ class Engine:
                 break
         return run
 
+    def answered_in_pane(self, run: Run) -> Run:
+        """A person can answer in the agent's pane as well. The agent then clears its question, which is the only sign."""
+        step = run.current
+        if run.status != "waiting" or step is None or step["kind"] != "agent" or self._ask_file(run).exists():
+            return run
+        run.status, run.reason, run.blocked_at = "running", "", 0.0
+        self.store.event(run, "answered", where="pane")
+        self._move(run, "working")
+        self.store.save(run)
+        return run
+
     def unblock(self, run: Run) -> Run:
         """Carry on once the owner comments on the ticket. Only a blocker: a gate needs the command line."""
         try:
@@ -283,6 +294,7 @@ class Engine:
         # The agent going quiet only triggers the check. The report decides.
         ask = self._ask_file(run)
         if ask.exists():
+            run.started_at = self.clock()  # the cost so far is logged, so it isn't counted again after the answer
             self._wait(run, f"{step['id']} asks: {ask.read_text(encoding='utf-8').strip()}")
             self._block(run)
             return

@@ -52,6 +52,7 @@ def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bo
 
 def advance_all(engine: Engine) -> None:
     for run in engine.store.all():
+        run = engine.answered_in_pane(run)
         if run.status == "running":
             engine.advance(run)
 
