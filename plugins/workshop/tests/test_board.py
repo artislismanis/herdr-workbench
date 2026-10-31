@@ -195,7 +195,7 @@ class Drill(unittest.TestCase):
 
     def test_needs_you_comes_before_the_steps(self):
         where = texts(self.stopped_view())
-        self.assertLess(where.index("  - Is an empty change right?"), where.index("─ Steps " + "─" * 80))
+        self.assertLess(where.index("  - Is an empty change right?"), where.index("─ Workflow " + "─" * 77))
 
     def test_subheadings_stay_in_their_section(self):
         text = "## Findings\n### Critical\n- Broken\n## Needs you\n- Decide\n"

@@ -401,4 +401,4 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     if handover:
         lines += [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))]
     lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
-    return [*lines, plain(), rule("Steps", width), *timeline(run, events, reports, width, stopped, earlier), *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]
+    return [*lines, plain(), rule("Workflow", width), *timeline(run, events, reports, width, stopped, earlier), *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]
