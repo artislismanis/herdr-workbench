@@ -24,8 +24,8 @@ def stats(events: list[dict[str, Any]]) -> str:
         by_repo[e["repo"]].append(e)
         by_run[(e["repo"], e["key"])].append(e)
     done = {(e["repo"], e["key"]) for e in events if e["type"] == "finished"} & set(by_run)
-    # A step that ran twice in a ticket means something sent it back.
-    first_pass = sum(max(Counter(e["step"] for e in by_run[run]).values()) == 1 for run in done)
+    # A step that ran twice in a ticket means something sent it back. Stopping to ask a question doesn't.
+    first_pass = sum(max(Counter(e["step"] for e in by_run[run] if not e.get("asked")).values()) == 1 for run in done)
     priced = [sum(e["usd"] or 0 for e in by_run[run]) for run in done]
     lines = [f"Tickets finished: {len(done)}"]
     if done:

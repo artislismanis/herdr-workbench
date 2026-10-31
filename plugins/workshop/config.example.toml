@@ -35,3 +35,13 @@ intents = "~/intents/my-notes"   # *.md here are queued; done ones move to done/
 base_url = "https://example.atlassian.net"
 email = "you@example.com"
 token = ""                   # or set JIRA_TOKEN
+# Set this if your board allows only the next column: a longer move walks it.
+# route = ["To Do", "In Progress", "Code Review", "Dev Done", "Ready for Release"]
+
+# The Jira status for each stage. A stage left out doesn't move the ticket. GitHub uses labels instead.
+# [jira.moves]
+# working = "In Progress"
+# blocked = "Pause/Blocked"
+# review = "Code Review"          # the PR is out of draft
+# approved = "Dev Done"           # approved, not merged
+# merged = "Ready for Release"    # later statuses, like Done, belong to your release process

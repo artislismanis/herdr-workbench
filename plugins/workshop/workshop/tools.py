@@ -41,6 +41,9 @@ class Tools:
     def spent(self, work: Path, since: float, until: float) -> dict[str, Any]:
         return cost.spent(work, since, until)
 
+    def pr_state(self, url: str) -> dict[str, Any]:
+        return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision")
+
     def close_pane(self, pane: str) -> None:
         subprocess.run(["herdr", "pane", "close", pane], capture_output=True)
 

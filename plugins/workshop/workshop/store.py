@@ -34,6 +34,9 @@ class Run:
     next_prompt: str = ""
     loops: dict[str, int] = field(default_factory=dict)
     pr: str = ""
+    blocked_at: float = 0.0  # set while a comment on the ticket can unblock it
+    landed: str = ""  # what became of the PR
+    stage: str = ""  # where the ticket last moved to
 
     @property
     def current(self) -> dict[str, Any] | None:

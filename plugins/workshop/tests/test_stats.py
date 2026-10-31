@@ -25,6 +25,10 @@ class Stats(unittest.TestCase):
         self.assertIn("  b: 3 rounds", text)
         self.assertIn("Average cost per ticket (API-equivalent USD): $1.25", text)
 
+    def test_a_round_that_stopped_to_ask_isnt_rework(self):
+        events = [{**spent("1", "plan"), "asked": True}, spent("1", "plan"), {"type": "finished", "repo": "a", "key": "1"}]
+        self.assertIn("First pass: 1 of 1", stats(events))
+
     def test_an_unfinished_run_counts_in_spend_only(self):
         text = stats([spent("1", "plan")])
         self.assertIn("Tickets finished: 0", text)

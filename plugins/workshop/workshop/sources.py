@@ -8,6 +8,7 @@ import shutil
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -23,6 +24,18 @@ class Ticket:
     url: str = ""
 
 
+@dataclass
+class Comment:
+    at: float
+    mine: bool  # written, and any edit made, by the person running workshop
+    who: str
+    text: str
+
+
+# Where a ticket has got to. Each source shows these its own way.
+STAGES = ("working", "blocked", "review", "approved", "merged")
+
+
 class Source(Protocol):
     def ready(self) -> list[str]: ...
     def get(self, key: str) -> Ticket: ...
@@ -30,6 +43,8 @@ class Source(Protocol):
     def report(self, key: str, text: str) -> None: ...
     def finish(self, key: str) -> None: ...
     def guard(self, key: str) -> str: ...
+    def move(self, key: str, stage: str) -> None: ...
+    def comments(self, key: str, since: float) -> list[Comment]: ...
 
 
 GITHUB_HISTORY = """
@@ -41,7 +56,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       editor { login __typename }
       blockedBy(first: 20) { nodes { number state } }
       comments(last: 100) { nodes {
-        createdAt lastEditedAt
+        createdAt lastEditedAt body
         author { login __typename }
         editor { login __typename }
       } }
@@ -54,6 +69,10 @@ query($owner: String!, $name: String!, $number: Int!) {
   }
 }
 """
+
+
+def _stamp(at: str) -> float:
+    return datetime.fromisoformat(at).timestamp()
 
 
 def _gh_change(at: str | None, who: dict[str, str] | None) -> list[Change]:
@@ -90,12 +109,34 @@ class GitHubSource:
     def finish(self, key: str) -> None:
         pass
 
-    def guard(self, key: str) -> str:
+    def move(self, key: str, stage: str) -> None:
+        current = run_json("gh", "issue", "view", key, "--json", "labels", cwd=self.repo)["labels"]
+        stale = [f"{self.label}-{s}" for s in STAGES if s != stage and f"{self.label}-{s}" in [c["name"] for c in current]]
+        run("gh", "label", "create", f"{self.label}-{stage}", "--force", cwd=self.repo)
+        removals = [arg for name in stale for arg in ("--remove-label", name)]
+        run("gh", "issue", "edit", key, "--add-label", f"{self.label}-{stage}", *removals, cwd=self.repo)
+        if stage == "merged":
+            run("gh", "issue", "close", key, cwd=self.repo)
+
+    def comments(self, key: str, since: float) -> list[Comment]:
+        issue, me = self._history(key)
+        found = []
+        for c in issue["comments"]["nodes"]:
+            who = (c["author"] or {}).get("login", "")
+            mine = who == me and (c["editor"] or {"login": me})["login"] == me
+            if (at := _stamp(c["createdAt"])) > since:
+                found.append(Comment(at, mine, who, c["body"]))
+        return found
+
+    def _history(self, key: str) -> tuple[dict[str, Any], str]:
         repo = run_json("gh", "repo", "view", "--json", "owner,name", cwd=self.repo)
         fields = ["-F", f"owner={repo['owner']['login']}", "-F", f"name={repo['name']}", "-F", f"number={key}"]
         issue = run_json("gh", "api", "graphql", "-f", f"query={GITHUB_HISTORY}", *fields, cwd=self.repo)
-        issue = issue["data"]["repository"]["issue"]
         me = run("gh", "api", "user", "--jq", ".login", cwd=self.repo).strip()
+        return issue["data"]["repository"]["issue"], me
+
+    def guard(self, key: str) -> str:
+        issue, me = self._history(key)
         open_blockers = [str(b["number"]) for b in issue["blockedBy"]["nodes"] if b["state"] == "OPEN"]
         if open_blockers:
             return f"blocked by #{', #'.join(open_blockers)}."
@@ -115,8 +156,9 @@ class GitHubSource:
 class JiraSource:
     """Tickets assigned to you, carrying both the label and the repo's name."""
 
-    def __init__(self, repo_name: str, label: str, skip_statuses: list[str], cfg: dict[str, str]) -> None:
+    def __init__(self, repo_name: str, label: str, skip_statuses: list[str], cfg: dict[str, Any]) -> None:
         self.repo_name, self.label, self.skip = repo_name, label, skip_statuses
+        self.moves, self.route = cfg.get("moves", {}), cfg.get("route", [])
         self.base = cfg["base_url"].rstrip("/")
         token = os.environ.get("JIRA_TOKEN") or cfg["token"]
         pair = f"{cfg['email']}:{token}".encode()
@@ -163,6 +205,33 @@ class JiraSource:
 
     def finish(self, key: str) -> None:
         pass
+
+    def move(self, key: str, stage: str) -> None:
+        target = self.moves.get(stage)
+        if not target:
+            return
+        # Boards often allow only the next column, so a longer move walks the route. Only forwards
+        # towards a status on it: a ticket never steps along the route to reach one that isn't.
+        before = self.route[: self.route.index(target)] if target in self.route else []
+        for _ in range(len(self.route) + 1):
+            options = self._call("GET", f"issue/{key}/transitions")["transitions"]
+            direct = [t for t in options if target in (t["to"]["name"], t["name"])]
+            onward = sorted((t for t in options if t["to"]["name"] in before), key=lambda t: before.index(t["to"]["name"]))
+            if not direct and not onward:
+                raise ValueError(f"{key} has no route to {target}")
+            self._call("POST", f"issue/{key}/transitions", {"transition": {"id": (direct or onward[::-1])[0]["id"]}})
+            if direct:
+                return
+        raise ValueError(f"{key} didn't reach {target}")
+
+    def comments(self, key: str, since: float) -> list[Comment]:
+        me = self._call("GET", "myself")["accountId"]
+        found = []
+        for c in self._call("GET", f"issue/{key}?fields=comment")["fields"]["comment"]["comments"]:
+            mine = c["author"]["accountId"] == me and c["updateAuthor"]["accountId"] == me
+            if (at := _stamp(c["created"])) > since:
+                found.append(Comment(at, mine, c["author"]["displayName"], c["body"]))
+        return found
 
     def _history(self, key: str) -> list[dict[str, Any]]:
         entries, start = [], 0
@@ -237,11 +306,17 @@ class MarkdownSource:
         done.mkdir(exist_ok=True)
         shutil.move(self._claimed(key), done / f"{key}.md")
 
+    def move(self, key: str, stage: str) -> None:
+        pass
+
+    def comments(self, key: str, since: float) -> list[Comment]:
+        return []  # no conversation here: use workshop answer
+
     def guard(self, key: str) -> str:
         return ""  # local files you put there yourself
 
 
-def make_source(name: str, repo: dict[str, Any], jira: dict[str, str]) -> Source:
+def make_source(name: str, repo: dict[str, Any], jira: dict[str, Any]) -> Source:
     path = Path(repo["path"]).expanduser()
     label = repo.get("label", "ai")
     match repo["source"]:

@@ -54,6 +54,14 @@ def advance_all(engine: Engine) -> None:
             engine.advance(run)
 
 
+def check_tickets(engine: Engine) -> None:
+    for run in engine.store.all():
+        if run.blocked_at:
+            engine.advance(engine.unblock(run))
+        elif run.status == "done" and run.pr and not run.landed:
+            engine.land(run)
+
+
 def running(engine: Engine) -> list[Run]:
     return [r for r in engine.store.all() if r.status == "running"]
 
@@ -61,6 +69,7 @@ def running(engine: Engine) -> list[Run]:
 def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     """Move every run on, then start one ready ticket if there's room. Polling costs no tokens."""
     advance_all(engine)
+    check_tickets(engine)
     active = running(engine)
     if len(active) >= cfg.get("max_active", 2) or engine.throttle.hold_new(len(active)):
         return
