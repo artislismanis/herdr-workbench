@@ -1,0 +1,12 @@
+id = "workshop"
+name = "Workshop"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Turns a ticket from Jira, GitHub or a Markdown intent into a self-reviewed draft PR."
+platforms = ["linux"]
+
+[[actions]]
+id = "tick"
+title = "Workshop: run the next ready ticket"
+contexts = ["global"]
+command = ["bin/workshop", "tick"]

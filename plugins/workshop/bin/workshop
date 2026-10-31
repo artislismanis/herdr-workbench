@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Standard library only, so it needs no venv and no mise activation.
+root="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+PYTHONPATH="$root" exec python3 -m workshop "$@"
