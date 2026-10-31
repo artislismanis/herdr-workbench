@@ -11,6 +11,7 @@ from .backlog import SNAPSHOT, poll
 from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, drill, pull, pulls
 from .engine import STOPS, Engine
 from .store import Run
+from .themes import TERMINAL, config_path, nearest, palette
 
 SKIPPED = "skipped.json"
 TABS = ("Deliveries", "Backlog", "PRs")
@@ -34,6 +35,10 @@ class Board:
     def stamp(self) -> tuple[int, ...]:
         paths = (self.store.root / "runs", self.store.root / "events.jsonl", self.store.root / SNAPSHOT, self.store.root / SKIPPED)
         return tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in paths)
+
+    def theme_stamp(self) -> int:
+        path = config_path()
+        return path.stat().st_mtime_ns if path.exists() else 0
 
     def reload(self) -> None:
         if (stamp := self.stamp()) != self.seen:
@@ -186,18 +191,19 @@ class Board:
         self.offset = max(0, min(self.offset, len(lines) - height))
         return lines[self.offset : self.offset + height]
 
-    def put(self, screen: curses.window, y: int, line: Line, styles: dict[str, int], width: int, mark: int = 0) -> None:
+    def put(self, screen: curses.window, y: int, line: Line, styles: dict[str, int], width: int, selected: bool = False) -> None:
         x = 0
         for span in line.spans:
             text = clean(span.text)
             if x >= width - 1:
                 break
-            screen.addnstr(y, x, text, width - 1 - x, styles[span.style] | mark)
+            attr = styles.get(f"row-{span.style}", styles[span.style]) if selected else styles[span.style]
+            screen.addnstr(y, x, text, width - 1 - x, attr)
             if span.action:
                 self.regions.append((y, x, x + columns(text), span.action))
             x += columns(text)
-        if mark and x < width - 1:
-            screen.addnstr(y, x, cell("", width - 1 - x), width - 1 - x, mark)
+        if selected and x < width - 1:
+            screen.addnstr(y, x, cell("", width - 1 - x), width - 1 - x, styles["row-"])
         if line.ref:
             self.regions.append((y, 0, width, line.ref))
 
@@ -209,32 +215,47 @@ class Board:
         screen.erase()
         self.put(screen, 0, self.header(), styles, width)
         for y, line in enumerate(self.window(lines, rows - 3), 2):
-            self.put(screen, y, line, styles, width, curses.A_REVERSE if line.ref and line.ref == chosen and not self.open else 0)
+            self.put(screen, y, line, styles, width, bool(line.ref) and line.ref == chosen and not self.open)
         self.put(screen, rows - 1, self.footer(), styles, width)
         screen.refresh()
 
     def colours(self) -> dict[str, int]:
+        """herdr's current theme as curses styles. Default text stays the terminal's, so it's readable whatever the background."""
         curses.use_default_colors()
-        hues = {"red": curses.COLOR_RED, "yellow": curses.COLOR_YELLOW, "green": curses.COLOR_GREEN, "mine": curses.COLOR_CYAN, "others": curses.COLOR_MAGENTA}
-        styles = {"": 0, "bold": curses.A_BOLD, "dim": curses.A_DIM}
-        for pair, (style, hue) in enumerate(hues.items(), 1):
-            curses.init_pair(pair, hue, -1)
-            curses.init_pair(pair + len(hues), curses.COLOR_BLACK, hue)
-            styles[style], styles[f"on-{style}"] = curses.color_pair(pair), curses.color_pair(pair + len(hues))
-        grey = 2 * len(hues) + 1
-        curses.init_pair(grey, -1, 238 if curses.COLORS >= 256 else curses.COLOR_BLACK)
-        styles["button"] = styles["tab"] = styles["on-dim"] = curses.color_pair(grey)
+        theme = palette(config_path()) if curses.COLORS >= 256 else TERMINAL
+        back, row, surface = (nearest(theme[token], curses.COLORS) for token in ("panel_bg", "selection_bg", "surface0"))
+        hues = {"red": "red", "yellow": "yellow", "green": "green", "mine": "accent", "others": "mauve", "dim": "overlay1"}
+        pairs = iter(range(1, 64))
+
+        def pair(front: int, behind: int) -> int:
+            number = next(pairs)
+            curses.init_pair(number, front, behind)
+            return curses.color_pair(number)
+
+        styles = {"": 0, "bold": curses.A_BOLD, "row-": pair(-1, row), "row-bold": pair(-1, row) | curses.A_BOLD, "button": pair(-1, surface)}
+        for style, token in hues.items():
+            hue = nearest(theme[token], curses.COLORS)
+            styles[style], styles[f"row-{style}"] = pair(hue, -1), pair(hue, row)
+            if style != "dim":
+                styles[f"on-{style}"] = pair(back, hue)
+        styles["tab"] = styles["on-dim"] = styles["button"]
         styles["tab-on"] = styles["on-mine"] | curses.A_BOLD
+        if theme["overlay1"] == -1:
+            styles["dim"] |= curses.A_DIM
+            styles["row-dim"] |= curses.A_DIM
         return styles
 
     def loop(self, screen: curses.window) -> None:
         curses.curs_set(0)
-        styles = self.colours()
+        styles, theme = self.colours(), self.theme_stamp()
         curses.mousemask(curses.BUTTON1_PRESSED | curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED)
         curses.mouseinterval(0)
         screen.timeout(1000)
         while True:
             self.reload()
+            if self.theme_stamp() != theme:
+                styles, theme = self.colours(), self.theme_stamp()
+                screen.clear()
             self.draw(screen, styles)
             key, width = screen.getch(), screen.getmaxyx()[1]
             if key == curses.KEY_MOUSE:

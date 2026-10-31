@@ -302,6 +302,14 @@ class Keys(unittest.TestCase):
 
 
 class Mouse(Keys):
+    def test_a_selected_row_keeps_its_colour_on_the_selection_background(self):
+        drawn = []
+        screen = mock.Mock(addnstr=lambda y, x, text, size, attr: drawn.append((text, attr)))
+        line = deliveries([run()], [], lambda r: "", 150)[3]
+        self.board.put(screen, 3, line, collections.defaultdict(int, {"row-": 1, "row-dim": 2}), 200, True)
+        self.assertTrue(any(attr == 2 for text, attr in drawn))
+        self.assertEqual(drawn[-1][1], 1)
+
     def test_clicking_a_tab_switches_to_it_even_from_a_run(self):
         self.board.press(10)
         self.drawn()
