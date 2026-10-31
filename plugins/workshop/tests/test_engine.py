@@ -275,7 +275,7 @@ class Generated(unittest.TestCase):
         return work
 
     def test_caches_dont_count_as_changes(self):
-        self.assertEqual(Tools().changes(self.repo()), ["?? pkg/"])
+        self.assertEqual(Tools().changes(self.repo()), ["?? pkg/a.py"])
 
     def test_a_cache_alone_isnt_a_change(self):
         work = self.repo()

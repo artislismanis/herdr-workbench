@@ -62,8 +62,8 @@ class Tools:
         run("herdr", "agent", "prompt", name, text, "--wait", "--until", "working", "--timeout", "60000")
 
     def changes(self, work: Path) -> list[str]:
-        lines = run("git", "status", "--porcelain", cwd=work).splitlines()
-        return sorted(line for line in lines if not any(g in line.split("/") or g + "/" in line for g in GENERATED))
+        lines = run("git", "status", "--porcelain", "--untracked-files=all", cwd=work).splitlines()
+        return sorted(line for line in lines if not any(f"{g}/" in line for g in GENERATED))
 
     def stage(self, work: Path) -> None:
         excludes = [f":(exclude,glob)**/{g}/**" for g in GENERATED]
