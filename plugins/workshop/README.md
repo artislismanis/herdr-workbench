@@ -68,7 +68,7 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 | Stage | A group of steps, such as Build, and nothing else |
 | Step | One piece of work in a pipeline, by an agent, a person or workshop |
 | Round | One attempt at a step. A failed review sends the work round again |
-| Status | Where a run stands: `running`, `parked`, `waiting` or `delivered`, then what became of it, such as `merged` or `dropped` |
+| Status | Where a run stands: `running`, `parked`, `waiting` or `in review`, then what became of it, such as `merged` or `dropped` |
 | Column | Where a ticket sits on Backlog: New, Planned, Designed or Queued |
 | Move | What workshop does to the ticket as a run goes on: `working`, `blocked`, `review`, `approved` or `merged` |
 | Self-review | You reading the change in hunk, before anyone else sees it |

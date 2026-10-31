@@ -49,7 +49,7 @@ class Run:
     @property
     def label(self) -> str:
         """A finished run is still with people until its PR lands."""
-        return self.landed or ("delivered" if self.status == "done" else self.status)
+        return self.landed or ("in review" if self.status == "done" else self.status)
 
     def index_of(self, step_id: str) -> int:
         return [s["id"] for s in self.pipeline["steps"]].index(step_id)
