@@ -57,6 +57,23 @@ Machine-local worktrunk settings, such as `[projects."<id>"]` entries, go below 
 
 Runs as your own user. Re-running is a no-op when nothing changed.
 
+## Known quirks
+
+**Unreadable active tab on herdr's `terminal` theme (herdr 0.9.5, Windows Terminal).** herdr draws the active tab's text in its panel colour, or in the divider line colour when no panel colour is set, as in this theme. That gives dark grey on blue. herdr also makes renamed tabs bold, and Windows Terminal draws bold black as bright black by default, which is grey as well.
+
+To fix it, do both:
+
+1. In `~/.config/herdr/config.toml`, under your `[theme]` section, add:
+
+   ```toml
+   [theme.custom]
+   panel_bg = "black"
+   ```
+
+2. In Windows Terminal, set Settings > Profiles > Defaults > Appearance > Intense text style to Bold font, or add `"intenseTextStyle": "bold"` under `profiles.defaults` in `settings.json`.
+
+The install leaves this to you, because it would break on an existing `[theme.custom]` section and only suits the `terminal` theme. Side effects: bold text in all terminal apps no longer brightens, and in colour schemes where black differs from the background, such as Dark Modern, the tab row shows as a darker strip. Don't set `surface_dim` to fix the text, as it also recolours the divider lines. An exact colour such as `panel_bg = "#1f1f1f"` works without the Windows Terminal setting, but no longer follows the colour scheme.
+
 ## Develop
 
 ```bash

@@ -443,7 +443,7 @@ class Board:
             if style != "dim":
                 styles[f"on-{style}"] = pair(0, hue)
         styles["tab"] = styles["on-dim"] = styles["button"]
-        styles["tab-on"] = styles["on-mine"] | curses.A_BOLD
+        styles["tab-on"] = styles["on-mine"]  # bold black turns grey where bold means bright, as in Windows Terminal
         styles["row-dim"] = styles["row-"]  # faint text on the selection background is unreadable
         styles["dim"] |= curses.A_DIM
         return styles
