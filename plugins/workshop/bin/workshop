@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
-# Standard library only, so it needs no venv and no mise activation.
+# Standard library only, so it needs no venv or mise activation.
+# Cron and herdr events start with a bare PATH, and our tools live in these two.
+export PYTHONDONTWRITEBYTECODE=1
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 root="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-PYTHONPATH="$root" exec python3 -m workshop "$@"
+PYTHONPATH="$root" exec /usr/bin/python3 -m workshop "$@"
