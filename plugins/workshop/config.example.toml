@@ -1,0 +1,25 @@
+# Copy to ~/.config/workshop/config.toml and chmod 600. Never commit a real one.
+
+# One table per repo. `source` is github, jira or markdown.
+[repos.my-app]
+path = "~/src/my-app"
+source = "github"
+label = "ai"
+# base = "main"
+# rounds = 2                 # times a failed verify goes back to the build agent
+
+[repos.my-service]
+path = "~/src/my-service"
+source = "jira"
+label = "ai"                 # tickets need this label and the repo's name
+skip_statuses = ["Backlog"]
+
+[repos.my-notes]
+path = "~/src/my-notes"
+source = "markdown"
+intents = "~/intents/my-notes"   # *.md here are queued; done ones move to done/
+
+[jira]
+base_url = "https://example.atlassian.net"
+email = "you@example.com"
+token = ""                   # or set JIRA_TOKEN
