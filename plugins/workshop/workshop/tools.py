@@ -42,6 +42,10 @@ class Tools:
         # The command, not the engine, so the board takes the same lock as everything else.
         run(f"{Path.home()}/.local/bin/workshop", *args)
 
+    def copy(self, text: str) -> None:
+        # Its own output, not a pipe: wl-copy stays behind holding the clipboard, and a pipe would wait for it.
+        subprocess.run(["wl-copy"], input=text, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=True)
+
     def focus(self, pane: str) -> None:
         run("herdr", "workspace", "focus", pane.split(":")[0])
 
