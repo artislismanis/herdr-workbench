@@ -9,6 +9,7 @@ from typing import Any
 
 from .shell import ToolError, run, run_json
 
+# Its files end in .txt because repo linters pick files by extension and can't see git's exclude file.
 IGNORED = ".workshop/"
 REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
