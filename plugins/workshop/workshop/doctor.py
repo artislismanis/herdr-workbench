@@ -40,7 +40,7 @@ def launch_test(repo: Path, name: str, base: str) -> Result:
     path = None
     pane = ""
     try:
-        # Through wt, so it lands in the folder runs use: Claude's trust is per folder.
+        # Through wt, so it's the kind of worktree a run gets, in the same place.
         path = Tools().worktree(repo, branch, base)
         pane = Tools().workspace(path, f"doctor {name}")
         Tools().start_agent(agent, pane)
