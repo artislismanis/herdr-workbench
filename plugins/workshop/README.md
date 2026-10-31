@@ -27,7 +27,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop list` | Ready tickets |
 | `workshop schedule [<every>\|off]` | Shows, sets or stops the tick timer |
 | `workshop stats` | Tokens, cost, first-pass rate and stops across all runs |
-| `workshop refresh` | Saves the backlog snapshot now, without starting anything |
+| `workshop refresh` | Saves the backlog and PR snapshot now, without starting anything |
 | `workshop board` | The board. `prefix+shift+b` in herdr opens it in its own workspace |
 | `workshop doctor [--no-launch]` | Finds what would stop a run |
 
@@ -70,6 +70,17 @@ Deliveries lists runs by who they wait on, with recent events below. Enter opens
 ## Backlog
 
 Each `tick` and `workshop refresh` saves open tickets to `~/.local/state/workshop/board.json`, sorted by label: none is `new`, then `planned`, `designed`, and the delivery label is `queued`. `[backlog]` renames the first two. Claimed tickets leave the list. On Jira the repo's label sets the scope, so a ticket without it doesn't show. A source that fails keeps its last good list and records the error. Polling makes API calls but uses no tokens.
+
+## PRs
+
+The same poll saves your open PRs, PRs you're asked to review or have reviewed, and those merged in the last week, in one GitHub call. Each gets whose move it is. `[prs] search` narrows them, in GitHub search terms.
+
+| Your move | Waiting on others |
+|---|---|
+| Yours: draft, checks failing, changes requested, fixed and not re-requested, comments to address, approved | Yours: awaiting review, re-review requested |
+| Theirs: needs review, re-review | Theirs: draft, waiting for fixes, new commits, approved |
+
+A push to someone's PR stays with them until they ask again, since it may be work in progress. Bots' reviews don't count.
 
 ## Run files
 

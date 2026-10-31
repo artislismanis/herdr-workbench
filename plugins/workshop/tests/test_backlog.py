@@ -37,6 +37,7 @@ class Poll(unittest.TestCase):
         self.store = Store(Path(tmp.name))
         self.cfg = {"repos": {"a": {}, "b": {}}}
         self.lists = {"a": [item("planned")], "b": [item()]}
+        self.prs = [{"url": "u"}]
 
     def poll(self, at=100.0):
         def source(name, repo, jira):
@@ -45,7 +46,13 @@ class Poll(unittest.TestCase):
                 raise found
             return mock.Mock(backlog=lambda: found)
 
-        with mock.patch("workshop.backlog.make_source", source):
+        def prs(scope, now):
+            if isinstance(self.prs, Exception):
+                raise self.prs
+            self.scope = scope
+            return self.prs
+
+        with mock.patch("workshop.backlog.make_source", source), mock.patch("workshop.backlog.fetch", prs):
             return poll(self.cfg, self.store, lambda: at)
 
     def test_saves_each_repos_tickets_with_their_stage(self):
@@ -59,6 +66,13 @@ class Poll(unittest.TestCase):
         repos = self.poll(200.0)["repos"]
         self.assertEqual((repos["a"]["polled_at"], len(repos["a"]["items"]), repos["a"]["error"]), (100.0, 1, "gh issue failed"))
         self.assertEqual(repos["b"]["polled_at"], 200.0)
+
+    def test_saves_prs_and_a_failure_keeps_the_last_list(self):
+        self.cfg["prs"] = {"search": "org:x"}
+        self.assertEqual(self.poll()["prs"], {"polled_at": 100.0, "error": "", "items": [{"url": "u"}]})
+        self.assertEqual(self.scope, "org:x")
+        self.prs = ToolError("gh api failed")
+        self.assertEqual(self.poll(200.0)["prs"], {"polled_at": 100.0, "error": "gh api failed", "items": [{"url": "u"}]})
 
     def test_a_repo_that_never_worked_shows_its_error(self):
         self.lists["a"] = OSError("no network")

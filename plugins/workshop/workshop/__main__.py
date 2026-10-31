@@ -116,8 +116,10 @@ def show_needs_you(engine: Engine) -> None:
 
 
 def show_refresh(cfg: dict[str, Any], store: Store) -> None:
-    for name, repo in poll(cfg, store)["repos"].items():
+    snapshot = poll(cfg, store)
+    for name, repo in snapshot["repos"].items():
         print(f"{name}: {repo['error'] or str(len(repo['items'])) + ' open'}")
+    print(f"PRs: {snapshot['prs']['error'] or len(snapshot['prs']['items'])}")
 
 
 def show_doctor(cfg: dict[str, Any], launch: bool) -> int:
