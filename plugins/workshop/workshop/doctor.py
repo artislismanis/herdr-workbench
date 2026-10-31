@@ -32,14 +32,16 @@ def _try(name: str, *argv: str) -> Result:
     return Result(name, done.returncode == 0, lines[-1] if lines and done.returncode else "")
 
 
-def launch_test(repo: Path, name: str) -> Result:
+def launch_test(repo: Path, name: str, base: str) -> Result:
     """Start a real agent where a run would, so first-launch prompts show up here and not at 3am."""
     title = f"launch {name}"
-    path = repo.parent / f".workshop-doctor-{slug(name)}"
+    branch = f"workshop-doctor-{slug(name)}"
     agent = f"ws-doctor-{slug(name)}"
+    path = None
     pane = ""
     try:
-        run("git", "worktree", "add", "--quiet", "--detach", str(path), cwd=repo)
+        # Through wt, so it lands in the folder runs use: Claude's trust is per folder.
+        path = Tools().worktree(repo, branch, base)
         pane = Tools().workspace(path, f"doctor {name}")
         Tools().start_agent(agent, pane)
         run("herdr", "agent", "prompt", agent, "Reply with the single word ready.", "--wait", "--timeout", LAUNCH_TIMEOUT_MS)
@@ -51,7 +53,9 @@ def launch_test(repo: Path, name: str) -> Result:
     finally:
         if pane:
             Tools().close_pane(pane)
-        subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=repo, capture_output=True)
+        if path:
+            subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=repo, capture_output=True)
+        subprocess.run(["git", "branch", "-D", branch], cwd=repo, capture_output=True)
 
 
 def _screen(pane: str) -> str:
@@ -82,7 +86,7 @@ def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -
     except (ToolError, OSError, KeyError, ValueError) as stop:
         results.append(Result(f"{name} source", False, str(stop)))
     if launch:
-        results.append(launch_test(path, name))
+        results.append(launch_test(path, name, base))
     return results
 
 
