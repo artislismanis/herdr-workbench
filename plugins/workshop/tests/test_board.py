@@ -519,7 +519,7 @@ class Keys(unittest.TestCase):
     def test_the_status_follows_the_title_and_pr(self):
         lines = texts(drill(run(status="done", pr="http://p/1"), [], "T", "", "/f", 90, handover="- New flag\nRecommendation: approve"))
         self.assertTrue(lines[1].startswith("PR:"))
-        self.assertIn("delivered", lines[2])
+        self.assertIn("in review", lines[2])
         self.assertLess(2, next(i for i, t in enumerate(lines) if "Recommendation" in t))
 
     def draft(self):
