@@ -1,5 +1,6 @@
 """What the board shows, as plain data. Nothing here touches curses, so tests read it directly."""
 
+import re
 import textwrap
 import unicodedata
 from collections.abc import Callable
@@ -22,7 +23,8 @@ SYMBOLS = {True: "●", False: "○"}  # with colour, so it reads in any theme
 STAGE_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
 REVIEW_MARKS = {"APPROVED": ("✓", "green"), "CHANGES_REQUESTED": ("✗", "red")}
 MAX_LINES = 2000
-STOP_LINES = 30  # of a stopped step's report, in the detail. The whole file is a click away
+FINDINGS = 12  # lines of a stopped step's findings in the detail. The whole report is a click away
+BAD_VERDICTS = ("CHANGES_NEEDED", "BLOCKED")
 RECENT = 10
 LANDED = 5
 BAR = 30
@@ -255,8 +257,54 @@ def pull(pr: dict[str, Any], width: int = 120) -> list[Line]:
     return lines if pr["reviews"] or pr["waiting_on"] else [*lines, plain("  None yet", "dim")]
 
 
-def timeline(run: Run, events: list[dict[str, Any]]) -> list[Line]:
-    lines = []
+def section(text: str, heading: str) -> list[str]:
+    """The lines under a report's heading, subheadings included."""
+    found: list[str] = []
+    depth = 0
+    for line in text.splitlines():
+        level = len(line) - len(line.lstrip("#"))
+        if level and not depth and line.lstrip("#").strip().lower() == heading:
+            depth = level
+        elif level and depth and level <= depth:
+            depth = 0
+        elif depth and line.strip() and not line.startswith("VERDICT:"):
+            found.append(line)
+    return found
+
+
+def body(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.strip() and not line.startswith(("#", "VERDICT:"))]
+
+
+def needs_you(run: Run, report: str, width: int) -> list[Line]:
+    """What a person has to settle, in the report's words where it has any."""
+    items = [item for item in section(report, "needs you") if item.strip(" -*.").lower() not in ("nothing", "none")] or [run.reason]
+    lines = [Line([Span("▌ Needs you", "red" if run.status == "parked" else "yellow")])]
+    return lines + [plain("  " + part.text) for item in items for part in wrapped(item, width - 2)]
+
+
+def files_name(step: dict[str, Any]) -> str:
+    return step.get("output", f"{step['id']}.md")
+
+
+def files_of(step: dict[str, Any], reports: tuple[str, ...]) -> tuple[str, list[str]]:
+    """A step's latest report, and earlier rounds newest first: the engine keeps those as name-1.md, name-2.md."""
+    name = files_name(step)
+    stem, _, suffix = name.rpartition(".")
+    rounds = [(int(found[1]), path) for path in reports if (found := re.fullmatch(rf"{re.escape(stem)}-(\d+)\.{re.escape(suffix)}", path.rsplit("/", 1)[-1]))]
+    latest = next((path for path in reports if path.rsplit("/", 1)[-1] == name), "")
+    return latest, [path for _, path in sorted(rounds, reverse=True)]
+
+
+def findings(report: str, name: str, width: int) -> list[Line]:
+    items = section(report, "findings") or body(report)
+    parts = [part.text for item in items for part in wrapped(item, width)]
+    lines = [plain("│   ┌ Findings", "dim"), *(Line([Span("│   │ ", "dim"), Span(text)]) for text in parts[:FINDINGS])]
+    return [*lines, plain(f"│   └ more in {name}" if len(parts) > FINDINGS else "│   └", "dim")]
+
+
+def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], width: int, stopped: tuple[str, str] = ("", ""), earlier: bool = False) -> list[Line]:
+    lines: list[Line] = []
     steps = run.pipeline["steps"]
     for index, step in enumerate(steps):
         seen = [e for e in events if e.get("step") == step["id"]]
@@ -265,15 +313,24 @@ def timeline(run: Run, events: list[dict[str, Any]]) -> list[Line]:
         rounds = len([e for e in seen if e["type"] == "step" and e.get("state") == "running"])
         current = index == run.step and not completed(run)
         mark, style = ("◐", "red" if run.landed == "dropped" else COLOURS[run.status]) if current else ("●", "green") if finished or index < run.step or completed(run) else ("○", "dim")
-        notes = [f"{rounds} round(s)"] if rounds else []
-        if finished and finished[-1].get("verdict"):
-            notes.append(finished[-1]["verdict"])
+        verdict = finished[-1].get("verdict", "") if finished else ""
+        notes = [f"{rounds} round{'' if rounds == 1 else 's'}"] if rounds else []
         if spent:
             prices = [e["usd"] for e in spent]
             notes += [f"{sum(e['minutes'] for e in spent):.1f} min", "unpriced" if None in prices else f"${sum(prices):.2f}"]
-        lines.append(Line([Span(f"  {mark} ", style), Span(cell(step["id"], 12), "bold" if current else ""), Span("  ".join(notes), "dim")]))
+        latest, older = files_of(step, reports)
+        row = [Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(notes), max(min(28, width - 52), 6)), "dim")]  # the report beats the numbers on a narrow panel
+        if latest:
+            row.append(Span(latest.rsplit("/", 1)[-1], "mine"))
+        if older and not earlier:
+            row.append(Span(f"  +{len(older)} earlier", "button", f"key:{ord('e')}"))
+        lines.append(Line(row, path=latest))
+        if earlier:
+            lines += [Line([Span("│ ", "dim"), Span(" " * 54), Span(path.rsplit("/", 1)[-1], "mine")], path=path) for path in older]
+        if current and stopped[0] == files_name(step):
+            lines += findings(stopped[1], stopped[0], width - 6)
         if index < len(steps) - 1:
-            lines.append(plain("  │", "dim"))
+            lines.append(plain("│", "dim"))
     return lines
 
 
@@ -284,12 +341,20 @@ def document(path: str, text: str, width: int) -> list[Line]:
     return lines
 
 
-def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", "")) -> list[Line]:
-    lines = [*wrapped(f"{name(run)}  {title}", width, "bold"), Line([Span(f" {run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}")])]
-    lines += wrapped(run.reason, width, "red" if run.status == "parked" else "yellow")
-    lines += wrapped(f"Then: {next_action}" if next_action else "", width)
+def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), buttons: tuple[tuple[str, int], ...] = (), earlier: bool = False) -> list[Line]:
+    spent = [e for e in events if e["type"] == "spent"]
+    prices = [e["usd"] for e in spent]
+    total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
+    lines = [*wrapped(f"{name(run)}  {title}", width, "bold"), Line([Span(f" {run.landed or run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
+    if run.status in ("parked", "waiting"):
+        lines += [plain(), *needs_you(run, stopped[1], width)]
+        if buttons:
+            lines += [plain(), Line([Span("  "), *(part for label, key in buttons for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" ")))])]
+        lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
+    elif run.reason:
+        lines += wrapped(run.reason, width, "dim")
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
     lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
-    shown = [Line([Span("  " + clean(path.rsplit("/", 1)[-1]))], path=path) for path in reports]
-    why = [plain(), rule(stopped[0], width), *document("", stopped[1], width)[2:2 + STOP_LINES]] if stopped[0] else []
-    return [*lines, *why, *wrapped(f"Files: {files}", width, "dim"), *([plain(), rule("Reports", width), *shown] if shown else []), plain(), rule("Steps", width), *timeline(run, events), plain(), rule("Log", width), *recent(events, 12)]
+    owned = {path for step in run.pipeline["steps"] for path in (files_of(step, reports)[0], *files_of(step, reports)[1])}
+    others = [Line([Span("  "), Span(clean(path.rsplit("/", 1)[-1]), "mine")], path=path) for path in reports if path not in owned]
+    return [*lines, plain(), rule("Steps", width), *timeline(run, events, reports, width, stopped, earlier), plain(), rule("Ticket and notes", width), *others, *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]

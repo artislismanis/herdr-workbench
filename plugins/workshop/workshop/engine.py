@@ -3,7 +3,6 @@ reads the run's file and an outside fact, so any process can take over from any 
 
 import json
 import re
-import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -20,7 +19,7 @@ from .tools import Tools, slug
 
 STEP_TIMEOUT = 45 * 60
 PREFIX = "[ai]"  # workshop comments as you, so its own comments mustn't count as yours
-STOPS = (ToolError, OSError, KeyError, ValueError, json.JSONDecodeError, subprocess.SubprocessError)
+STOPS = (ToolError, OSError, KeyError, ValueError, json.JSONDecodeError)
 
 
 class Park(Exception):
