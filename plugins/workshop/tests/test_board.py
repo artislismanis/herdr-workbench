@@ -146,6 +146,10 @@ class Keys(unittest.TestCase):
         self.tools.focus.side_effect = ToolError("gone")
         self.board.press(ord("g"))
         self.assertIn("no workspace", self.board.footer())
+        self.board.press(curses.ERR)
+        self.assertIn("no workspace", self.board.footer())
+        self.board.press(curses.KEY_DOWN)
+        self.assertNotIn("no workspace", self.board.footer())
 
     def test_a_new_file_shows_on_the_next_reload_and_opening_makes_no_calls(self):
         self.assertIn("not polled", self.board.header())

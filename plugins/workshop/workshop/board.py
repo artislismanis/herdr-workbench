@@ -173,6 +173,8 @@ class Board:
 
     def press(self, key: int, width: int = 120) -> bool:
         """Handles one key. False means leave."""
+        if key == curses.ERR:
+            return True  # the timeout that redraws, so a message stays until a real key
         lines = self.lines(width)
         self.message = ""
         if key in (curses.KEY_UP, ord("k")):
