@@ -242,9 +242,9 @@ class Board:
                 styles[f"on-{style}"] = pair(back, hue)
         styles["tab"] = styles["on-dim"] = styles["button"]
         styles["tab-on"] = styles["on-mine"] | curses.A_BOLD
+        styles["row-dim"] = styles["row-"]  # faint text on the selection background is unreadable
         if theme["overlay1"] == -1:
             styles["dim"] |= curses.A_DIM
-            styles["row-dim"] |= curses.A_DIM
         return styles
 
     def loop(self, screen: curses.window) -> None:

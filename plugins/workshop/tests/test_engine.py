@@ -192,6 +192,20 @@ class HappyPath(Case):
         self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
 
 
+class Restart(Case):
+    def test_a_ticket_with_a_run_isnt_replaced_by_accident(self):
+        self.start()
+        with self.assertRaisesRegex(Park, "already has a run"):
+            self.start()
+        self.assertEqual(self.tools.worktrees, 1)
+
+    def test_restart_starts_over_in_the_same_workspace(self):
+        first = self.to_verify()
+        run = self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source, restart=True)
+        self.assertEqual((run.step, run.pane, run.worktree), (0, first.pane, first.worktree))
+        self.assertEqual(self.tools.worktrees, 1)
+
+
 class Resume(Case):
     def test_a_new_process_carries_on_from_the_saved_state(self):
         self.to_verify()

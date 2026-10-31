@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -43,11 +43,11 @@ def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
     return lambda run: make_source(run.repo, cfg["repos"][run.repo], cfg.get("jira", {}))
 
 
-def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bool = False) -> Run:
+def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bool = False, restart: bool = False) -> Run:
     repo = cfg["repos"][name]
     source = make_source(name, repo, cfg.get("jira", {}))
     path = Path(repo["path"]).expanduser()
-    return engine.start(name, key, path, repo.get("base", "main"), load(repo.get("pipeline", "ticket")), source, override)
+    return engine.start(name, key, path, repo.get("base", "main"), load(repo.get("pipeline", "ticket")), source, override, restart)
 
 
 def advance_all(engine: Engine) -> None:
@@ -169,7 +169,7 @@ def main(argv: list[str]) -> int:
             case "advance":
                 locked(root, lambda: advance_all(engine))
             case "start":
-                locked(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv))))
+                locked(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv, "--restart" in argv))))
             case "status":
                 show_status(engine)
             case "needs-you":
