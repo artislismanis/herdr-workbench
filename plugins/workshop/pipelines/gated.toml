@@ -20,6 +20,7 @@ then.REJECTED = { goto = "plan", max = 2, prompt = "replan.md" }
 id = "build"
 kind = "agent"
 prompt = "build.md"
+publish = "pr"
 
 [[steps]]
 id = "verify"

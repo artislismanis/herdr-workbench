@@ -26,6 +26,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop answer <key> <text>` | Answers an agent's question |
 | `workshop list` | Ready tickets |
 | `workshop schedule [<every>\|off]` | Shows, sets or stops the tick timer |
+| `workshop stats` | Tokens, cost, first-pass rate and stops across all runs |
 | `workshop doctor [--no-launch]` | Finds what would stop a run |
 
 A `waiting` run stopped as planned, at a gate or with a question. A `parked` run stopped because something went wrong. Neither counts towards `max_active`.
@@ -51,9 +52,15 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 
 `[throttle]` paces work against Claude's limits, using `~/.local/state/claude-usage.json`, which the status line saves. See `config.example.toml`. Running steps always finish. Without the file, or with an old one, tickets run one at a time.
 
+## Run files
+
+Briefs, reports and notes live in `~/.local/state/workshop/runs/<repo>--<key>/`, not in the repo, so they outlive the worktree. Each review round's report is kept as `<step>-<n>.md`. Agents reach the folder through `--add-dir`.
+
+A step can set `output`, the file it writes, and `publish`: `pr` makes it the PR description and `ticket` posts it as a ticket comment.
+
 ## Cost
 
-Each agent step records its turns, tokens, minutes and API-equivalent dollars, read from Claude Code's transcripts. `workshop explain` shows them, and the ticket gets the summary with the draft PR. On a subscription the dollars aren't a bill, they're for comparing steps. Prices live in `workshop/cost.py`, and a model not listed there shows as unpriced.
+Each agent step records its turns, tokens, minutes and API-equivalent dollars, read from Claude Code's transcripts. `workshop explain` shows them, the ticket gets the summary with the draft PR, and `workshop stats` adds them up across runs. On a subscription the dollars aren't a bill, they're for comparing steps. Prices live in `workshop/cost.py`, and a model not listed there shows as unpriced.
 
 ## Running it on a schedule
 

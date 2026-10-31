@@ -48,6 +48,10 @@ class Validate(unittest.TestCase):
     def test_the_gated_pipeline_is_valid(self):
         self.assertEqual([s["kind"] for s in load("gated")["steps"]], ["agent", "gate", "agent", "agent", "draft_pr"])
 
+    def test_outputs_and_publishing_are_checked(self):
+        self.rejects({"name": "x", "steps": [agent(output="../secret")]}, "plain file name")
+        self.rejects({"name": "x", "steps": [agent(publish="slack")]}, "publish must be")
+
     def test_a_gate_names_a_report(self):
         self.rejects({"name": "x", "steps": [{"id": "a", "kind": "gate"}]}, "report")
 

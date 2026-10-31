@@ -52,6 +52,12 @@ class Store:
     def path(self, repo: str, key: str) -> Path:
         return self.root / "runs" / f"{repo}--{key}.json"
 
+    def files(self, run: Run) -> Path:
+        """Briefs, reports and notes: the plugin's, so they outlive the worktree."""
+        path = self.root / "runs" / f"{run.repo}--{run.key}"
+        path.mkdir(exist_ok=True)
+        return path
+
     def exists(self, repo: str, key: str) -> bool:
         return self.path(repo, key).exists()
 
@@ -80,9 +86,9 @@ class Store:
         with (self.root / "events.jsonl").open("a", encoding="utf-8") as log:
             log.write(json.dumps(line) + "\n")
 
-    def events(self, run: Run) -> list[dict[str, Any]]:
+    def history(self) -> list[dict[str, Any]]:
         log = self.root / "events.jsonl"
-        if not log.exists():
-            return []
-        lines = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-        return [e for e in lines if e["repo"] == run.repo and e["key"] == run.key]
+        return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+
+    def events(self, run: Run) -> list[dict[str, Any]]:
+        return [e for e in self.history() if e["repo"] == run.repo and e["key"] == run.key]

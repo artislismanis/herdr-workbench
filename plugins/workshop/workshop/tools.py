@@ -10,8 +10,6 @@ from typing import Any
 from . import cost
 from .shell import ToolError, run, run_json
 
-# Its files end in .txt because repo linters pick files by extension and can't see git's exclude file.
-IGNORED = ".workshop/"
 REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
@@ -31,14 +29,6 @@ class Tools:
         known = subprocess.run(["git", "rev-parse", "--verify", "--quiet", branch], cwd=repo, capture_output=True)
         args = [branch] if known.returncode == 0 else ["--create", branch, "--base", base]
         return Path(run_json("wt", "switch", *args, "--no-cd", "--yes", "--format=json", cwd=repo)["path"])
-
-    def ignore_scratch(self, work: Path) -> None:
-        # Kept out of git: the ticket text stays local and never reaches the PR.
-        common = run("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=work).strip()
-        with (Path(common) / "info" / "exclude").open("a+", encoding="utf-8") as exclude:
-            exclude.seek(0)
-            if IGNORED not in exclude.read():
-                exclude.write(IGNORED + "\n")
 
     def workspace(self, path: Path, label: str) -> str:
         made = run_json("herdr", "workspace", "create", "--cwd", str(path), "--label", label, "--no-focus")
@@ -87,8 +77,9 @@ class Tools:
         return json.loads(done.stdout)["result"]["agent"]["agent_status"]
         return json.loads(done.stdout)["result"]["agent"]["agent_status"]
 
-    def start_agent(self, name: str, pane: str, model: str = "") -> None:
-        run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane, *(["--", "--model", model] if model else []))
+    def start_agent(self, name: str, pane: str, files: Path, model: str = "") -> None:
+        # Run files stay out of the repo, so agents need leave to reach them.
+        run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane, "--", "--add-dir", str(files), *(["--model", model] if model else []))
 
     def prompt(self, name: str, text: str) -> None:
         # Waits only until the agent has started, so "idle" afterwards means it finished.

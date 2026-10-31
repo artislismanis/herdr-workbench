@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 KINDS = ("agent", "gate", "draft_pr")
-STEP_KEYS = {"id", "kind", "prompt", "read_only", "fresh", "verdict", "then", "model", "minutes", "report"}
+PUBLISH = ("pr", "ticket")
+STEP_KEYS = {"id", "kind", "prompt", "read_only", "fresh", "verdict", "then", "model", "minutes", "output", "publish", "report"}
 GATE_KEYS = {"id", "kind", "report", "then"}
 RULE_KEYS = {"goto", "max", "prompt", "park"}
 
@@ -62,6 +63,10 @@ def validate(raw: Any) -> dict[str, Any]:
             prompt_text(step["prompt"])
             if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
                 raise PipelineError(f"{where}: minutes must be 1 or more")
+            if not re.fullmatch(r"[a-z0-9-]+\.[a-z]+", step.get("output", "report.md")):
+                raise PipelineError(f"{where}: output is a plain file name, like spec.md")
+            if step.get("publish", "pr") not in PUBLISH:
+                raise PipelineError(f"{where}: publish must be one of {PUBLISH}")
         elif step["kind"] == "gate":
             if set(step) - GATE_KEYS:
                 raise PipelineError(f"{where}: a gate takes only {sorted(GATE_KEYS)}")
