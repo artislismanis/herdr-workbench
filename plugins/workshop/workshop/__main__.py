@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .backlog import poll
+from .board import show
 from .doctor import doctor
 from .engine import PREFIX, Engine, Park
 from .pipeline import PipelineError, load
@@ -23,7 +24,7 @@ from .tools import Tools
 
 
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 def config_path() -> Path:
@@ -193,6 +194,10 @@ def main(argv: list[str]) -> int:
                 print(stats(engine.store.history()))
             case "refresh":
                 show_refresh(cfg, engine.store)
+            case "board":
+                show(engine, cfg)
+            case "open-board":
+                engine.tools.open_board()
         return 0
     except (Park, PipelineError, ToolError, KeyError) as stop:
         print(f"workshop: {stop}", file=sys.stderr)

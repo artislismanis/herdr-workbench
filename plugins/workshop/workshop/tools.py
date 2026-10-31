@@ -10,6 +10,7 @@ from typing import Any
 from . import cost
 from .shell import ToolError, run, run_json
 
+BOARD = "workshop"  # the board's workspace
 REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
@@ -33,6 +34,18 @@ class Tools:
     def workspace(self, path: Path, label: str) -> str:
         made = run_json("herdr", "workspace", "create", "--cwd", str(path), "--label", label, "--no-focus")
         return made["result"]["root_pane"]["pane_id"]
+
+    def focus(self, pane: str) -> None:
+        run("herdr", "workspace", "focus", pane.split(":")[0])
+
+    def open_board(self) -> None:
+        """A second press goes back to the same board. Quitting closes its workspace, so one that's open is live."""
+        for space in run_json("herdr", "workspace", "list")["result"]["workspaces"]:
+            if space.get("label") == BOARD:
+                run("herdr", "workspace", "focus", space["workspace_id"])
+                return
+        made = run_json("herdr", "workspace", "create", "--cwd", str(Path.home()), "--label", BOARD, "--focus")
+        run("herdr", "pane", "run", made["result"]["root_pane"]["pane_id"], f"exec {Path.home()}/.local/bin/workshop board")
 
     def split(self, pane: str, path: Path) -> str:
         made = run_json("herdr", "pane", "split", pane, "--direction", "right", "--cwd", str(path), "--no-focus")
