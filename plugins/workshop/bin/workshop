@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# System Python: it has python3-yaml, and needs no venv or mise activation.
+# Standard library only, so it needs no venv or mise activation.
 # Cron and herdr events start with a bare PATH, and our tools live in these two.
 export PYTHONDONTWRITEBYTECODE=1
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"

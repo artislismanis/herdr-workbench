@@ -2,11 +2,10 @@
 
 import os
 import re
+import tomllib
 from importlib import resources
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 KINDS = ("agent", "draft_pr")
 STEP_KEYS = {"id", "kind", "prompt", "read_only", "fresh", "verdict", "then"}
@@ -72,9 +71,9 @@ def validate(raw: Any) -> dict[str, Any]:
 def load(name: str) -> dict[str, Any]:
     if not re.fullmatch(r"[a-z][a-z0-9-]*", name):
         raise PipelineError(f"bad pipeline name: {name}")
-    user = user_dir() / f"{name}.yaml"
-    shipped = Path(__file__).resolve().parent.parent / "pipelines" / f"{name}.yaml"
+    user = user_dir() / f"{name}.toml"
+    shipped = Path(__file__).resolve().parent.parent / "pipelines" / f"{name}.toml"
     path = user if user.exists() else shipped
     if not path.exists():
         raise PipelineError(f"no pipeline called {name}")
-    return validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+    return validate(tomllib.loads(path.read_text(encoding="utf-8")))
