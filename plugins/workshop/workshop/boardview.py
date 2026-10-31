@@ -21,6 +21,7 @@ MOVES = (("you", "Your move"), ("others", "Waiting on others"), ("done", "Done l
 SYMBOLS = {True: "●", False: "○"}  # with colour, so it reads in any theme
 STAGE_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
 REVIEW_MARKS = {"APPROVED": ("✓", "green"), "CHANGES_REQUESTED": ("✗", "red")}
+MAX_LINES = 2000
 RECENT = 10
 LANDED = 5
 BAR = 30
@@ -39,6 +40,7 @@ class Line:
     spans: list[Span] = field(default_factory=list)
     run: Run | None = None
     pr: dict[str, Any] | None = None
+    path: str = ""
 
     @property
     def text(self) -> str:
@@ -50,6 +52,8 @@ class Line:
 
     @property
     def ref(self) -> tuple[str, str] | None:
+        if self.path:
+            return ("#file", self.path)
         if self.pr:
             return ("#pr", self.pr["url"])
         return (self.run.repo, self.run.key) if self.run else None
@@ -272,10 +276,18 @@ def timeline(run: Run, events: list[dict[str, Any]]) -> list[Line]:
     return lines
 
 
-def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int) -> list[Line]:
+def document(path: str, text: str, width: int) -> list[Line]:
+    lines = [plain(path, "dim"), plain()]
+    for line in text.splitlines()[:MAX_LINES]:
+        lines += wrapped(line, width) or [plain()]
+    return lines
+
+
+def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = ()) -> list[Line]:
     lines = [*wrapped(f"{name(run)}  {title}", width, "bold"), Line([Span(f" {run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}")])]
     lines += wrapped(run.reason, width, "red" if run.status == "parked" else "yellow")
     lines += wrapped(f"Then: {next_action}" if next_action else "", width)
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
     lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
-    return [*lines, *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Steps", width), *timeline(run, events), plain(), rule("Log", width), *recent(events, 12)]
+    shown = [Line([Span("  " + clean(path.rsplit("/", 1)[-1]))], path=path) for path in reports]
+    return [*lines, *wrapped(f"Files: {files}", width, "dim"), *([plain(), rule("Reports", width), *shown] if shown else []), plain(), rule("Steps", width), *timeline(run, events), plain(), rule("Log", width), *recent(events, 12)]

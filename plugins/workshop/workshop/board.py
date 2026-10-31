@@ -5,10 +5,11 @@ import locale
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from .backlog import SNAPSHOT
-from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, drill, pull, pulls
+from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, pull, pulls
 from .engine import STOPS, Engine
 from .store import Run
 from .themes import TERMINAL, config_path, nearest, palette
@@ -45,6 +46,7 @@ class Board:
         self.tab, self.offset = DELIVERY, 0
         self.picked: tuple[str, str] | None = None
         self.open: tuple[str, str] | None = None
+        self.viewing = ""
         self.message, self.refreshing, self.seen = "", False, None
         self.asking: Ask | None = None
         self.typed = ""
@@ -76,13 +78,22 @@ class Board:
     def opened_pr(self) -> dict[str, Any] | None:
         return next((p for p in self.snapshot.get("prs", {}).get("items", []) if ("#pr", p["url"]) == self.open), None)
 
+    def reports(self, run: Run) -> tuple[str, ...]:
+        found = [p for p in self.store.files(run).iterdir() if p.suffix in (".md", ".json")]
+        return tuple(str(p) for p in sorted(found, key=lambda p: p.stat().st_mtime, reverse=True))
+
     def lines(self, width: int) -> list[Line]:
+        if self.viewing:
+            try:
+                return document(self.viewing, Path(self.viewing).read_text(encoding="utf-8", errors="replace"), width)
+            except OSError as failed:
+                return document(self.viewing, str(failed), width)
         if pr := self.opened_pr():
             return pull(pr, width)
         if run := self.drilled():
             action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
             events = [e for e in self.events if (e["repo"], e["key"]) == self.open]
-            return drill(run, events, self.title(run), action, str(self.store.files(run)), width)
+            return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run))
         if self.tab == DELIVERY:
             return deliveries(self.runs, self.events, self.title, width, self.engine.throttle.snapshot())
         return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls(self.snapshot, width)
@@ -118,14 +129,16 @@ class Board:
             self.move(-1, lines)
         elif key in (curses.KEY_DOWN, ord("j")):
             self.move(1, lines)
-        elif key in ENTERS and not self.open:
-            self.open, self.offset = self.selected(lines), 0
+        elif key in ENTERS:
+            self.enter(self.selected(lines))
         elif key == ESCAPE and self.open:
-            self.open, self.offset = None, 0
+            self.back()
         elif key == ord("q"):
             if not self.open:
                 return False
-            self.open, self.offset = None, 0
+            self.back()
+        elif key == ord("y"):
+            self.copy(lines)
         elif key in (TAB_KEY, curses.KEY_BTAB) and not self.open:
             self.tab, self.offset = (self.tab + (1 if key == TAB_KEY else -1)) % len(TABS), 0
         elif key == ord("r"):
@@ -133,6 +146,27 @@ class Board:
         elif key == ord("g"):
             self.jump(self.open or self.selected(lines))
         return True
+
+    def enter(self, ref: tuple[str, str] | None) -> None:
+        if ref and ref[0] == "#file":
+            self.viewing, self.offset = ref[1], 0
+        elif ref and not self.open:
+            self.picked, self.open, self.offset = ref, ref, 0
+
+    def back(self) -> None:
+        if self.viewing:
+            self.viewing = ""
+        else:
+            self.open = None
+        self.offset = 0
+
+    def copy(self, lines: list[Line]) -> None:
+        """The whole view, since the board holds the mouse and a drag can't select it."""
+        try:
+            self.engine.tools.copy("\n".join(line.text.rstrip() for line in lines))
+            self.message = "Copied."
+        except STOPS as failed:
+            self.message = f"Couldn't copy: {failed}"
 
     def target(self, lines: list[Line]) -> Run | None:
         wanted = self.open or self.selected(lines)
@@ -215,8 +249,8 @@ class Board:
         if self.message:
             return Line([Span(self.message, "yellow")])
         moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), ("enter open", 10)]
-        stopped = [(action[1], action[0]) for action in self.actions(self.lines(width))]
-        common = [("g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        stopped = moves[:1] * bool(self.open) + [(action[1], action[0]) for action in self.actions(self.lines(width))]
+        common = [("y copy", ord("y")), ("g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def wheel(self, by: int, width: int) -> None:
@@ -230,11 +264,11 @@ class Board:
             if y != top or not left <= x < right:
                 continue
             if isinstance(action, tuple):
-                self.picked, self.open, self.offset = action, action, 0
+                self.enter(action)
                 return True
             kind, _, value = action.partition(":")
             if kind == "tab":
-                self.tab, self.open, self.offset = int(value), None, 0
+                self.tab, self.open, self.viewing, self.offset = int(value), None, "", 0
                 return True
             return self.press(int(value), width)
         return True
@@ -280,7 +314,7 @@ class Board:
         screen.erase()
         self.put(screen, TOP, self.header(), styles, width)
         for y, line in enumerate(self.window(lines, rows - TOP - 3), TOP + 2):
-            self.put(screen, y, line, styles, width, bool(line.ref) and line.ref == chosen and not self.open)
+            self.put(screen, y, line, styles, width, bool(line.ref) and line.ref == chosen)
         self.put(screen, rows - 1, self.footer(width - 1), styles, width)
         screen.refresh()
 

@@ -374,6 +374,40 @@ class Keys(unittest.TestCase):
         self.board.press(10)
         self.assertEqual((self.board.asking.command, self.board.typed), ("comment", "keep me"))
 
+    def reported(self):
+        self.board.press(10)
+        path = self.store.files(run("1")) / "plan.md"
+        path.write_text("Line one\n\nLine two\n", encoding="utf-8")
+        return str(path)
+
+    def test_a_report_opens_and_esc_returns_to_the_run(self):
+        path = self.reported()
+        self.assertIn("plan.md", joined(self.board.lines(100)))
+        self.board.press(10)
+        self.assertEqual(self.board.viewing, path)
+        self.assertIn("Line two", joined(self.board.lines(100)))
+        self.board.press(27)
+        self.assertEqual((self.board.viewing, self.board.open), ("", ("r", "1")))
+
+    def test_clicking_a_report_opens_it(self):
+        path = self.reported()
+        self.drawn()
+        x, y = self.spot(("#file", path))
+        self.board.mouse(x + 3, y, curses.BUTTON1_PRESSED, 149)
+        self.assertEqual(self.board.viewing, path)
+
+    def test_y_copies_the_view(self):
+        self.reported()
+        self.board.press(10)
+        self.board.press(ord("y"))
+        self.assertIn("Line one", self.tools.copy.call_args.args[0])
+        self.assertIn("Copied", self.board.footer().text)
+
+    def test_a_failed_copy_says_so(self):
+        self.tools.copy.side_effect = OSError("no wl-copy")
+        self.board.press(ord("y"))
+        self.assertIn("Couldn't copy", self.board.footer().text)
+
     def test_a_failed_command_shows_why(self):
         self.tools.workshop.side_effect = ToolError("no such run")
         self.stopped()
