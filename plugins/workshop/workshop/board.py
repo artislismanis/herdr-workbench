@@ -309,9 +309,9 @@ class Board:
         lines = self.lines(width)
         run = self.target(lines)
         stopped = moves[:1] * bool(self.open) + [(action[1], action[0]) for action in self.actions(lines)]
-        moves += [("a ai review", AI_REVIEW)] * bool(self.unreviewed(lines))
+        offers = [("a ai review", AI_REVIEW)] * bool(self.unreviewed(lines))
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
-        return Line([part for label, key in (stopped or moves) + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
+        return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def wheel(self, by: int, width: int) -> None:
         lines = self.lines(width)

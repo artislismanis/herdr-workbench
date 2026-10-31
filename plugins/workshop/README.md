@@ -59,6 +59,7 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 |---|---|
 | `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `open-pr` |
 | `gated` | The same, with your approval after `tasks` |
+| `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk |
 
 `ticket_stage` names the stage the ticket itself stands for. It has no steps yet, so it leads the Workflow panel with the ticket, and it counts in the strip. Any step can set `stage`, and the Workflow panel groups by it. It's a free name, so use your own, and leave it out for a flat list. The shipped pipelines use Build, Test and Deploy, from [the AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook).
 
