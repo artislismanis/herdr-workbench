@@ -128,6 +128,9 @@ class Drill(unittest.TestCase):
         self.assertTrue(any("verify" in t and "2 round(s)" in t and "PASS" in t and "4.0 min" in t and "$1.00" in t for t in lines))
         self.assertTrue(any(t.strip().startswith("◐ pr") for t in lines))
 
+    def test_steps_behind_the_run_are_done_even_without_events(self):
+        self.assertTrue(any(t.strip().startswith("● plan") for t in texts(drill(run(step=1), [], "", "", "/f", 80))))
+
     def test_a_stopped_run_says_why_and_what_next(self):
         lines = texts(drill(run(status="parked", reason="word " * 40), [], "", "workshop resume 1", "/f", 40))
         self.assertTrue(all(len(t) <= 40 for t in lines[2:6]))

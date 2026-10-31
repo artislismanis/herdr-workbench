@@ -249,7 +249,7 @@ def timeline(run: Run, events: list[dict[str, Any]]) -> list[Line]:
         finished = [e for e in seen if e["type"] == "step" and e.get("state") == "done"]
         rounds = len([e for e in seen if e["type"] == "step" and e.get("state") == "running"])
         current = index == run.step and run.status != "done"
-        mark, style = ("◐", COLOURS[run.status]) if current else ("●", "green") if finished else ("○", "dim")
+        mark, style = ("◐", COLOURS[run.status]) if current else ("●", "green") if finished or index < run.step or run.status == "done" else ("○", "dim")
         notes = [f"{rounds} round(s)"] if rounds else []
         if finished and finished[-1].get("verdict"):
             notes.append(finished[-1]["verdict"])
