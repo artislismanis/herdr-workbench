@@ -280,6 +280,13 @@ class Concluding(Case):
                 self.engine.comment(run, text)
         self.assertEqual((run.status, len(self.source.reports)), ("waiting", before))
 
+    def test_a_command_can_put_its_note_on_the_next_line(self):
+        self.assertEqual(self.engine.comment(self.parked_after_rounds(), "/ai drop\nNo longer needed").reason, "No longer needed")
+
+    def test_gate_decisions_leave_a_record_on_the_ticket(self):
+        self.engine.approve(self.gate())
+        self.assertIn("[ai] Approved.", self.source.reports)
+
     def test_a_gate_can_be_dropped(self):
         self.assertEqual(self.engine.drop(self.gate()).landed, "dropped")
 

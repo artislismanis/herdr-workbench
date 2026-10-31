@@ -115,10 +115,10 @@ class Engine:
             return run
 
     def _ticket_action(self, text: str) -> tuple[str, str] | None:
-        if not text.strip().startswith(self.command + " "):
+        parts = text.split(None, 2)
+        if len(parts) < 2 or parts[0] != self.command or parts[1] not in ("retry", "pass", "drop"):
             return None
-        word, _, note = text.strip().removeprefix(self.command).strip().partition(" ")
-        return (word, note.strip()) if word in ("retry", "pass", "drop") else None
+        return parts[1], parts[2].strip() if len(parts) > 2 else ""
 
     def _act(self, run: Run, word: str, note: str) -> Run:
         return {"retry": self.retry, "pass": self.accept, "drop": self.drop}[word](run, note)
@@ -216,6 +216,7 @@ class Engine:
 
     def approve(self, run: Run) -> Run:
         self._at_gate(run)
+        self._post(run, "Approved.")
         run.status, run.reason = "running", ""
         run.step, run.phase = run.step + 1, ""
         self.store.event(run, "approved")
@@ -224,6 +225,7 @@ class Engine:
 
     def reject(self, run: Run, note: str) -> Run:
         step = self._at_gate(run)
+        self._post(run, f"Rejected. {note}")
         self._note(run, "feedback.md", note)
         self.store.event(run, "rejected", note=note)
         run.status, run.reason = "running", ""

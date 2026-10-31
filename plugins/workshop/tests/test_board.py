@@ -52,6 +52,10 @@ class Text(unittest.TestCase):
         self.assertEqual(bar(1, 2, 4), "██░░")
         self.assertEqual(bar(0, 0, 2), "░░")
 
+    def test_a_dropped_run_opens_at_the_step_it_stopped(self):
+        lines = texts(drill(run(status="done", landed="dropped", step=1), [], "", "", "/f", 80))
+        self.assertTrue(any(t.strip().startswith("◐ verify") for t in lines))
+
     def test_a_dropped_run_shows_where_it_stopped(self):
         self.assertTrue("".join(s.text for s in pipe(run(status="done", landed="dropped", step=1))).startswith("●─◐─○"))
 
@@ -362,6 +366,14 @@ class Keys(unittest.TestCase):
         self.board.press(ord("d"))
         self.assertEqual(self.sent(), ("drop", "1"))
 
+    def test_enter_during_another_command_keeps_your_words(self):
+        self.stopped()
+        self.board.press(ord("c"))
+        self.type_in("keep me")
+        self.board.refreshing = True
+        self.board.press(10)
+        self.assertEqual((self.board.asking.command, self.board.typed), ("comment", "keep me"))
+
     def test_a_failed_command_shows_why(self):
         self.tools.workshop.side_effect = ToolError("no such run")
         self.stopped()
@@ -377,6 +389,9 @@ class Keys(unittest.TestCase):
         footer = self.board.footer().text
         self.assertIn("a approve", footer)
         self.assertNotIn("p pass", footer)
+        self.board.press(ord("a"))
+        self.type_in("ignored")
+        self.assertEqual(self.sent(), ("approve", "1"))
 
 
 class Mouse(Keys):

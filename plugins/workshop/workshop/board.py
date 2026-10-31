@@ -36,7 +36,7 @@ class Ask(NamedTuple):
 
 # Key, button label, command, what to ask for, and whether it's needed.
 STOPPED = ((ord("c"), "c comment", "comment", "Comment on the ticket", True), (ord("t"), "t retry", "retry", "Retry, with an optional note", False), (ord("p"), "p pass", "pass", "Pass this step, with an optional note", False), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
-GATE = ((ord("a"), "a approve", "approve", "Approve this gate", False), (ord("x"), "x reject", "reject", "Reject, saying what to change", True), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
+GATE = ((ord("a"), "a approve", "approve", "Approve this gate? Enter confirms", False), (ord("x"), "x reject", "reject", "Reject, saying what to change", True), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
 
 
 class Board:
@@ -156,9 +156,11 @@ class Board:
         if key == ESCAPE:
             self.asking = None
         elif key in ENTERS:
-            if self.typed.strip() or not asking.required:
+            # While another command runs, the words stay put for a second enter.
+            if not self.refreshing and (self.typed.strip() or not asking.required):
                 self.asking = None
-                self.send(asking.command, asking.key, *([self.typed.strip()] if self.typed.strip() else []))
+                words = [self.typed.strip()] if self.typed.strip() and asking.command != "approve" else []
+                self.send(asking.command, asking.key, *words)
         elif key in BACKSPACES:
             self.typed = self.typed[:-1]
         elif 32 <= key < curses.KEY_MIN and key != 127:
