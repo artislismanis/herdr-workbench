@@ -96,7 +96,8 @@ def steps(run: Run, events: list[dict[str, Any]]) -> list[Line]:
         finished = [e for e in seen if e["type"] == "step" and e.get("state") == "done"]
         current = index == run.step and run.status != "done"
         state = run.status if current else "done" if finished else "pending"
-        facts = [f"{len(spent)} round(s)"] if spent else []
+        rounds = len([e for e in seen if e["type"] == "step" and e.get("state") == "running"])
+        facts = [f"{rounds} round(s)"] if rounds else []
         if finished and finished[-1].get("verdict"):
             facts.append(finished[-1]["verdict"])
         if spent:

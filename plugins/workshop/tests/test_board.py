@@ -85,7 +85,8 @@ class Backlog(unittest.TestCase):
 class Drill(unittest.TestCase):
     def test_shows_each_steps_rounds_verdict_and_cost(self):
         spent = {"minutes": 2.0, "usd": 0.5}
-        events = [event("spent", step="plan", **spent), event("step", step="plan", state="done", verdict=""), event("spent", step="verify", **spent), event("spent", step="verify", **spent), event("step", step="verify", state="done", verdict="PASS")]
+        started = event("step", step="verify", state="running")
+        events = [event("step", step="plan", state="running"), event("spent", step="plan", **spent), event("step", step="plan", state="done", verdict=""), started, started, event("spent", step="verify", **spent), event("spent", step="verify", **spent), event("step", step="verify", state="done", verdict="PASS")]
         lines = texts(drill(run(step=2), events, "Title", "", "/files", 100))
         self.assertTrue(any("plan" in t and "1 round(s)" in t and "$0.50" in t for t in lines))
         self.assertTrue(any("verify" in t and "2 round(s)" in t and "PASS" in t and "4.0 min" in t and "$1.00" in t for t in lines))
