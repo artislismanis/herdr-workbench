@@ -2,6 +2,7 @@
 
 import curses
 import locale
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -20,7 +21,9 @@ BACKLOG, DELIVERY, REVIEW = range(3)
 TOP = 1  # a gap under herdr's tab bar
 WHEEL = 3
 MESSAGE_SECONDS = 5
-CLICKS = curses.BUTTON1_PRESSED | curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED
+CLICKS = curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED | curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED | curses.REPORT_MOUSE_POSITION
+DRAGS_ON, DRAGS_OFF = "\033[?1002h", "\033[?1002l"
+JITTER = 2  # a press that moves less than this along a row is still a click
 PAGE = 10
 PANEL_WIDTH = 130  # below this a window can't hold a list and a detail side by side
 LIST_SHARE = 55  # percent of the window for the list
@@ -55,7 +58,10 @@ class Board:
         self.side = 0  # how far the panel has scrolled
         self.earlier = False  # older rounds' reports showing
         self.message, self.said, self.refreshing, self.seen = "", 0.0, False, None
-        self.selecting = False  # the mouse is given back, so a drag selects text
+        self.grab: tuple[int, int] | None = None  # where a press landed, until its release
+        self.reach: tuple[int, int] | None = None  # how far the drag has got
+        self.painted: dict[int, list[tuple[int, str]]] = {}  # what's on each row, since a drag selects what's drawn
+        self.edge, self.right, self.rows = 0, 0, 0
         self.asking: Ask | None = None
         self.typed = ""
         self.regions: list[tuple[int, int, int, Action]] = []
@@ -179,8 +185,6 @@ class Board:
             self.back()
         elif key == ord("e"):
             self.earlier = not self.earlier
-        elif key == ord("m"):
-            self.selecting = not self.selecting
         elif key in (curses.KEY_NPAGE, curses.KEY_PPAGE):
             self.scroll(PAGE if key == curses.KEY_NPAGE else -PAGE, width)
         elif key in (TAB_KEY, curses.KEY_BTAB) and not self.open:
@@ -297,8 +301,7 @@ class Board:
             return Line([Span(self.message, "yellow")])
         moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), ("enter open", 10)]
         stopped = moves[:1] * bool(self.open) + [(action[1], action[0]) for action in self.actions(self.lines(width))]
-        mouse = ("m clicks back", ord("m")) if self.selecting else ("m select text", ord("m"))
-        common = [mouse, ("g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        common = [("g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def wheel(self, by: int, width: int) -> None:
@@ -332,8 +335,40 @@ class Board:
             else:
                 self.wheel(by, width)
         elif state & curses.BUTTON1_PRESSED:
-            return self.click(x, y, width)
+            self.grab, self.reach = (x, y), None
+        elif state & curses.REPORT_MOUSE_POSITION and self.grab:
+            self.reach = (x, y)
+        elif state & curses.BUTTON1_RELEASED and self.grab:
+            start, self.grab, self.reach = self.grab, None, None
+            if y == start[1] and abs(x - start[0]) < JITTER:
+                return self.click(start[0], start[1], width)
+            self.copy_selection(start, (x, y))
         return True
+
+    def selection(self, start: tuple[int, int], end: tuple[int, int]) -> list[tuple[int, int, int]]:
+        """Rows as (y, from, to), held to the column the drag began in, so the list and panel never mix."""
+        left, right = (0, self.edge or self.right) if not self.edge or start[0] < self.edge else (self.edge + 2, self.right)
+        first, last = TOP + 2, self.rows - 2
+        (top, x1), (bottom, x2) = sorted(((min(max(y, first), last), max(min(x, right - 1), left)) for x, y in (start, end)))
+        return [(y, x1 if y == top else left, x2 + 1 if y == bottom else right) for y in range(top, bottom + 1)]
+
+    def row_text(self, y: int, left: int, right: int) -> str:
+        cells = [" "] * right
+        for x, text in self.painted.get(y, []):
+            for at, letter in enumerate(text, x):
+                if left <= at < right:
+                    cells[at] = letter
+        return "".join(cells[left:right]).rstrip()
+
+    def copy_selection(self, start: tuple[int, int], end: tuple[int, int]) -> None:
+        text = "\n".join(self.row_text(*row) for row in self.selection(start, end)).strip("\n")
+        if not text:
+            return
+        try:
+            self.engine.tools.copy(text)
+            self.say(f"Copied {len(text)} characters.")
+        except STOPS as failed:
+            self.say(str(failed))
 
     def window(self, lines: list[Line], height: int) -> list[Line]:
         chosen = self.selected(lines)
@@ -351,6 +386,7 @@ class Board:
                 break
             attr = styles.get(f"row-{span.style}", styles[span.style]) if selected else styles[span.style]
             screen.addnstr(y, x, text, width - 1 - x, attr)
+            self.painted.setdefault(y, []).append((x, text))
             if span.action:
                 self.regions.append((y, x, x + columns(text), span.action))
             x += columns(text)
@@ -363,12 +399,14 @@ class Board:
         rows, width = screen.getmaxyx()
         lines = self.lines(width - 1)
         chosen = self.selected(lines)
-        self.regions = []
+        self.regions, self.painted = [], {}
+        self.right, self.rows = width - 1, rows
         screen.erase()
         self.put(screen, TOP, self.header(), styles, width)
         height = rows - TOP - 3
         panelled = self.panelled(width - 1)
         edge = self.list_width(width - 1) + 1 if panelled else width
+        self.edge = edge if panelled else 0
         for y, line in enumerate(self.window(lines, height), TOP + 2):
             self.put(screen, y, line, styles, edge, bool(line.ref) and line.ref == chosen)
         if panelled:
@@ -379,6 +417,9 @@ class Board:
             for y, line in enumerate(side[self.side : self.side + height], TOP + 2):
                 self.put(screen, y, line, styles, width, left=edge + 2)
         self.put(screen, rows - 1, self.footer(width - 1), styles, width)
+        if self.grab and self.reach:
+            for y, left, right in self.selection(self.grab, self.reach):
+                screen.chgat(y, left, max(right - left, 0), curses.A_REVERSE)
         screen.refresh()
 
     def colours(self) -> dict[str, int]:
@@ -410,14 +451,13 @@ class Board:
     def loop(self, screen: curses.window) -> None:
         curses.curs_set(0)
         styles, theme = self.colours(), self.theme_stamp()
-        selecting = True  # so the first pass through the loop sets the mask
+        curses.mousemask(CLICKS)
         curses.mouseinterval(0)
+        sys.stdout.write(DRAGS_ON)  # curses' own mouse mode reports presses, not movement
+        sys.stdout.flush()
         screen.timeout(1000)
         while True:
             self.reload()
-            if self.selecting != selecting:
-                selecting = self.selecting
-                curses.mousemask(0 if selecting else CLICKS)
             if self.theme_stamp() != theme:
                 styles, theme = self.colours(), self.theme_stamp()
                 screen.clear()
@@ -437,4 +477,8 @@ class Board:
 def show(engine: Engine, cfg: dict[str, Any]) -> None:
     locale.setlocale(locale.LC_ALL, "")
     curses.set_escdelay(25)
-    curses.wrapper(Board(engine, cfg).loop)
+    try:
+        curses.wrapper(Board(engine, cfg).loop)
+    finally:
+        sys.stdout.write(DRAGS_OFF)
+        sys.stdout.flush()
