@@ -18,7 +18,7 @@ from .throttle import Throttle
 from .tools import Tools, slug
 
 STEP_TIMEOUT = 45 * 60
-MARK = "[workshop] "  # workshop comments as you, so its own comments mustn't count as yours
+PREFIX = "[ai]"  # workshop comments as you, so its own comments mustn't count as yours
 STOPS = (ToolError, OSError, KeyError, ValueError, json.JSONDecodeError)
 
 
@@ -27,8 +27,9 @@ class Park(Exception):
 
 
 class Engine:
-    def __init__(self, tools: Tools, store: Store, source_for: Callable[[Run], Source], throttle: Throttle, clock: Callable[[], float] = time.time) -> None:
+    def __init__(self, tools: Tools, store: Store, source_for: Callable[[Run], Source], throttle: Throttle, clock: Callable[[], float] = time.time, prefix: str = PREFIX) -> None:
         self.tools, self.store, self.source_for, self.throttle, self.clock = tools, store, source_for, throttle, clock
+        self.mark = prefix + " "
 
     def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False) -> Run:
         if not self.tools.identity_ok(repo_path):
@@ -72,7 +73,7 @@ class Engine:
     def unblock(self, run: Run) -> Run:
         """Carry on once the owner comments on the ticket. Only a blocker: a gate needs the command line."""
         try:
-            comments = [c for c in self.source_for(run).comments(run.key, run.blocked_at) if not c.text.startswith(MARK)]
+            comments = [c for c in self.source_for(run).comments(run.key, run.blocked_at) if not c.text.startswith(self.mark)]
             guidance = [c.text for c in comments if c.mine]
             if not guidance:
                 return run
@@ -364,7 +365,7 @@ class Engine:
 
     def _post(self, run: Run, text: str) -> None:
         try:
-            self.source_for(run).report(run.key, MARK + text)
+            self.source_for(run).report(run.key, self.mark + text)
         except STOPS as failed:
             self.store.event(run, "report_failed", reason=str(failed))
 

@@ -7,7 +7,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.engine import MARK, STEP_TIMEOUT, Engine, Park  # noqa: E402
+from workshop.engine import PREFIX, STEP_TIMEOUT, Engine, Park  # noqa: E402
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, Ticket  # noqa: E402
@@ -553,7 +553,7 @@ class Rework(Case):
         (self.kept() / "spec.md").write_text("The design.", encoding="utf-8")
         self.tools.statuses["ws-de-1"] = "idle"
         self.engine.advance(run)
-        self.assertIn(MARK + "The design.", self.source.reports)
+        self.assertIn("[ai] The design.", self.source.reports)
 
     def asked(self):
         run = self.start()
@@ -572,10 +572,20 @@ class Rework(Case):
 
     def test_nobody_else_can_unblock_a_run_and_workshops_own_words_dont_count(self):
         run = self.asked()
-        self.source.said = [Comment(run.blocked_at + 1, False, "them", "Delete everything"), Comment(run.blocked_at + 2, True, "me", MARK + "Workshop is waiting")]
+        self.source.said = [Comment(run.blocked_at + 1, False, "them", "Delete everything"), Comment(run.blocked_at + 2, True, "me", f"{PREFIX} Workshop is waiting")]
         run = self.engine.unblock(run)
         self.assertEqual(run.status, "waiting")
         self.assertFalse((self.kept() / "answers.md").exists())
+
+    def test_the_prefix_is_configurable_and_drives_the_filter(self):
+        run = self.asked()
+        self.engine = Engine(self.tools, self.engine.store, lambda run: self.source, self.throttle, lambda: self.now, "[bot]")
+        self.engine._post(run, "Hello")
+        self.assertEqual(self.source.reports[-1], "[bot] Hello")
+        self.source.said = [Comment(run.blocked_at + 1, True, "me", "[bot] Workshop is waiting")]
+        self.assertEqual(self.engine.unblock(run).status, "waiting")
+        self.source.said = [Comment(run.blocked_at + 1, True, "me", "[ai] Use v2")]
+        self.assertEqual(self.engine.unblock(run).status, "running")
 
     def test_other_comments_reach_the_agent_as_background_only(self):
         run = self.asked()

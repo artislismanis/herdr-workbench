@@ -35,7 +35,7 @@ A `waiting` run stopped as planned, at a gate or with a question. A `parked` run
 
 - A ticket runs only if you were the last person to change it, because ticket text steers the agent. Use `--override`, or add the `<label>-override` label yourself, to run one anyway.
 - Gates are answered only from this command line, so nothing in a ticket can approve one.
-- A blocked run takes guidance only from a comment you wrote, and nobody else edited. Other people's comments reach the agent as background, never as instructions. Everything workshop posts starts with `[workshop]`, so it can't count as your comment.
+- A blocked run takes guidance only from a comment you wrote, and nobody else edited. Other people's comments reach the agent as background, never as instructions. Everything workshop posts starts with `comment_prefix`, `[ai]` by default, so it can't count as your comment.
 - Agents never commit or push. Workshop does, and it only opens draft PRs.
 
 ## Pipelines

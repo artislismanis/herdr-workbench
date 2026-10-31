@@ -38,6 +38,12 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("isn't valid TOML", err)
 
+    def test_an_empty_comment_prefix_is_an_error(self):
+        self.config.write_text('comment_prefix = " "\n[repos]\n', encoding="utf-8")
+        code, err = self.run_main("status")
+        self.assertEqual(code, 1)
+        self.assertIn("comment_prefix", err)
+
 
 if __name__ == "__main__":
     unittest.main()
