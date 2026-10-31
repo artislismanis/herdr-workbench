@@ -66,7 +66,7 @@ class FakeTools:
         self.statuses = {}
         self.models = {}
         self.notes = []
-        self.reviews, self.review_notes = [], None
+        self.reviews, self.review_notes, self.open_already = [], None, False
         self.prompts, self.started, self.closed = [], [], []
         self.changed, self.commits, self.pushes = [], [], 0
         self.commit_fails = False
@@ -134,6 +134,9 @@ class FakeTools:
 
     def mark_ready(self, work, pr):
         self.readied = pr
+
+    def review_open(self, work):
+        return self.open_already
 
     def push(self, work, branch):
         self.pushes += 1
@@ -637,6 +640,19 @@ class Review(Case):
         run = self.finished()
         self.assertEqual(run.status, "done")
         self.assertIn("review_failed", [e["type"] for e in self.engine.store.events(run)])
+
+    def test_an_open_review_keeps_what_was_added_since(self):
+        run = self.finished()
+        self.tools.review_notes = "kept"
+        self.tools.open_already = True
+        self.assertIn("Already open", self.engine.review(run))
+        self.assertEqual(self.tools.review_notes, "kept")
+
+    def test_a_landed_run_takes_no_more_pushes(self):
+        run = self.finished()
+        run.landed = "merged"
+        with self.assertRaises(KeyError):
+            self.engine.push_fixes(run)
 
     def test_ready_pushes_fixes_then_opens_the_pr(self):
         run = self.finished()

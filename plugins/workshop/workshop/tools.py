@@ -96,17 +96,17 @@ class Tools:
 
     def open_review(self, pane: str, work: Path, base: str) -> list[dict[str, Any]]:
         """Opens hunk beside the agent, or reuses a review already open, and returns its files."""
-        if not self._review_open(work):
+        if not self.review_open(work):
             run("herdr", "pane", "run", self.split(pane, work), f"hunk diff origin/{base}")
             for _ in range(REVIEW_WAIT):
-                if self._review_open(work):
+                if self.review_open(work):
                     break
                 time.sleep(0.5)
             else:
                 raise ToolError("hunk didn't open a review.")
         return run_json("hunk", "session", "review", "--repo", str(work), "--json")["review"]["files"]
 
-    def _review_open(self, work: Path) -> bool:
+    def review_open(self, work: Path) -> bool:
         return subprocess.run(["hunk", "session", "get", "--repo", str(work)], capture_output=True).returncode == 0
 
     def replace_notes(self, work: Path, notes: list[dict[str, Any]]) -> None:
@@ -150,6 +150,9 @@ class Tools:
 
     def ahead(self, work: Path, base: str) -> int:
         return int(run("git", "rev-list", "--count", f"origin/{base}..HEAD", cwd=work).strip())
+
+    def unpushed(self, work: Path, branch: str) -> int:
+        return int(run("git", "rev-list", "--count", f"origin/{branch}..HEAD", cwd=work).strip())
 
     def push(self, work: Path, branch: str) -> None:
         run("git", "push", "-u", "origin", branch, cwd=work)

@@ -212,7 +212,7 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
 
 
 def facts(pr: dict[str, Any]) -> str:
-    checks = {"SUCCESS": "CI green", "FAILURE": "CI failing", "ERROR": "CI failing", "PENDING": "CI running"}.get(pr["checks"], "no CI")
+    checks = {"": "no CI", "SUCCESS": "CI green", "FAILURE": "CI failing", "ERROR": "CI failing", "PENDING": "CI running"}.get(pr["checks"], "")
     threads = f"{pr['threads']} thread(s)" if pr["threads"] else ""
     first = f"reviewed by {', '.join(pr['beaten'])}" if pr["beaten"] else ""
     return "  ".join(part for part in (first, threads, checks) if part)

@@ -29,7 +29,7 @@ description = "Review: open hunk with the PR's GitHub threads"
 [[keys.command]]
 key = "prefix+shift+u"
 type = "popup"
-command = "\"$HOME/.local/bin/workshop\" finish"
+command = "\"$HOME/.local/bin/workshop\" finish || { echo 'Enter closes this.'; read -r _; }"
 description = "Review: finish, by posting to the PR, or pushing fixes and marking it ready"
 width = 90
 height = 30

@@ -116,7 +116,7 @@ class Board:
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:
             return []
-        action = self.engine.next_action(run) if run.status in ("parked", "waiting") or (run.status == "done" and run.pr and not run.landed) else ""
+        action = self.engine.next_action(run) if run.status in ("parked", "waiting") or self.engine.delivered(run) else ""
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
         buttons = (("g review", ord("g")),) if self.engine.reviewable(run) else tuple((label, key) for key, label, *_ in self.run_actions(run))
         return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), buttons, self.earlier, self.engine.handover(run) if run.status == "done" else "")
@@ -248,7 +248,7 @@ class Board:
         elif 32 <= key < curses.KEY_MIN and key != 127:
             self.typed += chr(key)
 
-    def send(self, *args: str, then: Callable[[], None] = lambda: None) -> None:
+    def send(self, *args: str) -> None:
         """Commands can take a while on GitHub or Jira, so the board keeps drawing."""
         if self.refreshing:
             return
@@ -257,7 +257,6 @@ class Board:
         def work() -> None:
             try:
                 self.engine.tools.workshop(*args)
-                then()
             except STOPS as failed:
                 self.say(str(failed))
             self.refreshing = False
@@ -272,11 +271,9 @@ class Board:
         try:
             if run is None or not run.pane:
                 raise KeyError("no workspace")
-            if self.engine.reviewable(run):
-                pane = run.pane
-                self.send("review", run.key, then=lambda: self.engine.tools.focus(pane))  # hunk may have been closed since
-                return
             self.engine.tools.focus(run.pane)
+            if self.engine.reviewable(run):
+                self.send("review", run.key)  # hunk may have been closed since
         except STOPS:
             self.say("That run has no workspace now.")
 

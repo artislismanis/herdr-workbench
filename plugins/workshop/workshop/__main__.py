@@ -13,7 +13,7 @@ from typing import Any
 from .backlog import poll
 from .board import show
 from .doctor import doctor
-from .engine import PREFIX, Engine, Park
+from .engine import PREFIX, STOPS, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
 from .shell import ToolError, run, run_json
@@ -158,14 +158,14 @@ def finish_choices(changed: list[str], draft: bool) -> list[tuple[str, str, str]
     return found + ([("c", "post the review notes as a PR comment", "comment")] if not changed else [])
 
 
-def finish(engine: Engine, root: Path) -> None:
+def finish(engine: Engine, root: Path) -> int:
     """Ends a review from the workspace it happened in. Anything that isn't a delivered run is a plain PR review."""
     path = here()
-    delivered = next((r for r in engine.store.all() if r.worktree == path and r.pr and r.status == "done" and not r.landed), None)
+    delivered = next((r for r in engine.store.all() if r.worktree == path and engine.delivered(r)), None)
     if delivered is None:
-        post_review(path)
-        return
-    changed = engine.tools.changes(Path(path))
+        return post_review(path)
+    behind = engine.tools.unpushed(Path(path), delivered.branch)
+    changed = engine.tools.changes(Path(path)) + ([f"{behind} commit(s) not pushed"] if behind else [])
     print(f"{delivered.repo}/{delivered.key}  {delivered.pr}")
     print("\n".join(["Changed since the PR:", *changed]) if changed else "Nothing has changed since the PR.")
     print("\nTo change it, comment in hunk and send those to the agent with prefix+shift+s.\n")
@@ -178,21 +178,23 @@ def finish(engine: Engine, root: Path) -> None:
         answer = "n"
     action = next((a for key, _, a in choices if key == answer), "")
     if action == "comment":
-        post_review(path, "--as", "comment")
-    elif action:
+        return post_review(path, "--as", "comment")
+    if action:
         outcome = ["Workshop is busy, so nothing happened. Try again in a moment."]
 
         def act() -> None:
             try:
-                engine.push_fixes(delivered) if action == "push" else engine.ready(delivered)
+                # You may have taken a while to choose, and a tick can have moved it on.
+                now = engine.store.load(delivered.repo, delivered.key)
+                engine.push_fixes(now) if action == "push" else engine.ready(now)
                 outcome[0] = "Pushed." if action == "push" else "Marked ready."
-            except ToolError as failed:
+            except STOPS as failed:
                 outcome[0] = str(failed)
 
         locked(root, act)
         print(outcome[0])
-    if action:
         input("Enter closes this.")
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -239,7 +241,7 @@ def main(argv: list[str]) -> int:
             case "review":
                 locked(root, lambda: print(engine.review(engine.store.find(argv[1]))))
             case "finish":
-                finish(engine, root)
+                return finish(engine, root)
             case "approve":
                 locked(root, lambda: print(engine.explain(engine.approve(engine.store.find(argv[1])))))
             case "reject":

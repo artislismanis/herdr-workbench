@@ -301,7 +301,7 @@ class Keys(unittest.TestCase):
             self.store.save(run(key, pane=f"w{key}:p1"))
             self.store.event(run(key), "claimed")
         self.tools = mock.Mock()
-        engine = mock.Mock(store=self.store, tools=self.tools, **{"reviewable.return_value": False, "handover.return_value": ""})
+        engine = mock.Mock(store=self.store, tools=self.tools, **{"reviewable.return_value": False, "delivered.return_value": False, "handover.return_value": ""})
         engine.throttle.hold_new.return_value = ""
         engine.throttle.snapshot.return_value = {"5h": 10}
         self.board = Board(engine, {"repos": {}}, lambda: 500.0)
@@ -501,13 +501,13 @@ class Keys(unittest.TestCase):
         self.board.press(ord("m"))
         self.assertIsNone(self.board.asking)
 
-    def test_g_on_a_draft_reopens_the_review_first(self):
+    def test_g_on_a_draft_goes_there_then_reopens_the_review(self):
         self.draft()
         with mock.patch("workshop.board.threading.Thread") as thread:
             self.board.press(ord("g"))
+            self.tools.focus.assert_called_once_with("w1:p1")
             thread.call_args.kwargs["target"]()
         self.tools.workshop.assert_called_once_with("review", "7")
-        self.tools.focus.assert_called_once_with("w1:p1")
 
     def test_a_message_clears_by_itself(self):
         now = [500.0]
