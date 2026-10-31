@@ -62,7 +62,9 @@ class Engine:
         """Try the stopped step again. Finished steps never run twice."""
         if run.status != "parked":
             raise KeyError(f"{run.key} isn't parked")
-        run.status, run.reason, run.phase = "running", "", ""
+        # A live agent may already have finished its step, so check it before prompting again.
+        alive = run.phase == "prompted" and self.tools.agent_status(run.step_agent or run.agent) != "gone"
+        run.status, run.reason, run.phase = "running", "", run.phase if alive else ""
         self.store.event(run, "resumed")
         self.store.save(run)
         return self.advance(run)

@@ -172,6 +172,24 @@ class Resume(Case):
         self.assertEqual(self.tools.created, 0)
         self.assertEqual(run.pr, "https://example.test/pr/9")
 
+    def test_resume_checks_a_live_agent_instead_of_prompting_it_again(self):
+        run = self.start()
+        run.status, run.reason = "parked", "herdr not found"
+        prompts = len(self.tools.prompts)
+        (self.tools.work / ".workshop" / "plan.md").write_text("VERDICT: READY\n", encoding="utf-8")
+        self.tools.statuses["ws-de-1"] = "idle"
+        run = self.engine.resume(run)
+        self.assertEqual(run.current["id"], "build")
+        self.assertEqual(len(self.tools.prompts), prompts + 1)
+        self.assertNotIn("Read `.workshop/brief.md`", self.tools.prompts[-1][1])
+
+    def test_resume_starts_the_step_again_when_its_agent_has_gone(self):
+        run = self.start()
+        run.status = "parked"
+        self.tools.statuses.pop("ws-de-1")
+        run = self.engine.resume(run)
+        self.assertEqual(self.tools.started.count("ws-de-1"), 2)
+
     def test_only_a_parked_run_can_be_resumed(self):
         with self.assertRaises(KeyError):
             self.engine.resume(self.start())
