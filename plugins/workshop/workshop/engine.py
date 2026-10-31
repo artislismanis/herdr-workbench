@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .cost import summary
 from .pipeline import prompt_text
 from .review import load_notes, place
 from .shell import ToolError
@@ -150,7 +151,10 @@ class Engine:
             lines.append(f"Waiting for agent {run.step_agent or run.agent}. See it in herdr workspace {run.key}.")
         if run.pr:
             lines.append(f"PR: {run.pr}")
-        lines += [f"  {e['at']} {e['type']} {e.get('step', '')}".rstrip() for e in self.store.events(run)[-8:]]
+        events = self.store.events(run)
+        lines += [f"  {e['at']} {e['type']} {e.get('step', '')}".rstrip() for e in [e for e in events if e["type"] != "spent"][-8:]]
+        if cost := summary(events):
+            lines.append(cost)
         return "\n".join(lines)
 
     def _at_gate(self, run: Run) -> dict[str, Any]:
@@ -236,6 +240,8 @@ class Engine:
         self.store.event(run, "step", step=step["id"], state="running", usage=self.throttle.snapshot())
 
     def _agent_finished(self, run: Run, step: dict[str, Any]) -> None:
+        spent = self.tools.spent(Path(run.worktree), run.started_at, self.clock())
+        self.store.event(run, "spent", step=step["id"], **spent)
         # The agent going quiet only triggers the check. The report decides.
         ask = self._ask_file(run)
         if ask.exists():
@@ -290,7 +296,7 @@ class Engine:
 
     def _finish(self, run: Run) -> None:
         source = self.source_for(run)
-        source.report(run.key, f"Draft PR ready: {run.pr}")
+        source.report(run.key, f"Draft PR ready: {run.pr}\n\n{summary(self.store.events(run))}".strip())
         source.finish(run.key)
         run.status = "done"
         self.store.event(run, "finished", pr=run.pr)

@@ -92,6 +92,9 @@ class FakeTools:
     def notify(self, title, body):
         self.notes.append(title)
 
+    def spent(self, work, since, until):
+        return {"turns": 3, "tokens_in": 1000, "tokens_out": 50, "minutes": 1.5, "usd": 0.25}
+
     def close_pane(self, pane):
         self.closed.append(pane)
 
@@ -517,6 +520,13 @@ class Rework(Case):
         self.assertIn("ws-de-1-verify-2", self.tools.started)
         self.assertEqual(run.current["id"], "verify")
         self.assertIn("CHANGES_NEEDED", (self.tools.work / ".workshop" / "verify-1.txt").read_text(encoding="utf-8"))
+
+    def test_each_round_is_costed_and_the_ticket_gets_the_summary(self):
+        run = self.to_verify()
+        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        self.assertIn("Cost (API-equivalent USD)", self.engine.explain(run))
+        spent = [e["step"] for e in self.engine.store.events(run) if e["type"] == "spent"]
+        self.assertEqual(spent, ["plan", "build", "verify"])
 
     def test_rework_stops_at_the_limit(self):
         run = self.to_verify()

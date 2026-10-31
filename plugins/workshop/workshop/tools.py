@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from . import cost
 from .shell import ToolError, run, run_json
 
 # Its files end in .txt because repo linters pick files by extension and can't see git's exclude file.
@@ -46,6 +47,9 @@ class Tools:
     def split(self, pane: str, path: Path) -> str:
         made = run_json("herdr", "pane", "split", pane, "--direction", "right", "--cwd", str(path), "--no-focus")
         return made["result"]["pane"]["pane_id"]
+
+    def spent(self, work: Path, since: float, until: float) -> dict[str, Any]:
+        return cost.spent(work, since, until)
 
     def close_pane(self, pane: str) -> None:
         subprocess.run(["herdr", "pane", "close", pane], capture_output=True)
