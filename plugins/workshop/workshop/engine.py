@@ -277,7 +277,7 @@ class Engine:
 
     def _agent_finished(self, run: Run, step: dict[str, Any]) -> None:
         spent = self.tools.spent(Path(run.worktree), run.started_at, self.clock())
-        self.store.event(run, "spent", step=step["id"], **spent)
+        self.store.event(run, "spent", step=step["id"], asked=self._ask_file(run).exists(), **spent)
         # The agent going quiet only triggers the check. The report decides.
         ask = self._ask_file(run)
         if ask.exists():
