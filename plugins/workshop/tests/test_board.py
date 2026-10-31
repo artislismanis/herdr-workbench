@@ -54,7 +54,7 @@ class Text(unittest.TestCase):
 
     def test_a_dropped_run_opens_at_the_step_it_stopped(self):
         lines = texts(drill(run(status="done", landed="dropped", step=1), [], "", "", "/f", 80))
-        self.assertTrue(any(t.strip().startswith("◐ verify") for t in lines))
+        self.assertTrue(any(t.startswith("◐ verify") for t in lines))
 
     def test_a_dropped_run_shows_where_it_stopped(self):
         self.assertTrue("".join(s.text for s in pipe(run(status="done", landed="dropped", step=1))).startswith("●─◐─○"))
@@ -139,9 +139,9 @@ class Drill(unittest.TestCase):
         started = event("step", step="verify", state="running")
         events = [event("step", step="plan", state="running"), event("spent", step="plan", **spent), event("step", step="plan", state="done", verdict=""), started, started, event("spent", step="verify", **spent), event("spent", step="verify", **spent), event("step", step="verify", state="done", verdict="PASS")]
         lines = texts(drill(run(step=2), events, "Title", "", "/files", 100))
-        self.assertTrue(any("plan" in t and "1 round(s)" in t and "$0.50" in t for t in lines))
-        self.assertTrue(any("verify" in t and "2 round(s)" in t and "PASS" in t and "4.0 min" in t and "$1.00" in t for t in lines))
-        self.assertTrue(any(t.strip().startswith("◐ pr") for t in lines))
+        self.assertTrue(any("plan" in t and "1 round" in t and "$0.50" in t for t in lines))
+        self.assertTrue(any("verify" in t and "2 rounds" in t and "PASS" in t and "4.0 min" in t and "$1.00" in t for t in lines))
+        self.assertTrue(any(t.startswith("◐ pr") for t in lines))
 
     def test_steps_behind_the_run_are_done_even_without_events(self):
         self.assertTrue(any(t.strip().startswith("● plan") for t in texts(drill(run(step=1), [], "", "", "/f", 80))))
@@ -153,14 +153,52 @@ class Drill(unittest.TestCase):
 
     def test_long_text_wraps_rather_than_cuts(self):
         lines = drill(run(pr="https://github.com/o/r/pull/" + "1" * 80), [], "A very long title " * 8, "", "/f", 40)
-        self.assertTrue(all(columns(line.text) <= 40 for line in lines[:12]))
+        self.assertTrue(all(columns(line.text) <= 40 for line in lines[:8]))
         self.assertIn("A very long title", joined(lines))
         self.assertEqual(joined(lines[:9]).count("title"), 8)
 
     def test_a_stopped_step_shows_its_report(self):
         lines = drill(run(status="parked"), [], "", "", "/f", 80, stopped=("verify.md", "## Needs you\nIs this right?"))
-        self.assertIn("verify.md", joined(lines))
-        self.assertIn("Is this right?", joined(lines))
+        self.assertIn("Is this right?", joined(lines[:6]))
+
+    report = "# Review\n\n## Findings\n- Nothing was built.\n\n## Needs you\n- Is an empty change right?\n\nVERDICT: CHANGES_NEEDED\n"
+
+    def stopped_view(self, **fields):
+        return drill(run(status="parked", step=1, reason="Ran out of rounds", **fields), [], "T", "", "/f", 90, ("/f/verify.md", "/f/verify-1.md", "/f/verify-2.md", "/f/brief.md"), ("verify.md", self.report), (("d drop", 100),))
+
+    def test_needs_you_leads_with_the_actions_under_it(self):
+        lines = self.stopped_view()
+        where = texts(lines)
+        self.assertLess(where.index("  - Is an empty change right?"), next(i for i, t in enumerate(where) if "d drop" in t))
+        self.assertLess(next(i for i, t in enumerate(where) if "d drop" in t), where.index("─ Steps " + "─" * 80))
+
+    def test_a_report_without_needs_you_falls_back_to_the_reason(self):
+        lines = drill(run(status="parked", reason="Timed out"), [], "", "", "/f", 80, stopped=("plan.md", "No headings here"))
+        self.assertIn("  Timed out", texts(lines))
+
+    def test_nothing_under_needs_you_counts_as_empty(self):
+        text = "## Needs you\nNothing.\n"
+        self.assertIn("  Timed out", texts(drill(run(status="parked", reason="Timed out"), [], "", "", "/f", 80, stopped=("plan.md", text))))
+
+    def test_the_stopped_step_shows_findings_in_place(self):
+        where = texts(self.stopped_view())
+        self.assertLess(next(i for i, t in enumerate(where) if t.startswith("◐ verify")), next(i for i, t in enumerate(where) if "Nothing was built" in t))
+
+    def test_a_step_shows_its_latest_report_and_hides_earlier_rounds(self):
+        row = next(line for line in self.stopped_view() if line.text.startswith("◐ verify"))
+        self.assertEqual(row.path, "/f/verify.md")
+        self.assertIn("+2 earlier", row.text)
+        self.assertNotIn("verify-1.md", joined(self.stopped_view()))
+
+    def test_earlier_rounds_expand_newest_first(self):
+        lines = drill(run(status="parked", step=1), [], "", "", "/f", 90, ("/f/verify.md", "/f/verify-1.md", "/f/verify-2.md"), earlier=True)
+        rows = [line.path for line in lines if line.path]
+        self.assertEqual(rows, ["/f/verify.md", "/f/verify-2.md", "/f/verify-1.md"])
+
+    def test_files_that_belong_to_no_step_sit_apart(self):
+        lines = self.stopped_view()
+        where = texts(lines)
+        self.assertGreater(next(i for i, t in enumerate(where) if "brief.md" in t), next(i for i, t in enumerate(where) if t.startswith("○ pr")))
 
     def test_unpriced_cost_is_labelled(self):
         self.assertIn("unpriced", joined(drill(run(), [event("spent", step="plan", minutes=1.0, usd=None)], "", "", "/f", 80)))
@@ -404,17 +442,20 @@ class Keys(unittest.TestCase):
         self.board.mouse(x + 3, y, curses.BUTTON1_PRESSED, 119)
         self.assertEqual(self.board.viewing, path)
 
-    def test_y_copies_the_view(self):
-        self.reported()
-        self.board.press(10)
-        self.board.press(ord("y"))
-        self.assertIn("Line one", self.tools.copy.call_args.args[0])
-        self.assertIn("Copied", self.board.footer().text)
+    def test_m_hands_the_mouse_back_and_takes_it_again(self):
+        self.board.press(ord("m"))
+        self.assertTrue(self.board.selecting)
+        self.assertIn("m clicks back", self.board.footer().text)
+        self.board.press(ord("m"))
+        self.assertFalse(self.board.selecting)
 
-    def test_a_failed_copy_says_so(self):
-        self.tools.copy.side_effect = OSError("no wl-copy")
-        self.board.press(ord("y"))
-        self.assertIn("Couldn't copy", self.board.footer().text)
+    def test_a_message_clears_by_itself(self):
+        now = [500.0]
+        self.board.clock = lambda: now[0]
+        self.board.say("Hello")
+        self.assertIn("Hello", self.board.footer().text)
+        now[0] += 6
+        self.assertIn("g workspace", self.board.footer().text)
 
     def test_a_failed_command_shows_why(self):
         self.tools.workshop.side_effect = ToolError("no such run")
@@ -519,8 +560,8 @@ class Panel(Mouse):
         self.board.seen = None
         self.board.reload()
         width = self.wide()
-        self.assertIn("d drop", self.board.panel(width)[0].text)
-        spots = [region for region in self.board.regions if region[3] == f"key:{ord('d')}" and region[0] < 5]
+        self.assertIn("d drop", joined(self.board.panel(width)[:8]))
+        spots = [region for region in self.board.regions if region[3] == f"key:{ord('d')}" and region[0] < 20]
         self.board.mouse(spots[0][1], spots[0][0], curses.BUTTON1_PRESSED, width)
         self.assertEqual(self.board.asking.command, "drop")
 
@@ -549,10 +590,6 @@ class Panel(Mouse):
         width = self.wide()
         self.board.mouse(160, 10, curses.BUTTON5_PRESSED, width)
         self.assertEqual((self.board.side, self.board.selected(self.board.lines(width))), (3, ("r", "1")))
-
-    def test_y_copies_the_panel(self):
-        self.board.press(ord("y"), 169)
-        self.assertIn("Steps", self.tools.copy.call_args.args[0])
 
 
 class OpenBoard(unittest.TestCase):

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from .backlog import SNAPSHOT
-from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, plain, pull, pulls
+from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls
 from .engine import STOPS, Engine
 from .store import Run
 from .themes import TERMINAL, config_path, nearest, palette
@@ -19,6 +19,8 @@ TABS = ("Backlog", "Delivery", "Review")  # the order work moves through
 BACKLOG, DELIVERY, REVIEW = range(3)
 TOP = 1  # a gap under herdr's tab bar
 WHEEL = 3
+MESSAGE_SECONDS = 5
+CLICKS = curses.BUTTON1_PRESSED | curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED
 PAGE = 10
 PANEL_WIDTH = 130  # below this a window can't hold a list and a detail side by side
 LIST_SHARE = 55  # percent of the window for the list
@@ -51,7 +53,9 @@ class Board:
         self.open: tuple[str, str] | None = None
         self.viewing = ""
         self.side = 0  # how far the panel has scrolled
-        self.message, self.refreshing, self.seen = "", False, None
+        self.earlier = False  # older rounds' reports showing
+        self.message, self.said, self.refreshing, self.seen = "", 0.0, False, None
+        self.selecting = False  # the mouse is given back, so a drag selects text
         self.asking: Ask | None = None
         self.typed = ""
         self.regions: list[tuple[int, int, int, Action]] = []
@@ -96,7 +100,7 @@ class Board:
         """What the stopped step wrote, so the reason for stopping needs no second look."""
         if run.status not in ("parked", "waiting") or run.current is None:
             return "", ""
-        name = run.current.get("output", f"{run.current['id']}.md")
+        name = files_name(run.current)
         path = self.store.files(run) / name
         return (name, path.read_text(encoding="utf-8", errors="replace")) if path.exists() else ("", "")
 
@@ -108,16 +112,16 @@ class Board:
             return []
         action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
-        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run))
+        buttons = tuple((label, key) for key, label, *_ in self.run_actions(run))
+        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), buttons, self.earlier)
 
     def panel(self, width: int) -> list[Line]:
         """The selected item beside the list, with its actions at the top."""
         size = width - self.list_width(width) - 3
         lines = self.lines(width)
-        buttons = [("esc close", ESCAPE)] if self.viewing else []
-        buttons += [(action[1], action[0]) for action in self.actions(lines)]
-        top = [Line([part for label, key in buttons for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))]), plain()] if buttons else []
-        return top + (self.viewed(size) if self.viewing else self.detail(self.selected(lines), size))
+        if self.viewing:
+            return [Line([Span(" esc close ", "button", f"key:{ESCAPE}")]), plain(), *self.viewed(size)]
+        return self.detail(self.selected(lines), size)
 
     def lines(self, width: int) -> list[Line]:
         if self.panelled(width):
@@ -145,7 +149,7 @@ class Board:
         if choices:
             index = choices.index(self.selected(lines)) + by
             self.picked = choices[max(0, min(index, len(choices) - 1))]
-            self.viewing, self.side = "", 0
+            self.viewing, self.side, self.earlier = "", 0, False
         else:
             self.offset = max(0, self.offset + by)
 
@@ -173,8 +177,10 @@ class Board:
             if not self.open and not self.viewing:
                 return False
             self.back()
-        elif key == ord("y"):
-            self.copy(self.panel(width) if self.panelled(width) else lines)
+        elif key == ord("e"):
+            self.earlier = not self.earlier
+        elif key == ord("m"):
+            self.selecting = not self.selecting
         elif key in (curses.KEY_NPAGE, curses.KEY_PPAGE):
             self.scroll(PAGE if key == curses.KEY_NPAGE else -PAGE, width)
         elif key in (TAB_KEY, curses.KEY_BTAB) and not self.open:
@@ -204,20 +210,14 @@ class Board:
         else:
             self.offset = max(0, self.offset + by)
 
-    def copy(self, lines: list[Line]) -> None:
-        """The whole view, since the board holds the mouse and a drag can't select it."""
-        try:
-            self.engine.tools.copy("\n".join(line.text.rstrip() for line in lines))
-            self.message = "Copied."
-        except STOPS as failed:
-            self.message = f"Couldn't copy: {failed}"
-
     def target(self, lines: list[Line]) -> Run | None:
         wanted = self.open or self.selected(lines)
         return next((r for r in self.runs if (r.repo, r.key) == wanted), None)
 
     def actions(self, lines: list[Line]) -> tuple[tuple[int, str, str, str, bool], ...]:
-        run = self.target(lines)
+        return self.run_actions(self.target(lines))
+
+    def run_actions(self, run: Run | None) -> tuple[tuple[int, str, str, str, bool], ...]:
         if run is None or run.status not in ("parked", "waiting"):
             return ()
         return GATE if run.current and run.current["kind"] == "gate" else STOPPED
@@ -254,10 +254,13 @@ class Board:
             try:
                 self.engine.tools.workshop(*args)
             except STOPS as failed:
-                self.message = str(failed)
+                self.say(str(failed))
             self.refreshing = False
 
         threading.Thread(target=work, daemon=True).start()
+
+    def say(self, text: str) -> None:
+        self.message, self.said = text, self.clock()
 
     def jump(self, target: tuple[str, str] | None) -> None:
         run = next((r for r in self.runs if target in ((r.repo, r.key), ("#pr", r.pr))), None)
@@ -266,7 +269,7 @@ class Board:
                 raise KeyError("no workspace")
             self.engine.tools.focus(run.pane)
         except STOPS:
-            self.message = "That run has no workspace now."
+            self.say("That run has no workspace now.")
 
     def refresh(self) -> None:
         self.send("refresh")
@@ -290,11 +293,12 @@ class Board:
             return Line([Span(f"{self.asking.label}: ", "bold"), Span(self.typed + "▌"), Span("   enter sends, esc cancels", "dim")])
         if self.refreshing:
             return Line([Span("Working...", "dim")])
-        if self.message:
+        if self.message and self.clock() - self.said < MESSAGE_SECONDS:
             return Line([Span(self.message, "yellow")])
         moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), ("enter open", 10)]
         stopped = moves[:1] * bool(self.open) + [(action[1], action[0]) for action in self.actions(self.lines(width))]
-        common = [("y copy", ord("y")), ("g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        mouse = ("m clicks back", ord("m")) if self.selecting else ("m select text", ord("m"))
+        common = [mouse, ("g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def wheel(self, by: int, width: int) -> None:
@@ -309,7 +313,7 @@ class Board:
                 continue
             if isinstance(action, tuple):
                 if self.panelled(width) and action[0] != "#file":
-                    self.picked, self.viewing, self.side = action, "", 0  # the panel shows it, so there's nothing to open
+                    self.picked, self.viewing, self.side, self.earlier = action, "", 0, False  # the panel shows it, so there's nothing to open
                 else:
                     self.enter(action)
                 return True
@@ -406,11 +410,14 @@ class Board:
     def loop(self, screen: curses.window) -> None:
         curses.curs_set(0)
         styles, theme = self.colours(), self.theme_stamp()
-        curses.mousemask(curses.BUTTON1_PRESSED | curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED)
+        selecting = True  # so the first pass through the loop sets the mask
         curses.mouseinterval(0)
         screen.timeout(1000)
         while True:
             self.reload()
+            if self.selecting != selecting:
+                selecting = self.selecting
+                curses.mousemask(0 if selecting else CLICKS)
             if self.theme_stamp() != theme:
                 styles, theme = self.colours(), self.theme_stamp()
                 screen.clear()
