@@ -120,6 +120,11 @@ def bar(value: float, total: float, size: int) -> str:
     return "█" * filled + "░" * (size - filled)
 
 
+def first_line(error: str) -> str:
+    """Tools explain themselves over many lines, and the first says what to do."""
+    return error.splitlines()[0]
+
+
 def stage_groups(steps: list[dict[str, Any]]) -> list[list[int]]:
     """Step indexes by stage, in order. A step without a stage stands alone."""
     return [[index for index, _ in group] for _, group in groupby(enumerate(steps), lambda pair: pair[1].get("stage") or pair[0])]
@@ -214,7 +219,7 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
     repos = snapshot.get("repos", {})
     if not repos:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
-    lines = [plain(f"{repo}: couldn't update: {r['error']}", "red") for repo, r in repos.items() if r["error"]]
+    lines = [plain(f"{repo}: couldn't update: {first_line(r['error'])}", "red") for repo, r in repos.items() if r["error"]]
     found = {column: [(f"{repo}/{i['key']}", i) for repo, r in repos.items() for i in r["items"] if i["column"] == column and not started(repo, i["key"])] for column in COLUMNS}
     most = max(len(items) for items in found.values())
     for column, items in found.items():
@@ -262,7 +267,7 @@ def pulls(snapshot: dict[str, Any], width: int = 120) -> list[Line]:
     found = snapshot.get("prs")
     if not found:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
-    lines = [plain(f"Couldn't update: {found['error']}", "red")] if found["error"] else []
+    lines = [plain(f"Couldn't update: {first_line(found['error'])}", "red")] if found["error"] else []
     lines.append(Line([Span(" ● ", "mine"), Span("yours    "), Span(" ○ ", "others"), Span("someone else's    "), Span(" ▌", "yellow"), Span("someone reviewed first")]))
     lines.append(plain())
     for move, heading in MOVES:

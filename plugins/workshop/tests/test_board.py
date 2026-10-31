@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
+from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
@@ -359,6 +359,11 @@ class Strip(unittest.TestCase):
 
     def test_a_dropped_stage_is_red(self):
         self.assertEqual(self.marks(status="done", landed="dropped", step=2)[1], ("◐", "red"))
+
+
+class Errors(unittest.TestCase):
+    def test_only_the_first_line_of_a_tools_error_shows(self):
+        self.assertEqual(first_line("gh api failed: run gh auth login\nAlternatively, set GH_TOKEN"), "gh api failed: run gh auth login")
 
 
 class Statuses(unittest.TestCase):
