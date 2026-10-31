@@ -20,7 +20,7 @@ class Run:
     pipeline: dict[str, Any]  # copied in, so editing the file can't change a run in flight
     step: int = 0
     phase: str = ""  # "" before a step starts, "prompted" while an agent works on it
-    status: str = "running"  # running, parked, done
+    status: str = "running"  # running, waiting (for a person, as planned), parked (stopped), done
     reason: str = ""
     held: str = ""  # why the throttle is keeping the next step back
     worktree: str = ""

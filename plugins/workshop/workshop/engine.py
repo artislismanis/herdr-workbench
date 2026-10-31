@@ -51,6 +51,8 @@ class Engine:
                 self._prepare(run)
                 if step["kind"] == "agent":
                     self._agent(run, step)
+                elif step["kind"] == "gate":
+                    self._wait(run, f"{step['report']} needs your approval. See {self._report(run, run.pipeline['steps'][run.index_of(step['report'])])}.")
                 else:
                     self._draft_pr(run)
             except Park as stop:
@@ -73,11 +75,62 @@ class Engine:
         self.store.save(run)
         return self.advance(run)
 
+    def approve(self, run: Run) -> Run:
+        self._at_gate(run)
+        run.status, run.reason = "running", ""
+        run.step, run.phase = run.step + 1, ""
+        self.store.event(run, "approved")
+        self.store.save(run)
+        return self.advance(run)
+
+    def reject(self, run: Run, note: str) -> Run:
+        step = self._at_gate(run)
+        self._note(run, "feedback.md", note)
+        self.store.event(run, "rejected", note=note)
+        run.status, run.reason = "running", ""
+        try:
+            if rule := step.get("then", {}).get("REJECTED"):
+                self._follow(run, step, rule, "REJECTED", "See the ticket.")
+            else:
+                raise Park(f"Rejected at {step['id']}: {note}")
+        except Park as stop:
+            self._park(run, str(stop))
+        self.store.save(run)
+        return self.advance(run)
+
+    def answer(self, run: Run, text: str) -> Run:
+        step = run.current
+        if run.status != "waiting" or step is None or step["kind"] != "agent":
+            raise KeyError(f"{run.key} isn't waiting for an answer")
+        self._note(run, "answers.md", f"Q: {run.reason}\n\nA: {text}")
+        self._ask_file(run).unlink(missing_ok=True)
+        run.status, run.reason = "running", ""
+        self.store.event(run, "answered")
+        agent = run.step_agent or run.agent
+        try:
+            if self.tools.agent_status(agent) == "gone":
+                run.phase = ""  # the step starts again, and its prompt points at the answers
+            else:
+                self.tools.prompt(agent, "A person answered your question in `.workshop/answers.md`. Read it, then carry on with the same step.")
+                run.started_at = self.clock()
+        except STOPS as stop:
+            self._park(run, f"{step['id']} failed: {stop}")
+        self.store.save(run)
+        return self.advance(run)
+
+    def next_action(self, run: Run) -> str:
+        """What a person does now, for a run that's waiting on one."""
+        if run.status == "parked":
+            return f"workshop resume {run.key}"
+        if run.current and run.current["kind"] == "gate":
+            return f'workshop approve {run.key}, or workshop reject {run.key} "what to change"'
+        return f'workshop answer {run.key} "your answer"'
+
     def explain(self, run: Run) -> str:
         step = run.current["id"] if run.current else "finished"
         lines = [f"{run.key} on {run.repo}: {run.status} at {step}"]
-        if run.status == "parked":
-            lines += [f"Why: {run.reason}", f"Then: workshop resume {run.key}"]
+        if run.status in ("parked", "waiting"):
+            lines += [f"Why: {run.reason}", f"Then: {self.next_action(run)}"]
         elif run.held:
             lines.append(f"Held: {run.held} The next tick after it clears carries on.")
         elif run.phase == "prompted":
@@ -86,6 +139,19 @@ class Engine:
             lines.append(f"PR: {run.pr}")
         lines += [f"  {e['at']} {e['type']} {e.get('step', '')}".rstrip() for e in self.store.events(run)[-8:]]
         return "\n".join(lines)
+
+    def _at_gate(self, run: Run) -> dict[str, Any]:
+        step = run.current
+        if run.status != "waiting" or step is None or step["kind"] != "gate":
+            raise KeyError(f"{run.key} isn't at a gate")
+        return step
+
+    def _ask_file(self, run: Run) -> Path:
+        return Path(run.worktree) / IGNORED / "ask.md"
+
+    def _note(self, run: Run, name: str, text: str) -> None:
+        with (Path(run.worktree) / IGNORED / name).open("a", encoding="utf-8") as notes:
+            notes.write(f"{text}\n\n")
 
     def _prepare(self, run: Run) -> None:
         # Each stage records what it made, so a resume skips what already exists.
@@ -154,6 +220,10 @@ class Engine:
 
     def _agent_finished(self, run: Run, step: dict[str, Any]) -> None:
         # The agent going quiet only triggers the check. The report decides.
+        ask = self._ask_file(run)
+        if ask.exists():
+            self._wait(run, f"{step['id']} asks: {ask.read_text(encoding='utf-8').strip()}")
+            return
         if run.step_pane:
             self.tools.close_pane(run.step_pane)
         # Done with this attempt: if it parks below, a resume runs the step afresh.
@@ -173,14 +243,17 @@ class Engine:
         rule = step.get("then", {}).get(verdict)
         if rule is None:
             run.step, run.phase = run.step + 1, ""
-        elif "park" in rule:
-            raise Park(f"{rule['park']} See {report}.")
         else:
-            run.loops[step["id"]] = used = run.loops.get(step["id"], 0) + 1
-            if used > rule["max"]:
-                raise Park(f"{step['id']} still says {verdict} after {rule['max']} rounds. See {report}.")
-            run.step, run.phase = run.index_of(rule["goto"]), ""
-            run.next_prompt = rule.get("prompt", "")
+            self._follow(run, step, rule, verdict, f"See {report}.")
+
+    def _follow(self, run: Run, step: dict[str, Any], rule: dict[str, Any], verdict: str, where: str) -> None:
+        if "park" in rule:
+            raise Park(f"{rule['park']} {where}")
+        run.loops[step["id"]] = used = run.loops.get(step["id"], 0) + 1
+        if used > rule["max"]:
+            raise Park(f"{step['id']} still says {verdict} after {rule['max']} rounds. {where}")
+        run.step, run.phase = run.index_of(rule["goto"]), ""
+        run.next_prompt = rule.get("prompt", "")
 
     def _draft_pr(self, run: Run) -> None:
         work = Path(run.worktree)
@@ -204,13 +277,23 @@ class Engine:
         source.finish(run.key)
         run.status = "done"
         self.store.event(run, "finished", pr=run.pr)
+        self.tools.notify(f"Workshop: {run.key} ready", run.pr)
         self.store.save(run)
 
     def _park(self, run: Run, reason: str) -> None:
         # Reported once: a parked run waits for a person, it never retries by itself.
         run.status, run.reason = "parked", reason
         self.store.event(run, "parked", reason=reason)
+        self._tell(run, f"Workshop stopped: {reason}")
+
+    def _wait(self, run: Run, reason: str) -> None:
+        run.status, run.reason = "waiting", reason
+        self.store.event(run, "waiting", reason=reason)
+        self._tell(run, f"Workshop is waiting: {reason}")
+
+    def _tell(self, run: Run, text: str) -> None:
+        self.tools.notify(f"Workshop: {run.key} needs you", text)
         try:
-            self.source_for(run).report(run.key, f"Workshop stopped: {reason}")
+            self.source_for(run).report(run.key, text)
         except STOPS as failed:
             self.store.event(run, "report_failed", reason=str(failed))

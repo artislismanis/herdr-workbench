@@ -7,8 +7,9 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-KINDS = ("agent", "draft_pr")
-STEP_KEYS = {"id", "kind", "prompt", "read_only", "fresh", "verdict", "then", "model", "minutes"}
+KINDS = ("agent", "gate", "draft_pr")
+STEP_KEYS = {"id", "kind", "prompt", "read_only", "fresh", "verdict", "then", "model", "minutes", "report"}
+GATE_KEYS = {"id", "kind", "report", "then"}
 RULE_KEYS = {"goto", "max", "prompt", "park"}
 
 
@@ -61,10 +62,15 @@ def validate(raw: Any) -> dict[str, Any]:
             prompt_text(step["prompt"])
             if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
                 raise PipelineError(f"{where}: minutes must be 1 or more")
+        elif step["kind"] == "gate":
+            if set(step) - GATE_KEYS:
+                raise PipelineError(f"{where}: a gate takes only {sorted(GATE_KEYS)}")
+            if step.get("report") not in ids:
+                raise PipelineError(f"{where}: a gate's report names the step whose report you approve")
         elif set(step) - {"id", "kind"}:
             raise PipelineError(f"{where}: {step['kind']} takes no options")
         for verdict, rule in step.get("then", {}).items():
-            if verdict not in step.get("verdict", []):
+            if verdict not in (["REJECTED"] if step["kind"] == "gate" else step.get("verdict", [])):
                 raise PipelineError(f"{where}: then names {verdict}, which isn't in verdict")
             _check_rule(f"{where}.then.{verdict}", rule, set(ids))
     # They share the main agent, which has one model.

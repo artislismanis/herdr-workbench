@@ -45,6 +45,19 @@ class Validate(unittest.TestCase):
     def test_a_fresh_step_can_differ(self):
         validate({"name": "x", "steps": [agent(id="a", model="opus"), agent(id="b", model="haiku", fresh=True)]})
 
+    def test_the_gated_pipeline_is_valid(self):
+        self.assertEqual([s["kind"] for s in load("gated")["steps"]], ["agent", "gate", "agent", "agent", "draft_pr"])
+
+    def test_a_gate_names_a_report(self):
+        self.rejects({"name": "x", "steps": [{"id": "a", "kind": "gate"}]}, "report")
+
+    def test_a_gate_takes_no_prompt(self):
+        self.rejects({"name": "x", "steps": [agent(), {"id": "a", "kind": "gate", "report": "build", "prompt": "plan.md"}]}, "takes only")
+
+    def test_a_gate_only_rejects(self):
+        steps = [agent(), {"id": "a", "kind": "gate", "report": "build", "then": {"NO": {"park": "x"}}}]
+        self.rejects({"name": "x", "steps": steps}, "isn't in verdict")
+
     def test_duplicate_ids(self):
         self.rejects({"name": "x", "steps": [agent(), agent()]}, "unique id")
 
