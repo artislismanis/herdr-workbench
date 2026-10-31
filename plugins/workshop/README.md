@@ -26,7 +26,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
 | `workshop answer <key> <text>` | Answers an agent's question |
 | `workshop retry <key> [note]` | Runs a stopped step again, with guidance if given |
-| `workshop pass <key> [note]` | Accepts a stopped agent step and moves on |
+| `workshop pass <key> [note]` | Accepts a stopped agent or command step and moves on |
 | `workshop drop <key> [reason]` | Ends a stopped run. The worktree and branch stay |
 | `workshop comment <key> <text>` | Posts your comment on the ticket and acts on it now |
 | `workshop list` | Ready tickets |
@@ -109,7 +109,7 @@ A stopped run always has a way out, from the terminal or the ticket:
 | Terminal | Your own ticket comment | Does |
 |---|---|---|
 | `workshop retry` | `/ai retry [note]`, or any plain comment | Runs the step again, with your note as guidance |
-| `workshop pass` | `/ai pass [note]` | Takes the step as good enough, even over a reviewer, and moves on. Parked or waiting agent steps only |
+| `workshop pass` | `/ai pass [note]` | Takes the step as good enough, even over a reviewer, and moves on. Parked or waiting agent and command steps only |
 | `workshop drop` | `/ai drop [reason]`, or close the ticket | Ends the run. It moves to Landed as `dropped` |
 
 Terminal actions happen at once. `workshop comment <key> "text"` posts a real comment and acts on it straight away, and takes `/ai` commands too. Comments made on the ticket itself are read on the next `tick` or `workshop refresh`, because nothing tells workshop about them sooner. Everything leaves a comment, so the ticket holds the full history. Guidance from a person gives the step a fresh set of review rounds, and every step can read it. `/ai` follows `comment_prefix`. Only your own unedited comment counts, and gates still need `approve` or `reject` from the terminal.

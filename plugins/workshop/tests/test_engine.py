@@ -100,6 +100,22 @@ class Commands(unittest.TestCase):
         self.assertEqual(run.status, "parked")
         self.assertEqual(self.tools.stopped, [4242])
 
+    def stopped(self):
+        run = self.at_qa({"qa": "x"})
+        run.phase, run.status, run.reason = "", "parked", "qa failed"
+        self.engine.store.save(run)
+        return run
+
+    def test_guidance_on_a_retry_reaches_the_next_agent(self):
+        run = self.stopped()
+        self.engine.retry(run, "It's the environment")
+        self.assertIn("It's the environment", (self.engine.store.files(run) / "answers.md").read_text(encoding="utf-8"))
+
+    def test_a_note_on_a_pass_reaches_the_next_agent(self):
+        run = self.stopped()
+        self.engine.accept(run, "Known flake")
+        self.assertIn("Known flake", (self.engine.store.files(run) / "answers.md").read_text(encoding="utf-8"))
+
     def test_a_retry_runs_it_again_and_keeps_the_last_output(self):
         run = self.at_qa({"qa": "x"})
         files = self.engine.store.files(run)
@@ -319,7 +335,7 @@ class Concluding(Case):
     def test_pass_refuses_a_gate(self):
         run = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
         run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
-        with self.assertRaisesRegex(KeyError, "no stopped agent step"):
+        with self.assertRaisesRegex(KeyError, "no stopped step"):
             self.engine.accept(run)
 
     def test_drop_ends_the_run_and_keeps_it_on_record(self):

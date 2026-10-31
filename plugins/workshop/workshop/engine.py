@@ -132,8 +132,8 @@ class Engine:
         kind = run.current["kind"] if run.current else ""
         if word == "retry" and kind == "gate":
             raise KeyError(f"{run.key} is at a gate: use workshop approve or reject")
-        if word == "pass" and kind != "agent":
-            raise KeyError(f"{run.key} has no stopped agent step to pass")
+        if word == "pass" and kind not in ("agent", "command"):
+            raise KeyError(f"{run.key} has no stopped step to pass")
 
     def comment(self, run: Run, text: str) -> Run:
         """A ticket comment from the terminal, acted on now rather than at the next tick."""
@@ -145,6 +145,11 @@ class Engine:
     def _fresh_rounds(self, run: Run) -> None:
         # A person stepped in, so the rounds that ran out no longer apply. Attempt numbers (id#) keep agent names unique.
         run.loops = {step: used for step, used in run.loops.items() if step.endswith("#")}
+
+    def _keep_guidance(self, run: Run, note: str) -> None:
+        """No agent is waiting for it, so it goes where the next one reads."""
+        if note:
+            self._note(run, "answers.md", f"Q: {run.reason}\n\nA: {note}")
 
     def _let_go(self, run: Run) -> None:
         self._ask_file(run).unlink(missing_ok=True)
@@ -161,17 +166,19 @@ class Engine:
         step = run.current
         if note and step is not None and step["kind"] == "agent":
             return self.answer(run, note)
+        self._keep_guidance(run, note)
         self._let_go(run)
         run.status, run.phase = "parked", ""
         return self.resume(run)
 
     def accept(self, run: Run, note: str = "") -> Run:
-        """A person takes the stopped agent step as good enough. Gates have their own approve."""
+        """A person takes the stopped step as good enough, even failing tests. Gates have their own approve."""
         self._check(run, "pass")
         step = run.current
         assert step is not None  # _check made sure of it
         self._post(run, f"Passed {step['id']} by hand. {note}".strip())
         self.store.event(run, "passed", step=step["id"], note=note)
+        self._keep_guidance(run, note)
         self._let_go(run)
         run.status, run.reason, run.blocked_at, run.next_prompt = "running", "", 0.0, ""
         run.step, run.phase = run.step + 1, ""
