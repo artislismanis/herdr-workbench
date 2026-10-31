@@ -602,18 +602,26 @@ class Rework(Case):
         run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
         self.assertEqual(run.status, "done")
 
-    def test_a_merged_pr_finishes_the_ticket_and_a_closed_one_doesnt(self):
+    def test_the_ticket_follows_the_prs_review(self):
         run = self.to_verify()
         run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
-        self.assertEqual(self.source.moves[-1], "review")
-        self.tools.pr = "OPEN"
-        self.assertEqual(self.engine.land(run).landed, "")
-        self.tools.pr = "CLOSED"
+        cases = (("OPEN", True, "", "working"), ("OPEN", False, "", "review"), ("OPEN", False, "CHANGES_REQUESTED", "review"), ("OPEN", False, "APPROVED", "approved"), ("MERGED", False, "APPROVED", "merged"))
+        for state, draft, decision, stage in cases:
+            self.tools.pr = {"state": state, "isDraft": draft, "reviewDecision": decision}
+            self.engine.land(run)
+            self.assertEqual(self.source.moves[-1], stage)
+        self.assertEqual(run.landed, "merged")
+
+    def test_a_stage_moves_the_ticket_once_and_a_closed_pr_leaves_it(self):
+        run = self.to_verify()
+        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        moved = len(self.source.moves)
+        self.tools.pr = {"state": "OPEN", "isDraft": True, "reviewDecision": ""}
+        self.engine.land(run)
+        self.assertEqual(len(self.source.moves), moved)
+        self.tools.pr = {"state": "CLOSED", "isDraft": False, "reviewDecision": ""}
         self.assertEqual(self.engine.land(run).landed, "closed")
-        self.assertEqual(self.source.moves[-1], "review")
-        run.landed, self.tools.pr = "", "MERGED"
-        self.assertEqual(self.engine.land(run).landed, "merged")
-        self.assertEqual(self.source.moves[-1], "done")
+        self.assertEqual(len(self.source.moves), moved)
 
     def test_rework_stops_at_the_limit(self):
         run = self.to_verify()

@@ -33,7 +33,7 @@ class Comment:
 
 
 # Where a ticket has got to. Each source shows these its own way.
-STAGES = ("working", "blocked", "review", "done")
+STAGES = ("working", "blocked", "review", "approved", "merged")
 
 
 class Source(Protocol):
@@ -115,7 +115,7 @@ class GitHubSource:
         run("gh", "label", "create", f"{self.label}-{stage}", "--force", cwd=self.repo)
         removals = [arg for name in stale for arg in ("--remove-label", name)]
         run("gh", "issue", "edit", key, "--add-label", f"{self.label}-{stage}", *removals, cwd=self.repo)
-        if stage == "done":
+        if stage == "merged":
             run("gh", "issue", "close", key, cwd=self.repo)
 
     def comments(self, key: str, since: float) -> list[Comment]:
@@ -158,7 +158,7 @@ class JiraSource:
 
     def __init__(self, repo_name: str, label: str, skip_statuses: list[str], cfg: dict[str, Any]) -> None:
         self.repo_name, self.label, self.skip = repo_name, label, skip_statuses
-        self.moves = cfg.get("moves", {})
+        self.moves, self.route = cfg.get("moves", {}), cfg.get("route", [])
         self.base = cfg["base_url"].rstrip("/")
         token = os.environ.get("JIRA_TOKEN") or cfg["token"]
         pair = f"{cfg['email']}:{token}".encode()
@@ -210,11 +210,19 @@ class JiraSource:
         target = self.moves.get(stage)
         if not target:
             return
-        options = self._call("GET", f"issue/{key}/transitions")["transitions"]
-        match = [t["id"] for t in options if t["to"]["name"] == target]
-        if not match:
-            raise ValueError(f"{key} has no transition to {target}")
-        self._call("POST", f"issue/{key}/transitions", {"transition": {"id": match[0]}})
+        # Boards often allow only the next column, so a longer move walks the route. Only forwards
+        # towards a status on it: a ticket never steps along the route to reach one that isn't.
+        before = self.route[: self.route.index(target)] if target in self.route else []
+        for _ in range(len(self.route) + 1):
+            options = self._call("GET", f"issue/{key}/transitions")["transitions"]
+            direct = [t for t in options if target in (t["to"]["name"], t["name"])]
+            onward = sorted((t for t in options if t["to"]["name"] in before), key=lambda t: before.index(t["to"]["name"]))
+            if not direct and not onward:
+                raise ValueError(f"{key} has no route to {target}")
+            self._call("POST", f"issue/{key}/transitions", {"transition": {"id": (direct or onward[::-1])[0]["id"]}})
+            if direct:
+                return
+        raise ValueError(f"{key} didn't reach {target}")
 
     def comments(self, key: str, since: float) -> list[Comment]:
         me = self._call("GET", "myself")["accountId"]

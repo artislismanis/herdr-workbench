@@ -65,7 +65,7 @@ class JiraBoard(unittest.TestCase):
         return source
 
     def test_a_move_takes_the_transition_to_the_mapped_status(self):
-        options = {"issue/DE-1/transitions": {"transitions": [{"id": "7", "to": {"name": "Done"}}, {"id": "9", "to": {"name": "Blocked"}}]}}
+        options = {"issue/DE-1/transitions": {"transitions": [{"id": "7", "name": "Finish", "to": {"name": "Done"}}, {"id": "9", "name": "Pause", "to": {"name": "Blocked"}}]}}
         self.source(options).move("DE-1", "blocked")
         self.assertEqual(self.calls[-1], ("POST", "issue/DE-1/transitions", {"transition": {"id": "9"}}))
 
@@ -75,6 +75,29 @@ class JiraBoard(unittest.TestCase):
         self.assertEqual(self.calls, [])
         with self.assertRaises(ValueError):
             source.move("DE-1", "blocked")
+
+    def test_a_long_move_walks_the_route_to_the_status(self):
+        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "moves": {"merged": "Ready"}, "route": ["In Progress", "Review", "Dev Done", "Ready"]})
+        board = {"In Progress": ["Review"], "Review": ["Dev Done", "In Progress"], "Dev Done": ["Ready"]}
+        at, walked = ["In Progress"], []
+
+        def call(method, path, body=None):
+            if method == "GET":
+                return {"transitions": [{"id": to, "name": f"Go {to}", "to": {"name": to}} for to in board[at[0]]]}
+            at[0] = body["transition"]["id"]
+            walked.append(at[0])
+
+        source._call = call
+        source.move("DE-1", "merged")
+        self.assertEqual(walked, ["Review", "Dev Done", "Ready"])
+
+    def test_a_status_off_the_route_is_never_reached_by_walking_it(self):
+        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "moves": {"blocked": "Blocked"}, "route": ["In Progress", "Review"]})
+        posted = []
+        source._call = lambda method, path, body=None: posted.append(body) if method == "POST" else {"transitions": [{"id": "1", "name": "Go", "to": {"name": "Review"}}]}
+        with self.assertRaises(ValueError):
+            source.move("DE-1", "blocked")
+        self.assertEqual(posted, [])
 
     def test_a_comment_is_mine_only_if_nobody_else_touched_it(self):
         def comment(author, editor, body, at="2026-10-31T10:00:00.000+0000"):
@@ -97,7 +120,7 @@ class GitHubBoard(unittest.TestCase):
             found = source.comments("3", 0)
         self.assertEqual([c.mine for c in found], [True, False, False])
 
-    def test_a_stage_replaces_the_last_one_and_done_closes_the_issue(self):
+    def test_a_stage_replaces_the_last_one_and_merged_closes_the_issue(self):
         calls = []
 
         def fake(*argv, cwd=None):
@@ -106,8 +129,8 @@ class GitHubBoard(unittest.TestCase):
 
         source = GitHubSource(Path("/r"), "ai")
         with mock.patch("workshop.sources.run_json", return_value={"labels": [{"name": "ai-review"}, {"name": "ai-claimed"}]}), mock.patch("workshop.sources.run", fake):
-            source.move("3", "done")
-        self.assertIn(("gh", "issue", "edit", "3", "--add-label", "ai-done", "--remove-label", "ai-review"), calls)
+            source.move("3", "merged")
+        self.assertIn(("gh", "issue", "edit", "3", "--add-label", "ai-merged", "--remove-label", "ai-review"), calls)
         self.assertEqual(calls[-1], ("gh", "issue", "close", "3"))
 
 

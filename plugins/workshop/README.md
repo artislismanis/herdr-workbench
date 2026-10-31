@@ -55,9 +55,9 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 
 ## Tickets
 
-The ticket follows the run through `working`, `blocked`, `review` and `done`: `ai-<stage>` labels on GitHub, and the statuses in `[jira.moves]` on Jira. A move that fails is logged and never stops a run. Workshop comments when it starts, when it stops and when the draft PR is ready.
+The ticket follows the run through `working`, `blocked`, `review`, `approved` and `merged`: `ai-<stage>` labels on GitHub, and the statuses in `[jira.moves]` on Jira. A draft PR stays in `working`, because it's still in self-review, and `review` starts when you mark it ready. Each `tick` follows the PR. Where a board allows only the next column, `route` lists the columns to walk. A move that fails is logged, leaves the ticket where it got to, and never stops a run. Workshop comments when it starts, when it stops and when the draft PR is ready.
 
-When a run stops on a question or a problem, the ticket moves to `blocked`. Comment on it with what's missing, and the next `tick` hands that to the agent and carries on. That needs the schedule on, or a manual `workshop tick`. A merged PR moves the ticket to `done`, and on GitHub closes the issue.
+When a run stops on a question or a problem, the ticket moves to `blocked`. Comment on it with what's missing, and the next `tick` hands that to the agent and carries on. That needs the schedule on, or a manual `workshop tick`. A merged PR moves the ticket to `merged`, and on GitHub closes the issue.
 
 ## Run files
 

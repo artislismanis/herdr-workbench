@@ -91,15 +91,16 @@ class Engine:
             return run
 
     def land(self, run: Run) -> Run:
-        """Follow a finished run's PR, so the board shows what became of it."""
+        """Follow a finished run's PR, so the ticket shows where the review has got to."""
         try:
-            state = self.tools.pr_state(run.pr)
-            if state in ("MERGED", "CLOSED"):
-                run.landed = state.lower()
+            pr = self.tools.pr_state(run.pr)
+            if pr["state"] != "OPEN":
+                run.landed = pr["state"].lower()
                 self.store.event(run, "landed", state=run.landed)
-                if state == "MERGED":
-                    self._move(run, "done")
-                self.store.save(run)
+            if pr["state"] != "CLOSED":
+                # A draft is still self-review, so the ticket stays in progress until the PR opens.
+                self._move(run, "merged" if pr["state"] == "MERGED" else "working" if pr["isDraft"] else "approved" if pr["reviewDecision"] == "APPROVED" else "review")
+            self.store.save(run)
         except STOPS as failed:
             self.store.event(run, "check_failed", reason=str(failed))
         return run
@@ -336,7 +337,6 @@ class Engine:
     def _finish(self, run: Run) -> None:
         self._post(run, f"Draft PR ready: {run.pr}\n\n{summary(self.store.events(run))}".strip())
         self.source_for(run).finish(run.key)
-        self._move(run, "review")
         run.status = "done"
         self.store.event(run, "finished", pr=run.pr)
         self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} Review it with: workshop review {run.key}")
@@ -369,8 +369,11 @@ class Engine:
             self.store.event(run, "report_failed", reason=str(failed))
 
     def _move(self, run: Run, stage: str) -> None:
+        if stage == run.stage:
+            return
         # The board is a view of the run, so a failure here never stops one.
         try:
             self.source_for(run).move(run.key, stage)
+            run.stage = stage
         except STOPS as failed:
             self.store.event(run, "move_failed", stage=stage, reason=str(failed))
