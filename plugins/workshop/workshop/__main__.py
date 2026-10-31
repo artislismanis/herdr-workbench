@@ -143,7 +143,7 @@ def main(argv: list[str]) -> int:
     except tomllib.TOMLDecodeError as bad:
         print(f"workshop: {config_path()} isn't valid TOML: {bad}", file=sys.stderr)
         return 1
-    prefix = cfg.get("comment_prefix", PREFIX).strip()
+    prefix = str(cfg.get("comment_prefix", PREFIX)).strip()
     if not prefix:
         # Without one, workshop's comments would read as yours and nothing could tell them apart.
         print(f"workshop: comment_prefix in {config_path()} can't be empty", file=sys.stderr)
