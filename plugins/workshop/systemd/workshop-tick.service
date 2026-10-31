@@ -1,0 +1,6 @@
+[Unit]
+Description=Workshop: move runs on and start the next ready ticket
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/workshop tick

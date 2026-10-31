@@ -182,6 +182,22 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   [ "$(readlink "$HOME/.local/bin/workshop")" = "$REPO_ROOT/plugins/workshop/bin/workshop" ]
 }
 
+@test "the tick timer is installed and left off" {
+  cat >"$BATS_TEST_TMPDIR/bin/systemctl" <<'STUB'
+#!/bin/sh
+echo "$*" >>"$HOME/.systemctl-calls"
+STUB
+  chmod +x "$BATS_TEST_TMPDIR/bin/systemctl"
+  install
+  [ "$status" -eq 0 ]
+  [ -f "$HOME/.config/systemd/user/workshop-tick.service" ]
+  [ -f "$HOME/.config/systemd/user/workshop-tick.timer" ]
+  [ ! -e "$HOME/.systemctl-calls" ]
+  "$REPO_ROOT/install.sh" --rollback | bash
+  grep -qx -- '--user disable --now workshop-tick.timer' "$HOME/.systemctl-calls"
+  [ ! -e "$HOME/.config/systemd/user/workshop-tick.timer" ]
+}
+
 @test "--dry-run runs no integration install" {
   install --dry-run
   [ "$status" -eq 0 ]

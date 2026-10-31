@@ -23,6 +23,8 @@ HUNKDIFF_CONFIG="$HERDR_PLUGINS/config/jhochenbaum.hunkdiff/config.toml"
 HUNK_CONFIG="$HOME/.config/hunk/config.toml"
 HUNK_SKILL="$CLAUDE_DIR/skills/hunk-review/SKILL.md"
 WORKSHOP_CLI="$HOME/.local/bin/workshop"
+SYSTEMD_USER="$HOME/.config/systemd/user"
+WORKSHOP_UNITS=(workshop-tick.service workshop-tick.timer)
 
 usage() {
   cat <<USAGE
@@ -52,6 +54,8 @@ herdr plugin uninstall jhochenbaum.hunkdiff 2>/dev/null || true
 herdr plugin uninstall annotate 2>/dev/null || true
 herdr plugin uninstall workshop 2>/dev/null || true
 rm -f "$WORKSHOP_CLI"
+systemctl --user disable --now workshop-tick.timer 2>/dev/null || true
+rm -f$(printf ' "%s"' "${WORKSHOP_UNITS[@]/#/$SYSTEMD_USER/}")
 rm -f "$HUNKDIFF_CONFIG"
 rm -rf "$(dirname "$HUNK_SKILL")"
 # Strips only our block; your own hunk settings below it stay.
@@ -122,6 +126,10 @@ _ensure_workshop() {
     esac
   fi
   ensure_symlink "$dir/bin/workshop" "$WORKSHOP_CLI"
+  # Installed, never enabled: turning it on starts tickets unattended.
+  for unit in "${WORKSHOP_UNITS[@]}"; do
+    install_file "$dir/systemd/$unit" "$SYSTEMD_USER/$unit" 644
+  done
 }
 
 if ! command -v herdr >/dev/null 2>&1; then
