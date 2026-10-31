@@ -94,6 +94,10 @@ def name(run: Run) -> str:
     return f"{run.repo}/{run.key}"
 
 
+def completed(run: Run) -> bool:
+    return run.status == "done" and run.landed != "dropped"
+
+
 def step_id(run: Run) -> str:
     return run.current["id"] if run.current else "finished"
 
@@ -114,10 +118,10 @@ def pipe(run: Run) -> list[Span]:
     for index in range(len(steps)):
         if index:
             spans.append(Span("─", "dim"))
-        if run.status == "done" or index < run.step:
+        if completed(run) or index < run.step:
             spans.append(Span("●", "green"))
         elif index == run.step:
-            spans.append(Span("◐", COLOURS[run.status]))
+            spans.append(Span("◐", "red" if run.landed == "dropped" else COLOURS[run.status]))
         else:
             spans.append(Span("○", "dim"))
     return [*spans, Span(" " * max(PIPE_WIDTH - 2 * len(steps) + 1, 0))]
@@ -254,8 +258,8 @@ def timeline(run: Run, events: list[dict[str, Any]]) -> list[Line]:
         spent = [e for e in seen if e["type"] == "spent"]
         finished = [e for e in seen if e["type"] == "step" and e.get("state") == "done"]
         rounds = len([e for e in seen if e["type"] == "step" and e.get("state") == "running"])
-        current = index == run.step and run.status != "done"
-        mark, style = ("◐", COLOURS[run.status]) if current else ("●", "green") if finished or index < run.step or run.status == "done" else ("○", "dim")
+        current = index == run.step and not completed(run)
+        mark, style = ("◐", "red" if run.landed == "dropped" else COLOURS[run.status]) if current else ("●", "green") if finished or index < run.step or completed(run) else ("○", "dim")
         notes = [f"{rounds} round(s)"] if rounds else []
         if finished and finished[-1].get("verdict"):
             notes.append(finished[-1]["verdict"])

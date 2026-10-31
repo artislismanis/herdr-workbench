@@ -5,9 +5,9 @@ import locale
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
-from .backlog import SNAPSHOT, poll
+from .backlog import SNAPSHOT
 from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, drill, pull, pulls
 from .engine import STOPS, Engine
 from .store import Run
@@ -21,7 +21,22 @@ WHEEL = 3
 ESCAPE = 27
 TAB_KEY = ord("\t")
 ENTERS = (10, 13, curses.KEY_ENTER)
+BACKSPACES = (8, 127, curses.KEY_BACKSPACE)
 Action = str | tuple[str, str]
+
+
+class Ask(NamedTuple):
+    """A command waiting for your words. Enter sends it, esc drops it."""
+
+    command: str
+    key: str
+    label: str
+    required: bool
+
+
+# Key, button label, command, what to ask for, and whether it's needed.
+STOPPED = ((ord("c"), "c comment", "comment", "Comment on the ticket", True), (ord("t"), "t retry", "retry", "Retry, with an optional note", False), (ord("p"), "p pass", "pass", "Pass this step, with an optional note", False), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
+GATE = ((ord("a"), "a approve", "approve", "Approve this gate? Enter confirms", False), (ord("x"), "x reject", "reject", "Reject, saying what to change", True), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
 
 
 class Board:
@@ -31,6 +46,8 @@ class Board:
         self.picked: tuple[str, str] | None = None
         self.open: tuple[str, str] | None = None
         self.message, self.refreshing, self.seen = "", False, None
+        self.asking: Ask | None = None
+        self.typed = ""
         self.regions: list[tuple[int, int, int, Action]] = []
         self.reload()
 
@@ -89,8 +106,14 @@ class Board:
         """Handles one key. False means leave."""
         if key == curses.ERR:
             return True  # the timeout that redraws, so a message stays until a real key
+        if self.asking:
+            self.type_key(key)
+            return True
         lines = self.lines(width)
         self.message = ""
+        if action := next((a for a in self.actions(lines) if a[0] == key), None):
+            self.ask(action)
+            return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
         elif key in (curses.KEY_DOWN, ord("j")):
@@ -111,6 +134,53 @@ class Board:
             self.jump(self.open or self.selected(lines))
         return True
 
+    def target(self, lines: list[Line]) -> Run | None:
+        wanted = self.open or self.selected(lines)
+        return next((r for r in self.runs if (r.repo, r.key) == wanted), None)
+
+    def actions(self, lines: list[Line]) -> tuple[tuple[int, str, str, str, bool], ...]:
+        run = self.target(lines)
+        if run is None or run.status not in ("parked", "waiting"):
+            return ()
+        return GATE if run.current and run.current["kind"] == "gate" else STOPPED
+
+    def ask(self, action: tuple[int, str, str, str, bool]) -> None:
+        run = self.target(self.lines(120))
+        if run is not None:
+            self.asking, self.typed = Ask(action[2], run.key, f"{run.key}: {action[3]}", action[4]), ""
+
+    def type_key(self, key: int) -> None:
+        asking = self.asking
+        if asking is None:
+            return
+        if key == ESCAPE:
+            self.asking = None
+        elif key in ENTERS:
+            # While another command runs, the words stay put for a second enter.
+            if not self.refreshing and (self.typed.strip() or not asking.required):
+                self.asking = None
+                words = [self.typed.strip()] if self.typed.strip() and asking.command != "approve" else []
+                self.send(asking.command, asking.key, *words)
+        elif key in BACKSPACES:
+            self.typed = self.typed[:-1]
+        elif 32 <= key < curses.KEY_MIN and key != 127:
+            self.typed += chr(key)
+
+    def send(self, *args: str) -> None:
+        """Commands can take a while on GitHub or Jira, so the board keeps drawing."""
+        if self.refreshing:
+            return
+        self.refreshing = True
+
+        def work() -> None:
+            try:
+                self.engine.tools.workshop(*args)
+            except STOPS as failed:
+                self.message = str(failed)
+            self.refreshing = False
+
+        threading.Thread(target=work, daemon=True).start()
+
     def jump(self, target: tuple[str, str] | None) -> None:
         run = next((r for r in self.runs if target in ((r.repo, r.key), ("#pr", r.pr))), None)
         try:
@@ -121,18 +191,7 @@ class Board:
             self.message = "That run has no workspace now."
 
     def refresh(self) -> None:
-        if self.refreshing:
-            return
-        self.refreshing = True
-
-        def work() -> None:
-            try:
-                poll(self.cfg, self.store, self.clock)
-            except STOPS as failed:
-                self.message = f"Refresh failed: {failed}"
-            self.refreshing = False
-
-        threading.Thread(target=work, daemon=True).start()
+        self.send("refresh")
 
     def counts(self) -> tuple[int, ...]:
         waiting = sum(r.status in ("parked", "waiting") for r in self.runs)
@@ -148,13 +207,17 @@ class Board:
         held = self.engine.throttle.hold_new(len([r for r in self.runs if r.status == "running"]))
         return Line([*tabs, Span(f" {age}", "dim"), Span(f"   held: {held}" if held else "", "yellow")])
 
-    def footer(self) -> Line:
+    def footer(self, width: int = 120) -> Line:
+        if self.asking:
+            return Line([Span(f"{self.asking.label}: ", "bold"), Span(self.typed + "▌"), Span("   enter sends, esc cancels", "dim")])
         if self.refreshing:
-            return Line([Span("Refreshing...", "dim")])
+            return Line([Span("Working...", "dim")])
         if self.message:
             return Line([Span(self.message, "yellow")])
-        buttons = [("esc back", ESCAPE), ("g workspace", ord("g")), ("r refresh", ord("r"))] if self.open else [("tab switch", TAB_KEY), ("enter open", 10), ("g workspace", ord("g")), ("r refresh", ord("r")), ("q quit", ord("q"))]
-        return Line([part for label, key in buttons for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
+        moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), ("enter open", 10)]
+        stopped = [(action[1], action[0]) for action in self.actions(self.lines(width))]
+        common = [("g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        return Line([part for label, key in (stopped or moves) + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def wheel(self, by: int, width: int) -> None:
         lines = self.lines(width)
@@ -218,7 +281,7 @@ class Board:
         self.put(screen, TOP, self.header(), styles, width)
         for y, line in enumerate(self.window(lines, rows - TOP - 3), TOP + 2):
             self.put(screen, y, line, styles, width, bool(line.ref) and line.ref == chosen and not self.open)
-        self.put(screen, rows - 1, self.footer(), styles, width)
+        self.put(screen, rows - 1, self.footer(width - 1), styles, width)
         screen.refresh()
 
     def colours(self) -> dict[str, int]:
