@@ -1,7 +1,9 @@
 """The outside world: wt, herdr, git and gh. Tests swap this class for a fake."""
 
 import json
+import os
 import re
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -46,6 +48,20 @@ class Tools:
                 return
         made = run_json("herdr", "workspace", "create", "--cwd", str(Path.home()), "--label", BOARD, "--focus")
         run("herdr", "pane", "run", made["result"]["root_pane"]["pane_id"], f"exec {Path.home()}/.local/bin/workshop board")
+        self._to_top(made["result"]["workspace"]["workspace_id"])
+
+    def _to_top(self, workspace: str) -> None:
+        # Only the socket API can reorder workspaces. The board works anywhere, so failing here doesn't matter.
+        path = os.environ.get("HERDR_SOCKET_PATH", str(Path.home() / ".config/herdr/herdr.sock"))
+        request = {"id": "workshop", "method": "workspace.move", "params": {"workspace_id": workspace, "insert_index": 0}}
+        try:
+            with socket.socket(socket.AF_UNIX) as server:
+                server.settimeout(5)
+                server.connect(path)
+                server.sendall(json.dumps(request).encode() + b"\n")
+                server.recv(4096)
+        except OSError:
+            pass
 
     def split(self, pane: str, path: Path) -> str:
         made = run_json("herdr", "pane", "split", pane, "--direction", "right", "--cwd", str(path), "--no-focus")

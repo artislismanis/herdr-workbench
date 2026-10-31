@@ -1,5 +1,6 @@
 import collections
 import curses
+import json
 import sys
 import tempfile
 import unittest
@@ -327,6 +328,14 @@ class Mouse(Keys):
 
 
 class OpenBoard(unittest.TestCase):
+    def test_asks_herdr_to_move_it_first_and_a_failure_is_harmless(self):
+        with mock.patch("workshop.tools.socket.socket") as made:
+            Tools()._to_top("w3")
+            sent = json.loads(made.return_value.__enter__.return_value.sendall.call_args.args[0])
+            self.assertEqual((sent["method"], sent["params"]), ("workspace.move", {"workspace_id": "w3", "insert_index": 0}))
+            made.return_value.__enter__.return_value.connect.side_effect = OSError("no server")
+            Tools()._to_top("w3")
+
     def test_goes_back_to_an_open_board(self):
         spaces = {"result": {"workspaces": [{"workspace_id": "w1", "label": "repo"}, {"workspace_id": "w2", "label": "workshop"}]}}
         with mock.patch("workshop.tools.run_json", return_value=spaces), mock.patch("workshop.tools.run") as called:
@@ -334,9 +343,10 @@ class OpenBoard(unittest.TestCase):
         called.assert_called_once_with("herdr", "workspace", "focus", "w2")
 
     def test_opens_one_when_there_is_none(self):
-        answers = [{"result": {"workspaces": []}}, {"result": {"root_pane": {"pane_id": "w3:p1"}}}]
-        with mock.patch("workshop.tools.run_json", side_effect=answers), mock.patch("workshop.tools.run") as called:
+        answers = [{"result": {"workspaces": []}}, {"result": {"workspace": {"workspace_id": "w3"}, "root_pane": {"pane_id": "w3:p1"}}}]
+        with mock.patch("workshop.tools.run_json", side_effect=answers), mock.patch("workshop.tools.run") as called, mock.patch.object(Tools, "_to_top") as top:
             Tools().open_board()
+        top.assert_called_once_with("w3")
         self.assertEqual(called.call_args.args[:3], ("herdr", "pane", "run"))
         self.assertTrue(called.call_args.args[4].startswith("exec ") and called.call_args.args[4].endswith("workshop board"))
 
