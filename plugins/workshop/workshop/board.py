@@ -2,169 +2,23 @@
 
 import curses
 import locale
-import textwrap
 import threading
 import time
 from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import Any
 
-from .backlog import COLUMNS, SNAPSHOT, poll
+from .backlog import SNAPSHOT, poll
+from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, drill, pull, pulls
 from .engine import STOPS, Engine
 from .store import Run
 
 SKIPPED = "skipped.json"
 TABS = ("Deliveries", "Backlog", "PRs")
-HEADINGS = {"parked": "Needs you", "waiting": "Needs you", "running": "With agents", "done": "With people"}
-ORDER = ("parked", "waiting", "running", "done")
-COLOURS = {"parked": "red", "waiting": "yellow", "running": "green", "done": ""}
-BAD_EVENTS = ("parked", "check_failed", "move_failed", "report_failed")
-MOVES = (("you", "Your move"), ("others", "Waiting on others"), ("done", "Done lately"))
-SYMBOLS = {True: "●", False: "○"}  # with colour, so it reads in any theme
-RECENT = 10
-LANDED = 5
-
-
-class Line(NamedTuple):
-    text: str
-    style: str = ""
-    run: Run | None = None
-    pr: dict[str, Any] | None = None
-
-    @property
-    def ref(self) -> tuple[str, str] | None:
-        if self.pr:
-            return ("#pr", self.pr["url"])
-        return (self.run.repo, self.run.key) if self.run else None
-
-
-def clean(text: str) -> str:
-    """Ticket text comes from other people, so nothing in it reaches the terminal as a control."""
-    return "".join(c if c.isprintable() else " " for c in text)
-
-
-def ago(seconds: float) -> str:
-    for size, unit in ((86400, "d"), (3600, "h"), (60, "m")):
-        if seconds >= size:
-            return f"{int(seconds // size)}{unit}"
-    return f"{int(seconds)}s"
-
-
-def name(run: Run) -> str:
-    return f"{run.repo}/{run.key}"
-
-
-def step_id(run: Run) -> str:
-    return run.current["id"] if run.current else "-"
-
-
-def recent(events: list[dict[str, Any]], count: int) -> list[Line]:
-    shown = [e for e in events if e["type"] != "spent"][-count:]
-    return [Line(f"{e['at'][5:16].replace('T', ' ')} {e['repo']}/{e['key']} {e['type']} {e.get('step', '')} {e.get('state', '')}".rstrip(), "red" if e["type"] in BAD_EVENTS else "dim") for e in shown]
-
-
-def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str]) -> list[Line]:
-    last = {(e["repo"], e["key"]): e["at"] for e in events}
-    landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
-    lines: list[Line] = []
-    heading = ""
-    for run in sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index(r.status)):
-        if HEADINGS[run.status] != heading:
-            heading = HEADINGS[run.status]
-            lines += [Line(""), Line(heading, "bold")]
-        detail = run.held or run.reason or run.pr
-        lines.append(Line(f"  {run.status:8} {name(run):24} {step_id(run):10} {title(run)[:40]:40} {detail}", COLOURS[run.status], run))
-    if landed:
-        lines += [Line(""), Line("Landed", "bold")]
-        lines += [Line(f"  {r.landed:8} {name(r):24} {title(r)}", "dim", r) for r in landed]
-    if not runs:
-        lines.append(Line("No tickets picked up yet."))
-    return [*lines, Line(""), Line("Recent", "bold"), *recent(events, RECENT)]
-
-
-def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable[[str, str], bool]) -> list[Line]:
-    repos = snapshot.get("repos", {})
-    if not repos:
-        return [Line("Nothing saved yet. Press r, or wait for the next tick.")]
-    lines = [Line(f"{repo}: couldn't update: {r['error']}", "red") for repo, r in repos.items() if r["error"]]
-    found = {column: [(repo, i) for repo, r in repos.items() for i in r["items"] if i["stage"] == column and not started(repo, i["key"])] for column in COLUMNS}
-    lines.append(Line("   ".join(f"{column.title()} {len(items)}" for column, items in found.items()), "bold"))
-    for column, items in found.items():
-        lines += [Line(""), Line(column.title(), "bold")]
-        for repo, item in items:
-            ticket = f"{repo}/{item['key']}"
-            why = f"  skipped: {skipped[ticket]}" if ticket in skipped else ""
-            lines.append(Line(f"  {ticket:24} {item['title']}{why}", "yellow" if why else ""))
-    return lines
-
-
-def facts(pr: dict[str, Any]) -> str:
-    checks = {"SUCCESS": "CI green", "FAILURE": "CI failing", "ERROR": "CI failing", "PENDING": "CI running"}.get(pr["checks"], "")
-    threads = f"{pr['threads']} thread(s)" if pr["threads"] else ""
-    first = f"reviewed by {', '.join(pr['beaten'])}" if pr["beaten"] else ""
-    return "  ".join(part for part in (first, threads, checks) if part)
-
-
-def pr_style(pr: dict[str, Any]) -> str:
-    if pr["move"] == "done":
-        return "dim"
-    if pr["beaten"]:
-        return "yellow"
-    if pr["state"] == "checks failing":
-        return "red"
-    return "mine" if pr["mine"] else "others"
-
-
-def pulls(snapshot: dict[str, Any]) -> list[Line]:
-    found = snapshot.get("prs")
-    if not found:
-        return [Line("Nothing saved yet. Press r, or wait for the next tick.")]
-    lines = [Line(f"Couldn't update: {found['error']}", "red")] if found["error"] else []
-    for move, heading in MOVES:
-        items = [p for p in found["items"] if p["move"] == move]
-        lines += [Line(""), Line(f"{heading} {len(items)}", "bold")]
-        lines += [Line(f"  {SYMBOLS[p['mine']]} {p['repo'] + '#' + str(p['number']):26} {p['state']:20} {p['title'][:44]:44} {facts(p)}", pr_style(p), pr=p) for p in items]
-    return lines
-
-
-def pull(pr: dict[str, Any]) -> list[Line]:
-    lines = [Line(f"{SYMBOLS[pr['mine']]} {pr['repo']}#{pr['number']}  {pr['title']}", "bold"), Line(pr["url"]), Line(f"{pr['state']}, by {pr['author']}", pr_style(pr))]
-    if details := facts(pr):
-        lines.append(Line(details))
-    lines += [Line(""), Line("Reviews", "bold")]
-    lines += [Line(f"  {who}: {state.lower().replace('_', ' ')}") for who, state in pr["reviews"].items()] or [Line("  None yet", "dim")]
-    return lines + [Line(f"  {who}: asked", "dim") for who in pr["waiting_on"]]
-
-
-def steps(run: Run, events: list[dict[str, Any]]) -> list[Line]:
-    lines = []
-    for index, step in enumerate(run.pipeline["steps"]):
-        seen = [e for e in events if e.get("step") == step["id"]]
-        spent = [e for e in seen if e["type"] == "spent"]
-        finished = [e for e in seen if e["type"] == "step" and e.get("state") == "done"]
-        current = index == run.step and run.status != "done"
-        state = run.status if current else "done" if finished else "pending"
-        rounds = len([e for e in seen if e["type"] == "step" and e.get("state") == "running"])
-        facts = [f"{rounds} round(s)"] if rounds else []
-        if finished and finished[-1].get("verdict"):
-            facts.append(finished[-1]["verdict"])
-        if spent:
-            prices = [e["usd"] for e in spent]
-            facts += [f"{sum(e['minutes'] for e in spent):.1f} min", "unpriced" if None in prices else f"${sum(prices):.2f}"]
-        lines.append(Line(f"  {state:8} {step['id']:12} {'  '.join(facts)}".rstrip(), COLOURS.get(state, "dim") if current else "dim" if state == "pending" else ""))
-    return lines
-
-
-def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int) -> list[Line]:
-    lines = [Line(f"{name(run)}  {title}", "bold"), Line(f"{run.status} at {step_id(run)}", COLOURS[run.status])]
-    if run.reason:
-        lines += [Line(text, "red" if run.status == "parked" else "yellow") for text in textwrap.wrap(run.reason, max(width - 2, 20))]
-    if next_action:
-        lines.append(Line(f"Then: {next_action}"))
-    if run.held:
-        lines.append(Line(f"Held: {run.held}", "yellow"))
-    if run.pr:
-        lines.append(Line(f"PR: {run.pr}"))
-    return [*lines, Line(f"Files: {files}", "dim"), Line(""), Line("Steps", "bold"), *steps(run, events), Line(""), Line("Log", "bold"), *recent(events, 12)]
+WHEEL = 3
+ESCAPE = 27
+TAB_KEY = ord("\t")
+ENTERS = (10, 13, curses.KEY_ENTER)
+Action = str | tuple[str, str]
 
 
 class Board:
@@ -174,6 +28,7 @@ class Board:
         self.picked: tuple[str, str] | None = None
         self.open: tuple[str, str] | None = None
         self.message, self.refreshing, self.seen = "", False, None
+        self.regions: list[tuple[int, int, int, Action]] = []
         self.reload()
 
     def stamp(self) -> tuple[int, ...]:
@@ -199,14 +54,14 @@ class Board:
 
     def lines(self, width: int) -> list[Line]:
         if pr := self.opened_pr():
-            return pull(pr)
+            return pull(pr, width)
         if run := self.drilled():
             action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
             events = [e for e in self.events if (e["repo"], e["key"]) == self.open]
             return drill(run, events, self.title(run), action, str(self.store.files(run)), width)
         if self.tab == 0:
-            return deliveries(self.runs, self.events, self.title)
-        return backlog(self.snapshot, self.skipped, self.store.exists) if self.tab == 1 else pulls(self.snapshot)
+            return deliveries(self.runs, self.events, self.title, width, self.engine.throttle.snapshot())
+        return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == 1 else pulls(self.snapshot, width)
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:
         return [line.ref for line in lines if line.ref]
@@ -233,15 +88,15 @@ class Board:
             self.move(-1, lines)
         elif key in (curses.KEY_DOWN, ord("j")):
             self.move(1, lines)
-        elif key in (10, 13, curses.KEY_ENTER) and not self.open:
+        elif key in ENTERS and not self.open:
             self.open, self.offset = self.selected(lines), 0
-        elif key == 27 and self.open:
+        elif key == ESCAPE and self.open:
             self.open, self.offset = None, 0
         elif key == ord("q"):
             if not self.open:
                 return False
             self.open, self.offset = None, 0
-        elif key == ord("\t") and not self.open:
+        elif key == TAB_KEY and not self.open:
             self.tab, self.offset = (self.tab + 1) % len(TABS), 0
         elif key == ord("r"):
             self.refresh()
@@ -272,21 +127,56 @@ class Board:
 
         threading.Thread(target=work, daemon=True).start()
 
-    def header(self) -> str:
-        tabs = "  ".join(f"[{t}]" if i == self.tab else f" {t} " for i, t in enumerate(TABS))
+    def counts(self) -> tuple[int, ...]:
+        waiting = sum(r.status in ("parked", "waiting") for r in self.runs)
+        tickets = sum(not self.store.exists(repo, i["key"]) for repo, r in self.snapshot.get("repos", {}).items() for i in r["items"])
+        return waiting, tickets, sum(p["move"] == "you" for p in self.snapshot.get("prs", {}).get("items", []))
+
+    def header(self) -> Line:
+        tabs = [part for i, (tab, count) in enumerate(zip(TABS, self.counts(), strict=True)) for part in (Span(f" {tab} {count} ", "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]
         kind = "PRs" if self.tab == 2 else "backlog"
         sources = [self.snapshot.get("prs", {})] if self.tab == 2 else self.snapshot.get("repos", {}).values()
         times = [source.get("polled_at", 0) for source in sources]
         age = f"{kind} {ago(self.clock() - min(times))} old" if times and min(times) else f"{kind} not polled"
         held = self.engine.throttle.hold_new(len([r for r in self.runs if r.status == "running"]))
-        return "  ".join(part for part in (f"Workshop  {tabs}", age, f"held: {held}" if held else "") if part)
+        return Line([*tabs, Span(f" {age}", "dim"), Span(f"   held: {held}" if held else "", "yellow")])
 
-    def footer(self) -> str:
+    def footer(self) -> Line:
         if self.refreshing:
-            return "Refreshing..."
+            return Line([Span("Refreshing...", "dim")])
         if self.message:
-            return self.message
-        return "esc back  g go to workspace  r refresh  q back" if self.open else "tab switch  up/down move  enter open  g go to workspace  r refresh  q quit"
+            return Line([Span(self.message, "yellow")])
+        buttons = [("esc back", ESCAPE), ("g workspace", ord("g")), ("r refresh", ord("r"))] if self.open else [("tab switch", TAB_KEY), ("enter open", 10), ("g workspace", ord("g")), ("r refresh", ord("r")), ("q quit", ord("q"))]
+        return Line([part for label, key in buttons for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
+
+    def wheel(self, by: int, width: int) -> None:
+        lines = self.lines(width)
+        for _ in range(abs(by)):
+            self.move(1 if by > 0 else -1, lines)
+
+    def click(self, x: int, y: int, width: int) -> bool:
+        """Does what the thing under the pointer does. False means leave."""
+        for top, left, right, action in self.regions:
+            if y != top or not left <= x < right:
+                continue
+            if isinstance(action, tuple):
+                self.picked, self.open, self.offset = action, action, 0
+                return True
+            kind, _, value = action.partition(":")
+            if kind == "tab":
+                self.tab, self.open, self.offset = int(value), None, 0
+                return True
+            return self.press(int(value), width)
+        return True
+
+    def mouse(self, x: int, y: int, state: int, width: int) -> bool:
+        if state & curses.BUTTON4_PRESSED:
+            self.wheel(-WHEEL, width)
+        elif state & curses.BUTTON5_PRESSED:
+            self.wheel(WHEEL, width)
+        elif state & curses.BUTTON1_PRESSED:
+            return self.click(x, y, width)
+        return True
 
     def window(self, lines: list[Line], height: int) -> list[Line]:
         chosen = self.selected(lines)
@@ -296,29 +186,65 @@ class Board:
         self.offset = max(0, min(self.offset, len(lines) - height))
         return lines[self.offset : self.offset + height]
 
+    def put(self, screen: curses.window, y: int, line: Line, styles: dict[str, int], width: int, mark: int = 0) -> None:
+        x = 0
+        for span in line.spans:
+            text = clean(span.text)
+            if x >= width - 1:
+                break
+            screen.addnstr(y, x, text, width - 1 - x, styles[span.style] | mark)
+            if span.action:
+                self.regions.append((y, x, x + columns(text), span.action))
+            x += columns(text)
+        if mark and x < width - 1:
+            screen.addnstr(y, x, cell("", width - 1 - x), width - 1 - x, mark)
+        if line.ref:
+            self.regions.append((y, 0, width, line.ref))
+
     def draw(self, screen: curses.window, styles: dict[str, int]) -> None:
         rows, width = screen.getmaxyx()
-        lines = self.lines(width)
+        lines = self.lines(width - 1)
         chosen = self.selected(lines)
+        self.regions = []
         screen.erase()
-        screen.addnstr(0, 0, clean(self.header()), width - 1, curses.A_BOLD)
-        for y, line in enumerate(self.window(lines, rows - 2), 1):
-            mark = curses.A_REVERSE if line.ref and line.ref == chosen and not self.open else 0
-            screen.addnstr(y, 0, clean(line.text), width - 1, styles[line.style] | mark)
-        screen.addnstr(rows - 1, 0, clean(self.footer()), width - 1, curses.A_DIM)
+        self.put(screen, 0, self.header(), styles, width)
+        for y, line in enumerate(self.window(lines, rows - 3), 2):
+            self.put(screen, y, line, styles, width, curses.A_REVERSE if line.ref and line.ref == chosen and not self.open else 0)
+        self.put(screen, rows - 1, self.footer(), styles, width)
         screen.refresh()
+
+    def colours(self) -> dict[str, int]:
+        curses.use_default_colors()
+        hues = {"red": curses.COLOR_RED, "yellow": curses.COLOR_YELLOW, "green": curses.COLOR_GREEN, "mine": curses.COLOR_CYAN, "others": curses.COLOR_MAGENTA}
+        styles = {"": 0, "bold": curses.A_BOLD, "dim": curses.A_DIM}
+        for pair, (style, hue) in enumerate(hues.items(), 1):
+            curses.init_pair(pair, hue, -1)
+            curses.init_pair(pair + len(hues), curses.COLOR_BLACK, hue)
+            styles[style], styles[f"on-{style}"] = curses.color_pair(pair), curses.color_pair(pair + len(hues))
+        grey = 2 * len(hues) + 1
+        curses.init_pair(grey, -1, 238 if curses.COLORS >= 256 else curses.COLOR_BLACK)
+        styles["button"] = styles["tab"] = styles["on-dim"] = curses.color_pair(grey)
+        styles["tab-on"] = styles["on-mine"] | curses.A_BOLD
+        return styles
 
     def loop(self, screen: curses.window) -> None:
         curses.curs_set(0)
-        curses.use_default_colors()
-        for pair, colour in enumerate((curses.COLOR_RED, curses.COLOR_YELLOW, curses.COLOR_GREEN, curses.COLOR_CYAN, curses.COLOR_MAGENTA), 1):
-            curses.init_pair(pair, colour, -1)
-        styles = {"": 0, "bold": curses.A_BOLD, "dim": curses.A_DIM, "red": curses.color_pair(1), "yellow": curses.color_pair(2), "green": curses.color_pair(3), "mine": curses.color_pair(4), "others": curses.color_pair(5)}
+        styles = self.colours()
+        curses.mousemask(curses.BUTTON1_PRESSED | curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED)
+        curses.mouseinterval(0)
         screen.timeout(1000)
         while True:
             self.reload()
             self.draw(screen, styles)
-            if not self.press(screen.getch(), screen.getmaxyx()[1]):
+            key, width = screen.getch(), screen.getmaxyx()[1]
+            if key == curses.KEY_MOUSE:
+                try:
+                    _, x, y, _, state = curses.getmouse()
+                except curses.error:
+                    continue  # an event curses couldn't read, such as one past the edge
+                if not self.mouse(x, y, state, width - 1):
+                    return
+            elif not self.press(key, width - 1):
                 return
 
 
