@@ -1,0 +1,62 @@
+# Workshop
+
+Turns a ticket from GitHub, Jira or a Markdown intent into a self-reviewed draft PR. It runs as a herdr plugin, with one agent per ticket in its own worktree. Standard library Python, no daemon: each run is a state file, and `tick` or an agent event moves it on.
+
+## Set up
+
+Copy `config.example.toml` to `~/.config/workshop/config.toml`, `chmod 600` it, and add your repos. Then:
+
+```bash
+cd <repo> && claude     # accept folder trust once per clone; its worktrees inherit it
+workshop doctor         # checks tools, logins and repos, and launches a real agent
+```
+
+## Commands
+
+| Command | Does |
+|---|---|
+| `workshop tick` | Moves every run on, then starts one ready ticket if there's room |
+| `workshop start <repo> <key> [--override]` | Starts one ticket now. `--override` skips the last-editor check |
+| `workshop status` | Every run, plus what's skipped or held |
+| `workshop needs-you` | Only what's waiting on you, and what to run |
+| `workshop explain <key>` | One run in detail |
+| `workshop resume <key>` | Tries a parked run's stopped step again |
+| `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
+| `workshop answer <key> <text>` | Answers an agent's question |
+| `workshop list` | Ready tickets |
+| `workshop doctor [--no-launch]` | Finds what would stop a run |
+
+A `waiting` run stopped as planned, at a gate or with a question. A `parked` run stopped because something went wrong. Neither counts towards `max_active`.
+
+## Safety
+
+- A ticket runs only if you were the last person to change it, because ticket text steers the agent. Use `--override`, or add the `<label>-override` label yourself, to run one anyway.
+- Gates are answered only from this command line, so nothing in a ticket can approve one.
+- Agents never commit or push. Workshop does, and it only opens draft PRs.
+
+## Pipelines
+
+Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set one per repo with `pipeline = "<name>"`.
+
+| Pipeline | Steps |
+|---|---|
+| `ticket` | Plan, build, verify by a fresh agent, draft PR |
+| `gated` | The same, with your approval after the plan |
+
+Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh` share one agent, so they must agree on the model.
+
+## Limits
+
+`[throttle]` paces work against Claude's limits, using `~/.local/state/claude-usage.json`, which the status line saves. See `config.example.toml`. Running steps always finish. Without the file, or with an old one, tickets run one at a time.
+
+## Running it on a schedule
+
+Nothing runs by itself by default: without a schedule, a run moves only on agent events or a `tick`, so held runs stay held and new tickets wait. A systemd user timer is installed but off. Turning it on means ready tickets start unattended:
+
+```bash
+systemctl --user enable --now workshop-tick.timer   # every 5 minutes
+systemctl --user disable --now workshop-tick.timer
+journalctl --user -u workshop-tick.service
+```
+
+It only runs while the distro is up.
