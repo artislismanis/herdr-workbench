@@ -125,7 +125,7 @@ def pipe(run: Run) -> list[Span]:
 
 def recent(events: list[dict[str, Any]], count: int) -> list[Line]:
     lines = []
-    for e in [e for e in events if e["type"] != "spent"][-count:]:
+    for e in reversed([e for e in events if e["type"] != "spent"][-count:]):
         style = "red" if e["type"] in BAD_EVENTS else "green" if e["type"] in GOOD_EVENTS or e.get("state") == "done" else "dim"
         what = " ".join(part for part in (e["type"] if e["type"] != "step" else "", e.get("step", ""), e.get("state", "")) if part)
         lines.append(Line([Span("  ● ", style), Span(e["at"][5:16].replace("T", " ") + "  ", "dim"), Span(cell(f"{e['repo']}/{e['key']}", 24) + " ", "dim"), Span(clean(what))]))

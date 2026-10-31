@@ -81,6 +81,12 @@ class Deliveries(unittest.TestCase):
         self.assertEqual(lines[-1].style, "red")
         self.assertNotIn("spent", joined(lines))
 
+    def test_the_latest_activity_comes_first(self):
+        events = [event("claimed"), event("step", step="plan", state="done"), event("finished")]
+        lines = texts(deliveries([], events, lambda r: "", WIDE))
+        self.assertIn("finished", lines[-3])
+        self.assertIn("claimed", lines[-1])
+
     def test_nothing_yet(self):
         self.assertIn("No tickets picked up yet.", joined(deliveries([], [], lambda r: "", WIDE)))
 
