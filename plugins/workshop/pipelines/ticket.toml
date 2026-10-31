@@ -2,28 +2,32 @@
 name = "ticket"
 
 [[steps]]
-id = "plan"
+id = "tasks"
+stage = "Build"
 kind = "agent"
-prompt = "plan.md"
+prompt = "tasks.md"
 read_only = true
 verdict = ["READY", "BLOCKED"]
 then.BLOCKED = { park = "The ticket needs clarifying before it can be built." }
 
 [[steps]]
-id = "build"
+id = "implement"
+stage = "Build"
 kind = "agent"
-prompt = "build.md"
+prompt = "implement.md"
 publish = "pr"
 
 [[steps]]
-id = "verify"
+id = "ai-review"
+stage = "Test"
 kind = "agent"
-prompt = "verify.md"
+prompt = "ai-review.md"
 fresh = true
 read_only = true
 verdict = ["PASS", "CHANGES_NEEDED"]
-then.CHANGES_NEEDED = { goto = "build", max = 2, prompt = "fix.md" }
+then.CHANGES_NEEDED = { goto = "implement", max = 2, prompt = "fix.md" }
 
 [[steps]]
-id = "pr"
+id = "open-pr"
+stage = "Deploy"
 kind = "draft_pr"

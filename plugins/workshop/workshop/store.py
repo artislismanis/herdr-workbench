@@ -36,13 +36,18 @@ class Run:
     pr: str = ""
     blocked_at: float = 0.0  # set while a comment on the ticket can unblock it
     landed: str = ""  # what became of the PR
-    stage: str = ""  # where the ticket last moved to
+    moved: str = ""  # where the ticket last moved to
     opened: bool = False  # the PR has left draft
 
     @property
     def current(self) -> dict[str, Any] | None:
         steps = self.pipeline["steps"]
         return steps[self.step] if self.step < len(steps) else None
+
+    @property
+    def label(self) -> str:
+        """A finished run is still with people until its PR lands."""
+        return self.landed or ("delivered" if self.status == "done" else self.status)
 
     def index_of(self, step_id: str) -> int:
         return [s["id"] for s in self.pipeline["steps"]].index(step_id)

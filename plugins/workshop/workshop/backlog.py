@@ -13,7 +13,7 @@ SNAPSHOT = "board.json"
 COLUMNS = ("new", "planned", "designed", "queued")
 
 
-def stage(item: Item, labels: dict[str, str]) -> str:
+def column(item: Item, labels: dict[str, str]) -> str:
     if item.queued:
         return "queued"
     if labels.get("designed", "designed") in item.labels:
@@ -30,7 +30,7 @@ def poll(cfg: dict[str, Any], store: Store, clock: Callable[[], float] = time.ti
     for name, repo in cfg["repos"].items():
         try:
             items = make_source(name, repo, cfg.get("jira", {})).backlog()
-            repos[name] = {"polled_at": clock(), "error": "", "items": [{"key": i.key, "title": i.title, "url": i.url, "stage": stage(i, labels)} for i in items]}
+            repos[name] = {"polled_at": clock(), "error": "", "items": [{"key": i.key, "title": i.title, "url": i.url, "column": column(i, labels)} for i in items]}
         except STOPS as failed:
             repos[name] = {"polled_at": 0.0, "items": [], **before.get(name, {}), "error": str(failed)}
     try:

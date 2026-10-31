@@ -100,10 +100,10 @@ class Deliveries(unittest.TestCase):
 
 class Backlog(unittest.TestCase):
     snapshot = {"repos": {"r": {"polled_at": 1.0, "error": "", "items": [
-        {"key": "1", "title": "New one", "url": "", "stage": "new"},
-        {"key": "2", "title": "Ready", "url": "", "stage": "designed"},
-        {"key": "3", "title": "Queued", "url": "", "stage": "queued"},
-        {"key": "4", "title": "Started", "url": "", "stage": "queued"},
+        {"key": "1", "title": "New one", "url": "", "column": "new"},
+        {"key": "2", "title": "Ready", "url": "", "column": "designed"},
+        {"key": "3", "title": "Queued", "url": "", "column": "queued"},
+        {"key": "4", "title": "Started", "url": "", "column": "queued"},
     ]}}}
 
     def test_counts_by_stage_and_leaves_out_started_tickets(self):
@@ -145,6 +145,17 @@ class Drill(unittest.TestCase):
 
     def test_steps_behind_the_run_are_done_even_without_events(self):
         self.assertTrue(any(t.strip().startswith("● plan") for t in texts(drill(run(step=1), [], "", "", "/f", 80))))
+
+    def test_steps_are_grouped_by_stage_when_the_pipeline_names_them(self):
+        steps = [{"id": "a", "kind": "agent", "stage": "Build"}, {"id": "b", "kind": "agent", "stage": "Build"}, {"id": "c", "kind": "agent", "stage": "Test"}, {"id": "d", "kind": "agent"}]
+        staged = run()
+        staged.pipeline = {"name": "x", "steps": steps}
+        lines = texts(drill(staged, [], "", "", "/f", 80))
+        self.assertEqual(lines.count("Build"), 1)
+        self.assertLess(lines.index("Build"), lines.index("Test"))
+
+    def test_a_pipeline_without_stages_shows_plain_steps(self):
+        self.assertNotIn("Build", texts(drill(run(), [], "", "", "/f", 80)))
 
     def test_a_stopped_run_says_why_and_what_next(self):
         lines = texts(drill(run(status="parked", reason="word " * 40), [], "", "workshop resume 1", "/f", 40))
@@ -508,7 +519,7 @@ class Keys(unittest.TestCase):
     def test_the_status_follows_the_title_and_pr(self):
         lines = texts(drill(run(status="done", pr="http://p/1"), [], "T", "", "/f", 90, handover="- New flag\nRecommendation: approve"))
         self.assertTrue(lines[1].startswith("PR:"))
-        self.assertIn("done", lines[2])
+        self.assertIn("delivered", lines[2])
         self.assertLess(2, next(i for i, t in enumerate(lines) if "Recommendation" in t))
 
     def draft(self):

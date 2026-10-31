@@ -8,7 +8,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop import __main__ as cli  # noqa: E402
-from workshop.backlog import SNAPSHOT, poll, stage  # noqa: E402
+from workshop.backlog import SNAPSHOT, column, poll  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import GitHubSource, Item, JiraSource  # noqa: E402
 from workshop.store import Store  # noqa: E402
@@ -20,14 +20,14 @@ def item(*labels, queued=False):
 
 class Stages(unittest.TestCase):
     def test_the_furthest_label_wins(self):
-        self.assertEqual(stage(item(), {}), "new")
-        self.assertEqual(stage(item("planned"), {}), "planned")
-        self.assertEqual(stage(item("planned", "designed"), {}), "designed")
-        self.assertEqual(stage(item("designed", queued=True), {}), "queued")
+        self.assertEqual(column(item(), {}), "new")
+        self.assertEqual(column(item("planned"), {}), "planned")
+        self.assertEqual(column(item("planned", "designed"), {}), "designed")
+        self.assertEqual(column(item("designed", queued=True), {}), "queued")
 
     def test_labels_can_be_renamed(self):
-        self.assertEqual(stage(item("spec-ok"), {"designed": "spec-ok"}), "designed")
-        self.assertEqual(stage(item("designed"), {"designed": "spec-ok"}), "new")
+        self.assertEqual(column(item("spec-ok"), {"designed": "spec-ok"}), "designed")
+        self.assertEqual(column(item("designed"), {"designed": "spec-ok"}), "new")
 
 
 class Poll(unittest.TestCase):
@@ -58,7 +58,7 @@ class Poll(unittest.TestCase):
     def test_saves_each_repos_tickets_with_their_stage(self):
         self.poll()
         saved = json.loads((self.store.root / SNAPSHOT).read_text(encoding="utf-8"))
-        self.assertEqual(saved["repos"]["a"], {"polled_at": 100.0, "error": "", "items": [{"key": "1", "title": "A ticket", "url": "", "stage": "planned"}]})
+        self.assertEqual(saved["repos"]["a"], {"polled_at": 100.0, "error": "", "items": [{"key": "1", "title": "A ticket", "url": "", "column": "planned"}]})
 
     def test_a_failed_repo_keeps_its_last_list_and_says_why(self):
         self.poll()

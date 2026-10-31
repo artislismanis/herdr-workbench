@@ -101,7 +101,7 @@ def save_skipped(skipped: dict[str, str]) -> None:
 def show_status(engine: Engine) -> None:
     for run in engine.store.all():
         step = run.current["id"] if run.current else "-"
-        print(f"{run.status:8} {run.repo}/{run.key} {step} {run.held or run.reason or run.pr}")
+        print(f"{run.label:9} {run.repo}/{run.key} {step} {run.held or run.reason or run.pr}")
     if held := engine.throttle.hold_new(len(running(engine))):
         print(f"held     new tickets: {held}")
     skipped = state_root() / "skipped.json"
@@ -114,7 +114,7 @@ def show_status(engine: Engine) -> None:
 def show_needs_you(engine: Engine) -> None:
     for run in engine.store.all():
         if run.status in ("parked", "waiting"):
-            print(f"{run.status:8} {run.repo}/{run.key} {run.reason}\n         {engine.next_action(run)}")
+            print(f"{run.label:9} {run.repo}/{run.key} {run.reason}\n          {engine.next_action(run)}")
 
 
 def show_refresh(cfg: dict[str, Any], store: Store) -> None:

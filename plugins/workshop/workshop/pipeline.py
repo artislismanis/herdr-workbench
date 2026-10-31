@@ -9,8 +9,8 @@ from typing import Any
 
 KINDS = ("agent", "gate", "draft_pr")
 PUBLISH = ("pr", "ticket")
-STEP_KEYS = {"id", "kind", "prompt", "read_only", "fresh", "verdict", "then", "model", "minutes", "output", "publish", "report"}
-GATE_KEYS = {"id", "kind", "report", "then"}
+STEP_KEYS = {"id", "stage", "kind", "prompt", "read_only", "fresh", "verdict", "then", "model", "minutes", "output", "publish", "report"}
+GATE_KEYS = {"id", "stage", "kind", "report", "then"}
 RULE_KEYS = {"goto", "max", "prompt", "park"}
 
 
@@ -53,6 +53,8 @@ def validate(raw: Any) -> dict[str, Any]:
         where = f"{raw['name']}.{step['id']}"
         if unknown := set(step) - STEP_KEYS:
             raise PipelineError(f"{where}: unknown keys {sorted(unknown)}")
+        if not isinstance(step.get("stage", ""), str):
+            raise PipelineError(f"{where}: stage is a name")
         if step.get("kind") not in KINDS:
             raise PipelineError(f"{where}: kind must be one of {KINDS}")
         if not re.fullmatch(r"[a-z][a-z0-9-]*", step["id"]):
@@ -72,7 +74,7 @@ def validate(raw: Any) -> dict[str, Any]:
                 raise PipelineError(f"{where}: a gate takes only {sorted(GATE_KEYS)}")
             if step.get("report") not in ids:
                 raise PipelineError(f"{where}: a gate's report names the step whose report you approve")
-        elif set(step) - {"id", "kind"}:
+        elif set(step) - {"id", "stage", "kind"}:
             raise PipelineError(f"{where}: {step['kind']} takes no options")
         for verdict, rule in step.get("then", {}).items():
             if verdict not in (["REJECTED"] if step["kind"] == "gate" else step.get("verdict", [])):
