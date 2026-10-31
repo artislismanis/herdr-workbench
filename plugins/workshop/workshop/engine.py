@@ -486,7 +486,7 @@ class Engine:
         self.store.save(run)
         try:
             self.review(run)
-            self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there.")
+            self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there, and prefix+shift+u there finishes it.")
         except STOPS as failed:  # the PR is delivered either way, and g tries again
             self.store.event(run, "review_failed", reason=str(failed))
             self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} hunk didn't open: g on the board tries again.")

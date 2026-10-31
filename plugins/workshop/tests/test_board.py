@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, cell, clean, columns, deliveries, drill, pipe, pull, pulls  # noqa: E402
+from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, pipe, pull, pulls, run_style  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
@@ -164,13 +164,11 @@ class Drill(unittest.TestCase):
     report = "# Review\n\n## Findings\n- Nothing was built.\n\n## Needs you\n- Is an empty change right?\n\nVERDICT: CHANGES_NEEDED\n"
 
     def stopped_view(self, **fields):
-        return drill(run(status="parked", step=1, reason="Ran out of rounds", **fields), [], "T", "", "/f", 90, ("/f/verify.md", "/f/verify-1.md", "/f/verify-2.md", "/f/brief.md"), ("verify.md", self.report), (("d drop", 100),))
+        return drill(run(status="parked", step=1, reason="Ran out of rounds", **fields), [], "T", "", "/f", 90, ("/f/verify.md", "/f/verify-1.md", "/f/verify-2.md", "/f/brief.md"), ("verify.md", self.report))
 
-    def test_needs_you_leads_with_the_actions_under_it(self):
-        lines = self.stopped_view()
-        where = texts(lines)
-        self.assertLess(where.index("  - Is an empty change right?"), next(i for i, t in enumerate(where) if "d drop" in t))
-        self.assertLess(next(i for i, t in enumerate(where) if "d drop" in t), where.index("─ Steps " + "─" * 80))
+    def test_needs_you_comes_before_the_steps(self):
+        where = texts(self.stopped_view())
+        self.assertLess(where.index("  - Is an empty change right?"), where.index("─ Steps " + "─" * 80))
 
     def test_subheadings_stay_in_their_section(self):
         text = "## Findings\n### Critical\n- Broken\n## Needs you\n- Decide\n"
@@ -268,6 +266,32 @@ class PRs(unittest.TestCase):
         lines = texts(pull(pr(reviews={"sam": "CHANGES_REQUESTED"}, waiting_on=["alex"])))
         self.assertIn("  ✗ sam: changes requested", lines)
         self.assertIn("  … alex: asked", lines)
+
+
+class Statuses(unittest.TestCase):
+    def test_waiting_on_people_and_finished_work_dont_look_like_buttons(self):
+        self.assertEqual(run_style(run(status="done")), "on-others")
+        self.assertEqual(run_style(run(status="done", landed="dropped")), "dim")
+        self.assertEqual(block("dim"), "dim")
+
+
+class Colours(unittest.TestCase):
+    def hues(self, available):
+        with mock.patch.multiple(curses, use_default_colors=mock.DEFAULT, color_pair=mock.DEFAULT, COLORS=available, create=True), mock.patch.object(curses, "init_pair") as made:
+            curses.color_pair.side_effect = lambda number: number
+            styles = Board.colours(mock.Mock())
+        return styles, {number: (front, behind) for number, front, behind in (c.args for c in made.call_args_list)}
+
+    def test_someone_elses_work_is_cyan_on_the_terminals_own_scheme(self):
+        styles, pairs = self.hues(256)
+        self.assertEqual(pairs[styles["others"]], (6, -1))
+        self.assertEqual(pairs[styles["on-others"]], (0, 6))
+        self.assertEqual(pairs[styles["row-"]], (-1, 8))
+
+    def test_bright_colours_fall_back_on_eight(self):
+        styles, pairs = self.hues(8)
+        self.assertEqual(pairs[styles["red"]], (1, -1))
+        self.assertEqual(pairs[styles["row-"]], (-1, 0))
 
 
 class Screen:
@@ -683,13 +707,14 @@ class Panel(Mouse):
         self.tap(x + 5, y, width)
         self.assertEqual((self.board.picked, self.board.open), (("r", "2"), None))
 
-    def test_a_stopped_run_has_its_buttons_in_the_panel(self):
+    def test_a_stopped_run_has_its_buttons_on_the_bottom_row_only(self):
         self.store.save(run("1", "parked", pane="w1:p1"))
         self.board.seen = None
         self.board.reload()
         width = self.wide()
-        self.assertIn("d drop", joined(self.board.panel(width)[:8]))
-        spots = [region for region in self.board.regions if region[3] == f"key:{ord('d')}" and region[0] < 20]
+        self.assertNotIn("d drop", joined(self.board.panel(width)))
+        self.assertIn("d drop", self.board.footer(width).text)
+        spots = [region for region in self.board.regions if region[3] == f"key:{ord('d')}"]
         self.tap(spots[0][1], spots[0][0], width)
         self.assertEqual(self.board.asking.command, "drop")
 
