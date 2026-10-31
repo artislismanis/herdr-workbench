@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh"""
 
 import fcntl
 import json
@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .backlog import poll
 from .doctor import doctor
 from .engine import PREFIX, Engine, Park
 from .pipeline import PipelineError, load
@@ -22,7 +23,7 @@ from .tools import Tools
 
 
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0}
 
 
 def config_path() -> Path:
@@ -70,6 +71,7 @@ def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     """Move every run on, then start one ready ticket if there's room. Polling costs no tokens."""
     advance_all(engine)
     check_tickets(engine)
+    poll(cfg, engine.store)  # before the limits below, or a full workshop stops the board updating
     active = running(engine)
     if len(active) >= cfg.get("max_active", 2) or engine.throttle.hold_new(len(active)):
         return
@@ -110,6 +112,11 @@ def show_needs_you(engine: Engine) -> None:
     for run in engine.store.all():
         if run.status in ("parked", "waiting"):
             print(f"{run.status:8} {run.repo}/{run.key} {run.reason}\n         {engine.next_action(run)}")
+
+
+def show_refresh(cfg: dict[str, Any], store: Store) -> None:
+    for name, repo in poll(cfg, store)["repos"].items():
+        print(f"{name}: {repo['error'] or str(len(repo['items'])) + ' open'}")
 
 
 def show_doctor(cfg: dict[str, Any], launch: bool) -> int:
@@ -184,6 +191,8 @@ def main(argv: list[str]) -> int:
                 print(schedule(argv[1:]))
             case "stats":
                 print(stats(engine.store.history()))
+            case "refresh":
+                show_refresh(cfg, engine.store)
         return 0
     except (Park, PipelineError, ToolError, KeyError) as stop:
         print(f"workshop: {stop}", file=sys.stderr)

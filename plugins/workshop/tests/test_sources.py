@@ -30,6 +30,12 @@ class Markdown(unittest.TestCase):
         self.assertEqual(self.source.ready(), [])
         self.assertEqual(self.source.get("add-json").title, "Add JSON")
 
+    def test_backlog_is_the_queued_intents(self):
+        item = self.source.backlog()[0]
+        self.assertEqual((item.key, item.title, item.queued), ("add-json", "Add JSON", True))
+        self.source.claim("add-json")
+        self.assertEqual(self.source.backlog(), [])
+
     def test_report_and_finish(self):
         self.source.claim("add-json")
         self.source.report("add-json", "Draft PR ready")
