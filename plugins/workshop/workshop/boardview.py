@@ -146,9 +146,9 @@ def stage_state(run: Run, indexes: list[int]) -> tuple[str, str, str]:
 def pipe(run: Run) -> list[Span]:
     """The run's stages at a glance, each coloured by its steps."""
     groups = stage_groups(run.pipeline["steps"])
-    marks = [stage_state(run, indexes)[:2] for indexes in groups]
+    marks = [("●", "green")] * bool(run.pipeline.get("ticket_stage")) + [stage_state(run, indexes)[:2] for indexes in groups]
     spans = [part for number, mark in enumerate(marks) for part in ([Span("─", "dim")] if number else []) + [Span(*mark)]]
-    return [*spans, Span(" " * max(PIPE_WIDTH - 2 * len(groups) + 1, 0))]
+    return [*spans, Span(" " * max(PIPE_WIDTH - 2 * len(marks) + 1, 0))]
 
 
 def recent(events: list[dict[str, Any]], count: int) -> list[Line]:
@@ -323,11 +323,29 @@ def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[st
     return Line([Span(f" {stage} ", block(style) if style != "dim" else "bold"), Span(f"  {word}", style), Span(f"   {total}" if total else "", "dim")])
 
 
+def file_row(lead: list[Span], path: str, room: int, label: str = "") -> Line:
+    name = path.rsplit("/", 1)[-1]
+    return Line([*lead, Span(cell(label, 26)), Span(cell(FILE_NOTES.get(name, ""), room), "dim"), Span("  "), Span(name, "mine")], path=path)
+
+
+def ticket_rows(run: Run, files: list[str], margin: str, room: int) -> list[Line]:
+    """What the run started from. There's no step for it yet, so it leads the timeline. Everything people added sits with it."""
+    stage = run.pipeline.get("ticket_stage")
+    heading = [Line([Span(f" {stage} ", "on-green"), Span("  done", "green")])] if stage else []
+    rows = [file_row([Span(f"{margin}● " if not index else f"{margin}  ", "green")], path, room, "" if index else "ticket") for index, path in enumerate(files)]
+    return [*heading, *rows, plain() if stage else plain(f"{margin}│", "dim")] if rows else heading
+
+
 def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], width: int, stopped: tuple[str, str] = ("", ""), earlier: bool = False) -> list[Line]:
-    lines: list[Line] = []
     steps = run.pipeline["steps"]
-    margin = "  " if any(step.get("stage") for step in steps) else ""
+    margin = "  " if any(step.get("stage") for step in steps) or run.pipeline.get("ticket_stage") else ""
     width -= len(margin)
+    room = max(min(28, width - 53), 5)
+    owned = {path for step in steps for path in (files_of(step, reports)[0], *(p for _, p in files_of(step, reports)[1]))}
+    loose = [path for path in reports if path not in owned]
+    notes = [path for path in loose if path.endswith("/notes.json")]
+    lines = ticket_rows(run, sorted((path for path in loose if path not in notes), key=lambda path: not path.endswith("/brief.md")), margin, room)
+    writes_notes = max((index for index, step in enumerate(steps) if step["kind"] == "agent"), default=-1)
     groups = {indexes[0]: indexes for indexes in stage_groups(steps)}
     for index, step in enumerate(steps):
         if step.get("stage") and index in groups:
@@ -339,17 +357,19 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         current = index == run.step and not completed(run)
         mark, style = ("◐", "red" if run.landed == "dropped" else COLOURS[run.status]) if current else ("●", "green") if finished or index < run.step or completed(run) else ("○", "dim")
         verdict = finished[-1].get("verdict", "") if finished else ""
-        notes = [f"{rounds} round{'' if rounds == 1 else 's'}"] if rounds else []
+        facts = [f"{rounds} round{'' if rounds == 1 else 's'}"] if rounds else []
         if spent:
             prices = [e["usd"] for e in spent]
-            notes += [f"{sum(e['minutes'] for e in spent):.1f} min", "unpriced" if None in prices else f"${sum(prices):.2f}"]
+            facts += [f"{sum(e['minutes'] for e in spent):.1f} min", "unpriced" if None in prices else f"${sum(prices):.2f}"]
         latest, older = files_of(step, reports)
-        row = [Span(f"{margin}{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(notes), max(min(28, width - 53), 5)), "dim")]  # the report beats the numbers on a narrow panel
+        row = [Span(f"{margin}{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(facts), room), "dim")]  # the report beats the numbers on a narrow panel
         if latest:
             row += [Span("▸ " if current else "  ", "yellow"), Span(latest.rsplit("/", 1)[-1], "mine")]
         if older and not earlier:
             row += [Span("  "), Span(f" +{len(older)} older ", "button", f"key:{ord('e')}")]
         lines.append(Line(row, path=latest))
+        if index == writes_notes:
+            lines += [file_row([Span(f"{margin}│ ", "dim")], path, room) for path in notes]
         if earlier:
             lines += [Line([Span(f"{margin}│ ", "dim"), Span(" " * max(width - 40, 12)), Span(path.rsplit("/", 1)[-1], "mine"), Span(f"  round {number}", "dim")], path=path) for number, path in older]
         if current and stopped[0] == files_name(step):
@@ -381,6 +401,4 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     if handover:
         lines += [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))]
     lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
-    owned = {path for step in run.pipeline["steps"] for path in (files_of(step, reports)[0], *(p for _, p in files_of(step, reports)[1]))}
-    others = [Line([Span("  "), Span(cell(path.rsplit("/", 1)[-1], 14), "mine"), Span(FILE_NOTES.get(path.rsplit("/", 1)[-1], ""), "dim")], path=path) for path in reports if path not in owned]
-    return [*lines, plain(), rule("Steps", width), *timeline(run, events, reports, width, stopped, earlier), plain(), rule("Ticket and notes", width), *others, *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]
+    return [*lines, plain(), rule("Steps", width), *timeline(run, events, reports, width, stopped, earlier), *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]

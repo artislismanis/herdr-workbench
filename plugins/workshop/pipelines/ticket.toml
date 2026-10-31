@@ -1,5 +1,6 @@
 # Ticket to self-reviewed draft PR. Copy to ~/.config/workshop/pipelines/ to change it.
 name = "ticket"
+ticket_stage = "Plan and Design"
 
 [[steps]]
 id = "tasks"

@@ -83,6 +83,12 @@ class Validate(unittest.TestCase):
         with self.assertRaisesRegex(PipelineError, "takes only"):
             validate({"name": "x", "steps": [{"id": "qa", "kind": "command", "verdict": ["PASS", "FAILED"], "prompt": "x"}]})
 
+    def test_a_ticket_stage_is_allowed_but_nothing_else(self):
+        steps = [{"id": "c", "kind": "draft_pr"}]
+        self.assertEqual(validate({"name": "x", "ticket_stage": "Intake", "steps": steps})["ticket_stage"], "Intake")
+        with self.assertRaises(PipelineError):
+            validate({"name": "x", "other": 1, "steps": steps})
+
     def test_goto_must_exist(self):
         step = agent(verdict=["NO"], then={"NO": {"goto": "gone", "max": 1}})
         self.rejects({"name": "x", "steps": [step]}, "unknown step")

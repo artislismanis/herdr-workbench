@@ -43,8 +43,8 @@ def _check_rule(where: str, rule: Any, ids: set[str]) -> None:
 
 
 def validate(raw: Any) -> dict[str, Any]:
-    if not isinstance(raw, dict) or set(raw) != {"name", "steps"}:
-        raise PipelineError("a pipeline has exactly name and steps")
+    if not isinstance(raw, dict) or not {"name", "steps"} <= set(raw) <= {"name", "ticket_stage", "steps"}:
+        raise PipelineError("a pipeline has name, steps and optionally ticket_stage")
     steps = raw["steps"]
     if not isinstance(steps, list) or not steps:
         raise PipelineError(f"{raw['name']}: steps must be a non-empty list")

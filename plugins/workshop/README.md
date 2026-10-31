@@ -54,7 +54,7 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 | `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `open-pr` |
 | `gated` | The same, with your approval after `tasks` |
 
-Any step can set `stage`, and the Steps panel groups by it. It's a free name, so use your own, and leave it out for a flat list. The shipped pipelines use Build, Test and Deploy, from [the AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook).
+`ticket_stage` names the stage the ticket itself stands for. It has no steps yet, so it leads the Steps panel with the ticket, and it counts in the strip. Any step can set `stage`, and the Steps panel groups by it. It's a free name, so use your own, and leave it out for a flat list. The shipped pipelines use Build, Test and Deploy, from [the AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook).
 
 A `command` step runs what the repo sets for that step id under `[repos.<name>.commands]`, with no agent and no tokens. Its output is the report, and a failed `qa` goes back to `implement`. A repo without the command skips the step, shown as `SKIPPED`, and `ai-review` runs the repo's checks itself. Commands run as you, with your access, so only set them on repos you trust.
 
