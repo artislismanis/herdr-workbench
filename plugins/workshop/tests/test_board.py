@@ -270,6 +270,25 @@ class PRs(unittest.TestCase):
         self.assertIn("  … alex: asked", lines)
 
 
+class Colours(unittest.TestCase):
+    def hues(self, available):
+        with mock.patch.multiple(curses, use_default_colors=mock.DEFAULT, color_pair=mock.DEFAULT, COLORS=available, create=True), mock.patch.object(curses, "init_pair") as made:
+            curses.color_pair.side_effect = lambda number: number
+            styles = Board.colours(mock.Mock())
+        return styles, {number: (front, behind) for number, front, behind in (c.args for c in made.call_args_list)}
+
+    def test_someone_elses_work_is_cyan_on_the_terminals_own_scheme(self):
+        styles, pairs = self.hues(256)
+        self.assertEqual(pairs[styles["others"]], (6, -1))
+        self.assertEqual(pairs[styles["on-others"]], (0, 6))
+        self.assertEqual(pairs[styles["row-"]], (-1, 8))
+
+    def test_bright_colours_fall_back_on_eight(self):
+        styles, pairs = self.hues(8)
+        self.assertEqual(pairs[styles["red"]], (1, -1))
+        self.assertEqual(pairs[styles["row-"]], (-1, 0))
+
+
 class Screen:
     """Enough of a curses window to draw on."""
 

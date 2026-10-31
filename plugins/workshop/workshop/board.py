@@ -13,7 +13,6 @@ from .backlog import SNAPSHOT
 from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls
 from .engine import STOPS, Engine
 from .store import Run
-from .themes import TERMINAL, config_path, nearest, palette
 
 SKIPPED = "skipped.json"
 TABS = ("Backlog", "Delivery", "Review")  # the order work moves through
@@ -70,10 +69,6 @@ class Board:
     def stamp(self) -> tuple[int, ...]:
         paths = (self.store.root / "runs", self.store.root / "events.jsonl", self.store.root / SNAPSHOT, self.store.root / SKIPPED)
         return tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in paths)
-
-    def theme_stamp(self) -> int:
-        path = config_path()
-        return path.stat().st_mtime_ns if path.exists() else 0
 
     def reload(self) -> None:
         if (stamp := self.stamp()) != self.seen:
@@ -433,11 +428,9 @@ class Board:
         screen.refresh()
 
     def colours(self) -> dict[str, int]:
-        """herdr's current theme as curses styles. Default text stays the terminal's, so it's readable whatever the background."""
+        """The terminal's own colours as curses styles, so the board follows its scheme. Default text stays the terminal's, so it's readable whatever the background."""
         curses.use_default_colors()
-        theme = palette(config_path()) if curses.COLORS >= 256 else TERMINAL
-        back, row, surface = (nearest(theme[token], curses.COLORS) for token in ("panel_bg", "selection_bg", "surface0"))
-        hues = {"red": "red", "yellow": "yellow", "green": "green", "mine": "accent", "others": "mauve", "dim": "overlay1"}
+        grey, red = (8, 9) if curses.COLORS >= 16 else (0, 1)  # bright colours fall back to their base hue
         pairs = iter(range(1, 64))
 
         def pair(front: int, behind: int) -> int:
@@ -445,22 +438,20 @@ class Board:
             curses.init_pair(number, front, behind)
             return curses.color_pair(number)
 
-        styles = {"": 0, "bold": curses.A_BOLD, "row-": pair(-1, row), "row-bold": pair(-1, row) | curses.A_BOLD, "button": pair(-1, surface)}
-        for style, token in hues.items():
-            hue = nearest(theme[token], curses.COLORS)
-            styles[style], styles[f"row-{style}"] = pair(hue, -1), pair(hue, row)
+        styles = {"": 0, "bold": curses.A_BOLD, "row-": pair(-1, grey), "row-bold": pair(-1, grey) | curses.A_BOLD, "button": pair(-1, grey)}
+        for style, hue in {"red": red, "yellow": 3, "green": 2, "mine": 4, "others": 6, "dim": -1}.items():
+            styles[style], styles[f"row-{style}"] = pair(hue, -1), pair(hue, grey)
             if style != "dim":
-                styles[f"on-{style}"] = pair(back, hue)
+                styles[f"on-{style}"] = pair(0, hue)
         styles["tab"] = styles["on-dim"] = styles["button"]
         styles["tab-on"] = styles["on-mine"] | curses.A_BOLD
         styles["row-dim"] = styles["row-"]  # faint text on the selection background is unreadable
-        if theme["overlay1"] == -1:
-            styles["dim"] |= curses.A_DIM
+        styles["dim"] |= curses.A_DIM
         return styles
 
     def loop(self, screen: curses.window) -> None:
         curses.curs_set(0)
-        styles, theme = self.colours(), self.theme_stamp()
+        styles = self.colours()
         curses.mousemask(CLICKS)
         curses.mouseinterval(0)
         sys.stdout.write(DRAGS_ON)  # curses' own mouse mode reports presses, not movement
@@ -468,9 +459,6 @@ class Board:
         screen.timeout(1000)
         while True:
             self.reload()
-            if self.theme_stamp() != theme:
-                styles, theme = self.colours(), self.theme_stamp()
-                screen.clear()
             self.draw(screen, styles)
             key, width = screen.getch(), screen.getmaxyx()[1]
             if key == curses.KEY_MOUSE:
