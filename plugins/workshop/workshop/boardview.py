@@ -258,12 +258,16 @@ def pull(pr: dict[str, Any], width: int = 120) -> list[Line]:
 
 
 def section(text: str, heading: str) -> list[str]:
-    """The lines under a report's heading. Reports are Markdown, so a heading is any line starting with #."""
-    found, inside = [], False
+    """The lines under a report's heading, subheadings included."""
+    found: list[str] = []
+    depth = 0
     for line in text.splitlines():
-        if line.startswith("#"):
-            inside = line.lstrip("#").strip().lower() == heading
-        elif inside and line.strip() and not line.startswith("VERDICT:"):
+        level = len(line) - len(line.lstrip("#"))
+        if level and not depth and line.lstrip("#").strip().lower() == heading:
+            depth = level
+        elif level and depth and level <= depth:
+            depth = 0
+        elif depth and line.strip() and not line.startswith("VERDICT:"):
             found.append(line)
     return found
 
@@ -279,9 +283,13 @@ def needs_you(run: Run, report: str, width: int) -> list[Line]:
     return lines + [plain("  " + part.text) for item in items for part in wrapped(item, width - 2)]
 
 
+def files_name(step: dict[str, Any]) -> str:
+    return step.get("output", f"{step['id']}.md")
+
+
 def files_of(step: dict[str, Any], reports: tuple[str, ...]) -> tuple[str, list[str]]:
     """A step's latest report, and earlier rounds newest first: the engine keeps those as name-1.md, name-2.md."""
-    name = step.get("output", f"{step['id']}.md")
+    name = files_name(step)
     stem, _, suffix = name.rpartition(".")
     rounds = [(int(found[1]), path) for path in reports if (found := re.fullmatch(rf"{re.escape(stem)}-(\d+)\.{re.escape(suffix)}", path.rsplit("/", 1)[-1]))]
     latest = next((path for path in reports if path.rsplit("/", 1)[-1] == name), "")
@@ -311,7 +319,7 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
             prices = [e["usd"] for e in spent]
             notes += [f"{sum(e['minutes'] for e in spent):.1f} min", "unpriced" if None in prices else f"${sum(prices):.2f}"]
         latest, older = files_of(step, reports)
-        row = [Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(notes), 28), "dim")]
+        row = [Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(notes), max(min(28, width - 52), 6)), "dim")]  # the report beats the numbers on a narrow panel
         if latest:
             row.append(Span(latest.rsplit("/", 1)[-1], "mine"))
         if older and not earlier:
@@ -324,10 +332,6 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         if index < len(steps) - 1:
             lines.append(plain("│", "dim"))
     return lines
-
-
-def files_name(step: dict[str, Any]) -> str:
-    return step.get("output", f"{step['id']}.md")
 
 
 def document(path: str, text: str, width: int) -> list[Line]:

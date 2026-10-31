@@ -172,6 +172,18 @@ class Drill(unittest.TestCase):
         self.assertLess(where.index("  - Is an empty change right?"), next(i for i, t in enumerate(where) if "d drop" in t))
         self.assertLess(next(i for i, t in enumerate(where) if "d drop" in t), where.index("─ Steps " + "─" * 80))
 
+    def test_subheadings_stay_in_their_section(self):
+        text = "## Findings\n### Critical\n- Broken\n## Needs you\n- Decide\n"
+        self.assertIn("Broken", joined(drill(run(status="parked", step=1), [], "", "", "/f", 90, ("/f/verify.md",), ("verify.md", text))))
+
+    def test_a_narrow_panel_keeps_the_report_in_view(self):
+        row = next(line for line in self.stopped_view_at(56) if line.text.startswith("◐ verify"))
+        self.assertLessEqual(columns(row.text), 56)
+        self.assertIn("+2 earlier", row.text)
+
+    def stopped_view_at(self, width):
+        return drill(run(status="parked", step=1, reason="R"), [], "T", "", "/f", width, ("/f/verify.md", "/f/verify-1.md", "/f/verify-2.md"), ("verify.md", self.report))
+
     def test_a_report_without_needs_you_falls_back_to_the_reason(self):
         lines = drill(run(status="parked", reason="Timed out"), [], "", "", "/f", 80, stopped=("plan.md", "No headings here"))
         self.assertIn("  Timed out", texts(lines))
