@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .doctor import doctor
-from .engine import Engine, Park
+from .engine import PREFIX, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
 from .shell import ToolError
@@ -143,9 +143,14 @@ def main(argv: list[str]) -> int:
     except tomllib.TOMLDecodeError as bad:
         print(f"workshop: {config_path()} isn't valid TOML: {bad}", file=sys.stderr)
         return 1
+    prefix = cfg.get("comment_prefix", PREFIX).strip()
+    if not prefix:
+        # Without one, workshop's comments would read as yours and nothing could tell them apart.
+        print(f"workshop: comment_prefix in {config_path()} can't be empty", file=sys.stderr)
+        return 1
     root = state_root()
     root.mkdir(parents=True, exist_ok=True)
-    engine = Engine(Tools(), Store(root), source_for(cfg), Throttle(usage_path(), cfg.get("throttle", {})))
+    engine = Engine(Tools(), Store(root), source_for(cfg), Throttle(usage_path(), cfg.get("throttle", {})), prefix=prefix)
     try:
         match command:
             case "tick":
