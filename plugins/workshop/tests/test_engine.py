@@ -149,7 +149,7 @@ class Case(unittest.TestCase):
         return self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source)
 
     def finish_agent(self, run, agent, step, text="done"):
-        (self.tools.work / ".workshop" / f"{step}.md").write_text(text, encoding="utf-8")
+        (self.tools.work / ".workshop" / f"{step}.txt").write_text(text, encoding="utf-8")
         self.tools.statuses[agent] = "idle"
         return self.engine.advance(run)
 
@@ -170,7 +170,7 @@ class HappyPath(Case):
 
     def test_the_brief_is_written_for_the_agents(self):
         self.start()
-        self.assertIn("Body", (self.tools.work / ".workshop" / "brief.md").read_text(encoding="utf-8"))
+        self.assertIn("Body", (self.tools.work / ".workshop" / "brief.txt").read_text(encoding="utf-8"))
 
     def test_an_agent_still_working_leaves_the_run_where_it_is(self):
         run = self.engine.advance(self.start())
@@ -209,12 +209,12 @@ class Resume(Case):
         run = self.start()
         run.status, run.reason = "parked", "herdr not found"
         prompts = len(self.tools.prompts)
-        (self.tools.work / ".workshop" / "plan.md").write_text("VERDICT: READY\n", encoding="utf-8")
+        (self.tools.work / ".workshop" / "plan.txt").write_text("VERDICT: READY\n", encoding="utf-8")
         self.tools.statuses["ws-de-1"] = "idle"
         run = self.engine.resume(run)
         self.assertEqual(run.current["id"], "build")
         self.assertEqual(len(self.tools.prompts), prompts + 1)
-        self.assertNotIn("Read `.workshop/brief.md`", self.tools.prompts[-1][1])
+        self.assertNotIn("Read `.workshop/brief.txt`", self.tools.prompts[-1][1])
 
     def test_resume_starts_the_step_again_when_its_agent_has_gone(self):
         run = self.start()
@@ -368,8 +368,8 @@ class Gates(Case):
     def test_rejection_goes_back_with_the_note(self):
         run = self.engine.reject(self.run_, "Use the existing client.")
         self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
-        self.assertIn("Use the existing client.", (self.tools.work / ".workshop" / "feedback.md").read_text(encoding="utf-8"))
-        self.assertIn("feedback.md", self.tools.prompts[-1][1])
+        self.assertIn("Use the existing client.", (self.tools.work / ".workshop" / "feedback.txt").read_text(encoding="utf-8"))
+        self.assertIn("feedback.txt", self.tools.prompts[-1][1])
 
     def test_rejection_rounds_are_limited(self):
         run = self.run_
@@ -391,7 +391,7 @@ class Gates(Case):
 class Questions(Case):
     def asked(self):
         run = self.start()
-        (self.tools.work / ".workshop" / "ask.md").write_text("Which API version?\n", encoding="utf-8")
+        (self.tools.work / ".workshop" / "ask.txt").write_text("Which API version?\n", encoding="utf-8")
         self.tools.statuses["ws-de-1"] = "idle"
         return self.engine.advance(run)
 
@@ -402,7 +402,7 @@ class Questions(Case):
 
     def test_a_question_beats_a_report(self):
         run = self.start()
-        (self.tools.work / ".workshop" / "ask.md").write_text("Which?", encoding="utf-8")
+        (self.tools.work / ".workshop" / "ask.txt").write_text("Which?", encoding="utf-8")
         run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
         self.assertEqual((run.status, run.current["id"]), ("waiting", "plan"))
 
@@ -411,10 +411,10 @@ class Questions(Case):
         self.now += 100
         run = self.engine.answer(run, "v2")
         self.assertEqual((run.status, run.phase, run.started_at), ("running", "prompted", self.now))
-        self.assertIn("answers.md", self.tools.prompts[-1][1])
+        self.assertIn("answers.txt", self.tools.prompts[-1][1])
         self.assertEqual(self.tools.prompts[-1][0], "ws-de-1")
-        self.assertIn("A: v2", (self.tools.work / ".workshop" / "answers.md").read_text(encoding="utf-8"))
-        self.assertFalse((self.tools.work / ".workshop" / "ask.md").exists())
+        self.assertIn("A: v2", (self.tools.work / ".workshop" / "answers.txt").read_text(encoding="utf-8"))
+        self.assertFalse((self.tools.work / ".workshop" / "ask.txt").exists())
 
     def test_an_answer_restarts_the_step_when_its_agent_has_gone(self):
         run = self.asked()
@@ -430,7 +430,7 @@ class Questions(Case):
 
     def test_a_question_in_a_fresh_step_keeps_its_pane(self):
         run = self.to_verify()
-        (self.tools.work / ".workshop" / "ask.md").write_text("Which?", encoding="utf-8")
+        (self.tools.work / ".workshop" / "ask.txt").write_text("Which?", encoding="utf-8")
         self.tools.statuses["ws-de-1-verify-1"] = "idle"
         run = self.engine.advance(run)
         self.assertEqual((run.status, run.step_agent), ("waiting", "ws-de-1-verify-1"))
@@ -445,7 +445,7 @@ class Questions(Case):
 class Review(Case):
     def finished(self):
         run = self.to_verify()
-        (self.tools.work / ".workshop" / "notes.json").write_text('[{"file": "a.py", "line": 2, "note": "Look"}, {"file": "b.py", "line": 9, "note": "Elsewhere"}]', encoding="utf-8")
+        (self.tools.work / ".workshop" / "notes.txt").write_text('[{"file": "a.py", "line": 2, "note": "Look"}, {"file": "b.py", "line": 9, "note": "Elsewhere"}]', encoding="utf-8")
         return self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
 
     def test_notes_land_in_hunk_and_the_rest_are_listed(self):
@@ -457,7 +457,7 @@ class Review(Case):
 
     def test_missing_notes_still_open_the_review(self):
         run = self.finished()
-        (self.tools.work / ".workshop" / "notes.json").unlink()
+        (self.tools.work / ".workshop" / "notes.txt").unlink()
         self.assertIn("Loaded 0 note(s)", self.engine.review(run))
         self.assertEqual(self.tools.review_notes, [])
 
@@ -516,6 +516,7 @@ class Rework(Case):
         run = self.finish_agent(run, "ws-de-1", "build")
         self.assertIn("ws-de-1-verify-2", self.tools.started)
         self.assertEqual(run.current["id"], "verify")
+        self.assertIn("CHANGES_NEEDED", (self.tools.work / ".workshop" / "verify-1.txt").read_text(encoding="utf-8"))
 
     def test_rework_stops_at_the_limit(self):
         run = self.to_verify()

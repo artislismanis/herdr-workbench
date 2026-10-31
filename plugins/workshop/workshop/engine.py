@@ -86,7 +86,7 @@ class Engine:
 
     def reject(self, run: Run, note: str) -> Run:
         step = self._at_gate(run)
-        self._note(run, "feedback.md", note)
+        self._note(run, "feedback.txt", note)
         self.store.event(run, "rejected", note=note)
         run.status, run.reason = "running", ""
         try:
@@ -103,7 +103,7 @@ class Engine:
         step = run.current
         if run.status != "waiting" or step is None or step["kind"] != "agent":
             raise KeyError(f"{run.key} isn't waiting for an answer")
-        self._note(run, "answers.md", f"Q: {run.reason}\n\nA: {text}")
+        self._note(run, "answers.txt", f"Q: {run.reason}\n\nA: {text}")
         self._ask_file(run).unlink(missing_ok=True)
         run.status, run.reason = "running", ""
         self.store.event(run, "answered")
@@ -112,7 +112,7 @@ class Engine:
             if self.tools.agent_status(agent) == "gone":
                 run.phase = ""  # the step starts again, and its prompt points at the answers
             else:
-                self.tools.prompt(agent, "A person answered your question in `.workshop/answers.md`. Read it, then carry on with the same step.")
+                self.tools.prompt(agent, "A person answered your question in `.workshop/answers.txt`. Read it, then carry on with the same step.")
                 run.started_at = self.clock()
         except STOPS as stop:
             self._park(run, f"{step['id']} failed: {stop}")
@@ -125,10 +125,10 @@ class Engine:
             raise KeyError(f"{run.key} has no PR to review yet")
         work = Path(run.worktree)
         files = self.tools.open_review(run.pane, work, run.base)
-        placed, outside = place(load_notes(work / IGNORED / "notes.json"), files)
+        placed, outside = place(load_notes(work / IGNORED / "notes.txt"), files)
         self.tools.replace_notes(work, placed)
         self.store.event(run, "review", notes=len(placed), outside=len(outside))
-        lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {work / IGNORED / 'verify.md'}"]
+        lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {work / IGNORED / 'verify.txt'}"]
         return "\n".join(lines + [f"  {n['file']}:{n['line']} {n['note']}" for n in outside])
 
     def next_action(self, run: Run) -> str:
@@ -160,7 +160,7 @@ class Engine:
         return step
 
     def _ask_file(self, run: Run) -> Path:
-        return Path(run.worktree) / IGNORED / "ask.md"
+        return Path(run.worktree) / IGNORED / "ask.txt"
 
     def _note(self, run: Run, name: str, text: str) -> None:
         with (Path(run.worktree) / IGNORED / name).open("a", encoding="utf-8") as notes:
@@ -176,7 +176,7 @@ class Engine:
             ticket = self.source_for(run).get(run.key)
             scratch = path / ".workshop"
             scratch.mkdir(exist_ok=True)
-            (scratch / "brief.md").write_text(f"# {ticket.key}: {ticket.title}\n\n{ticket.body}\n", encoding="utf-8")
+            (scratch / "brief.txt").write_text(f"# {ticket.key}: {ticket.title}\n\n{ticket.body}\n", encoding="utf-8")
             self.store.event(run, "worktree", path=run.worktree)
         if not run.pane:
             run.pane = self.tools.workspace(Path(run.worktree), run.key)
@@ -184,7 +184,7 @@ class Engine:
             run.agent = f"ws-{slug(run.key)}"
 
     def _report(self, run: Run, step: dict[str, Any]) -> Path:
-        return Path(run.worktree) / IGNORED / f"{step['id']}.md"
+        return Path(run.worktree) / IGNORED / f"{step['id']}.txt"
 
     def _agent(self, run: Run, step: dict[str, Any]) -> None:
         if run.phase == "":
@@ -212,7 +212,11 @@ class Engine:
 
     def _prompt_agent(self, run: Run, step: dict[str, Any]) -> None:
         work = Path(run.worktree)
-        self._report(run, step).unlink(missing_ok=True)
+        report = self._report(run, step)
+        if report.exists():
+            # The new round writes over it, and a failed round is worth keeping.
+            earlier = len(list(report.parent.glob(f"{step['id']}-*.txt")))
+            report.rename(report.with_stem(f"{step['id']}-{earlier + 1}"))
         run.baseline = self.tools.changes(work) if step.get("read_only") else []
         if step.get("fresh"):
             # A new agent each time: nothing checks its own work.
@@ -278,7 +282,7 @@ class Engine:
         self.tools.push(work, run.branch)
         run.pr = self.tools.find_pr(work, run.branch)
         if not run.pr:
-            body_file = work / IGNORED / "build.md"
+            body_file = work / IGNORED / "build.txt"
             body = body_file.read_text(encoding="utf-8") if body_file.exists() else f"Delivers {ticket.key}."
             run.pr = self.tools.create_pr(work, run.branch, run.base, title, body)
         self.store.event(run, "step", step="pr", state="done", pr=run.pr)
