@@ -31,7 +31,9 @@ class Engine:
         self.tools, self.store, self.source_for, self.throttle, self.clock = tools, store, source_for, throttle, clock
         self.mark = prefix + " "
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False) -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False) -> Run:
+        if self.store.exists(repo, key) and not restart:
+            raise Park(f"{key} already has a run. Use workshop resume {key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
             raise Park("Set git user.name and user.email first: workshop commits for the agents.")
         reason = "" if override else source.guard(key)
@@ -39,8 +41,12 @@ class Engine:
             raise Park(f"{key}: {reason}")
         source.claim(key)
         run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline)
+        if restart and self.store.exists(repo, key):
+            # Same worktree, workspace and agent, so a redo leaves nothing behind.
+            old = self.store.load(repo, key)
+            run.worktree, run.branch, run.pane, run.agent = old.worktree, old.branch, old.pane, old.agent
         self.store.save(run)
-        self.store.event(run, "claimed", override=override)
+        self.store.event(run, "claimed", override=override, restart=restart)
         self._move(run, "working")
         self._post(run, f"Started, on branch workshop/{slug(key)}.")
         return self.advance(run)
