@@ -74,14 +74,18 @@ def read_limits(engine: Engine) -> None:
     engine.throttle.update(engine.tools.claude_usage())
 
 
+def no_room(engine: Engine, cfg: dict[str, Any]) -> bool:
+    active = running(engine)
+    return len(active) >= cfg.get("max_active", 2) or bool(engine.throttle.hold_new(len(active)))
+
+
 def tick(engine: Engine, cfg: dict[str, Any]) -> None:
-    """Move every run on, then start one ready ticket if there's room. Polling costs no tokens."""
+    """Move every run on, then start ready tickets while there's room. Polling costs no tokens."""
     read_limits(engine)
     advance_all(engine)
     check_tickets(engine)
     poll(cfg, engine.store)  # before the limits below, or a full workshop stops the board updating
-    active = running(engine)
-    if len(active) >= cfg.get("max_active", 2) or engine.throttle.hold_new(len(active)):
+    if no_room(engine, cfg):
         return
     skipped: dict[str, str] = {}
     for name, repo in cfg["repos"].items():
@@ -94,8 +98,9 @@ def tick(engine: Engine, cfg: dict[str, Any]) -> None:
                 continue
             print(f"{name}: starting {key}")
             begin(engine, cfg, name, key)
-            save_skipped(skipped)
-            return
+            if no_room(engine, cfg):
+                save_skipped(skipped)
+                return
     save_skipped(skipped)
 
 

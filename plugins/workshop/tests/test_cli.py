@@ -9,6 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from workshop import __main__ as cli  # noqa: E402
 from workshop.__main__ import finish_choices, main  # noqa: E402
 
 
@@ -25,6 +26,35 @@ class Finish(unittest.TestCase):
     def test_a_pr_already_ready_is_never_marked_again(self):
         self.assertEqual(self.actions([" M a.py"], False), ["push"])
         self.assertEqual(self.actions([], False), ["comment"])
+
+
+class Filling(unittest.TestCase):
+    def tick(self, ready, max_active=2, held=lambda active: ""):
+        started = []
+        engine = mock.Mock()
+        engine.store.exists.return_value = False
+        engine.throttle.hold_new.side_effect = held
+        source = mock.Mock()
+        source.ready.return_value = ready
+        source.guard.return_value = ""
+        with (
+            mock.patch.object(cli, "read_limits"),
+            mock.patch.object(cli, "advance_all"),
+            mock.patch.object(cli, "check_tickets"),
+            mock.patch.object(cli, "poll"),
+            mock.patch.object(cli, "save_skipped"),
+            mock.patch.object(cli, "make_source", return_value=source),
+            mock.patch.object(cli, "running", side_effect=lambda _: started),
+            mock.patch.object(cli, "begin", side_effect=lambda _e, _c, _n, key: started.append(key)),
+        ):
+            cli.tick(engine, {"repos": {"r": {}}, "max_active": max_active})
+        return started
+
+    def test_one_tick_fills_every_free_slot_and_no_more(self):
+        self.assertEqual(self.tick(["1", "2", "3"]), ["1", "2"])
+
+    def test_limits_are_checked_before_each_start(self):
+        self.assertEqual(self.tick(["1", "2"], held=lambda active: "held" if active else ""), ["1"])
 
 
 class Cli(unittest.TestCase):
