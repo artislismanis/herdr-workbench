@@ -18,8 +18,9 @@ class Run:
     repo_path: str
     base: str
     pipeline: dict[str, Any]  # copied in, so editing the file can't change a run in flight
+    commands: dict[str, str] = field(default_factory=dict)  # the repo's, by step id
     step: int = 0
-    phase: str = ""  # "" before a step starts, "prompted" while an agent works on it
+    phase: str = ""  # "" before a step starts, "prompted" while an agent or command works on it
     status: str = "running"  # running, waiting (for a person, as planned), parked (stopped), done
     reason: str = ""
     held: str = ""  # why the throttle is keeping the next step back
@@ -29,6 +30,7 @@ class Run:
     agent: str = ""
     step_pane: str = ""
     step_agent: str = ""
+    command_pid: int = 0
     started_at: float = 0.0
     baseline: list[str] = field(default_factory=list)
     next_prompt: str = ""

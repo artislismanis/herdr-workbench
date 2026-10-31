@@ -7,10 +7,12 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-KINDS = ("agent", "gate", "draft_pr")
+KINDS = ("agent", "gate", "command", "draft_pr")
 PUBLISH = ("pr", "ticket")
 STEP_KEYS = {"id", "stage", "kind", "prompt", "read_only", "fresh", "verdict", "then", "model", "minutes", "output", "publish", "report"}
 GATE_KEYS = {"id", "stage", "kind", "report", "then"}
+COMMAND_KEYS = {"id", "stage", "kind", "minutes", "verdict", "then"}
+COMMAND_VERDICTS = ["PASS", "FAILED"]
 RULE_KEYS = {"goto", "max", "prompt", "park"}
 
 
@@ -74,6 +76,13 @@ def validate(raw: Any) -> dict[str, Any]:
                 raise PipelineError(f"{where}: a gate takes only {sorted(GATE_KEYS)}")
             if step.get("report") not in ids:
                 raise PipelineError(f"{where}: a gate's report names the step whose report you approve")
+        elif step["kind"] == "command":
+            if set(step) - COMMAND_KEYS:
+                raise PipelineError(f"{where}: a command takes only {sorted(COMMAND_KEYS)}")
+            if step.get("verdict") != COMMAND_VERDICTS:
+                raise PipelineError(f"{where}: a command's verdict is {COMMAND_VERDICTS}")
+            if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
+                raise PipelineError(f"{where}: minutes must be 1 or more")
         elif set(step) - {"id", "stage", "kind"}:
             raise PipelineError(f"{where}: {step['kind']} takes no options")
         for verdict, rule in step.get("then", {}).items():

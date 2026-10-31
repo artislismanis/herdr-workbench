@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -46,6 +47,81 @@ class FakeSource:
         return self.is_closed
 
 
+class Commands(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.tools, self.source = FakeTools(self.root), FakeSource()
+        self.now = 1000.0
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: self.now)
+        self.steps = {"name": "x", "steps": [{"id": "work", "kind": "agent", "prompt": "implement.md"}, {"id": "qa", "kind": "command", "verdict": ["PASS", "FAILED"], "then": {"FAILED": {"goto": "work", "max": 1, "prompt": "fix-qa.md"}}, "minutes": 5}, {"id": "after", "kind": "gate", "report": "qa"}]}
+
+    def at_qa(self, commands):
+        run = self.engine.start("r", "1", self.root, "main", self.steps, self.source, commands=commands)
+        run.step, run.phase = 1, ""
+        return self.engine.advance(run)
+
+    def end(self, run, code):
+        (self.engine.store.files(run) / "qa.exit").write_text(f"{code}\n", encoding="utf-8")
+        return self.engine.advance(run)
+
+    def test_a_repo_without_the_command_skips_it_and_says_so(self):
+        run = self.at_qa({})
+        self.assertEqual(run.current["id"], "after")
+        done = [e for e in self.engine.store.events(run) if e.get("step") == "qa"]
+        self.assertEqual(done[-1]["verdict"], "SKIPPED")
+
+    def test_it_runs_in_the_background_and_waits(self):
+        run = self.at_qa({"qa": "make test"})
+        self.assertEqual(self.tools.commands, ["make test"])
+        self.assertEqual((run.current["id"], run.phase), ("qa", "prompted"))
+        run = self.engine.advance(run)
+        self.assertEqual(self.tools.commands, ["make test"])
+
+    def test_a_pass_moves_on(self):
+        self.assertEqual(self.end(self.at_qa({"qa": "x"}), 0).current["id"], "after")
+
+    def test_a_failure_goes_back_with_its_own_prompt(self):
+        run = self.end(self.at_qa({"qa": "x"}), 1)
+        self.assertEqual(run.current["id"], "work")
+        self.assertIn("checks failed", self.tools.prompts[-1][1])
+
+    def test_rounds_of_failure_run_out_and_park(self):
+        run = self.at_qa({"qa": "x"})
+        run.loops["qa"] = 1
+        run = self.end(run, 1)
+        self.assertEqual(run.status, "parked")
+        self.assertIn("still says FAILED", run.reason)
+
+    def test_past_its_time_it_stops_and_parks(self):
+        run = self.at_qa({"qa": "x"})
+        self.now += 301
+        run = self.engine.advance(run)
+        self.assertEqual(run.status, "parked")
+        self.assertEqual(self.tools.stopped, [4242])
+
+    def test_a_retry_runs_it_again_and_keeps_the_last_output(self):
+        run = self.at_qa({"qa": "x"})
+        files = self.engine.store.files(run)
+        (files / "qa.md").write_text("old", encoding="utf-8")
+        run.phase, run.status = "", "parked"
+        self.engine.store.save(run)
+        self.engine.retry(run)
+        self.assertEqual(len(self.tools.commands), 2)
+        self.assertEqual((files / "qa-1.md").read_text(encoding="utf-8"), "old")
+
+
+class RealCommand(unittest.TestCase):
+    def test_output_and_exit_code_are_kept(self):
+        root = Path(tempfile.mkdtemp())
+        Tools().start_command("echo hello; exit 3", root, root / "qa.md", root / "qa.exit")
+        for _ in range(200):
+            if (root / "qa.exit").exists():
+                break
+            time.sleep(0.01)
+        self.assertEqual((root / "qa.exit").read_text(encoding="utf-8").strip(), "3")
+        self.assertEqual((root / "qa.md").read_text(encoding="utf-8"), "hello\n")
+
+
 class FakeThrottle:
     def __init__(self):
         self.held = ""
@@ -68,6 +144,7 @@ class FakeTools:
         self.notes = []
         self.reviews, self.review_notes, self.open_already = [], None, False
         self.prompts, self.started, self.closed = [], [], []
+        self.commands, self.stopped = [], []
         self.changed, self.commits, self.pushes = [], [], 0
         self.commit_fails = False
         self.pr = ""
@@ -75,6 +152,13 @@ class FakeTools:
         self.ahead_count = 1
         self.worktrees = 0
 
+
+    def start_command(self, command, work, output, finished):
+        self.commands.append(command)
+        return 4242
+
+    def stop_command(self, pid):
+        self.stopped.append(pid)
     def identity_ok(self, repo):
         return self.identity
 

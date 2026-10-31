@@ -1,8 +1,10 @@
 """The outside world: wt, herdr, git and gh. Tests swap this class for a fake."""
 
+import contextlib
 import json
 import os
 import re
+import signal
 import socket
 import subprocess
 import time
@@ -142,6 +144,16 @@ class Tools:
     def stage(self, work: Path) -> None:
         excludes = [f":(exclude,glob)**/{g}/**" for g in GENERATED]
         run("git", "add", "-A", "--", ".", *excludes, cwd=work)
+
+    def start_command(self, command: str, work: Path, output: Path, finished: Path) -> int:
+        """Runs a repo's own command in the background, because it can outlast a tick. The exit code lands in finished."""
+        with output.open("w", encoding="utf-8") as log:
+            wrapper = 'sh -c "$1"; echo $? > "$2"'
+            return subprocess.Popen(["sh", "-c", wrapper, "sh", command, str(finished)], cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True).pid
+
+    def stop_command(self, pid: int) -> None:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGTERM)
 
     def commit_all(self, work: Path, message: str) -> None:
         self.stage(work)

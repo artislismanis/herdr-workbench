@@ -18,6 +18,13 @@ prompt = "implement.md"
 publish = "pr"
 
 [[steps]]
+id = "qa"
+stage = "Test"
+kind = "command"
+verdict = ["PASS", "FAILED"]
+then.FAILED = { goto = "implement", max = 2, prompt = "fix-qa.md" }
+
+[[steps]]
 id = "ai-review"
 stage = "Test"
 kind = "agent"
