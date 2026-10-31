@@ -223,7 +223,7 @@ class Board:
         """herdr's current theme as curses styles. Default text stays the terminal's, so it's readable whatever the background."""
         curses.use_default_colors()
         theme = palette(config_path()) if curses.COLORS >= 256 else TERMINAL
-        back, row, surface = nearest(theme["panel_bg"]), nearest(theme["selection_bg"]), nearest(theme["surface0"])
+        back, row, surface = (nearest(theme[token], curses.COLORS) for token in ("panel_bg", "selection_bg", "surface0"))
         hues = {"red": "red", "yellow": "yellow", "green": "green", "mine": "accent", "others": "mauve", "dim": "overlay1"}
         pairs = iter(range(1, 64))
 
@@ -234,7 +234,7 @@ class Board:
 
         styles = {"": 0, "bold": curses.A_BOLD, "row-": pair(-1, row), "row-bold": pair(-1, row) | curses.A_BOLD, "button": pair(-1, surface)}
         for style, token in hues.items():
-            hue = nearest(theme[token])
+            hue = nearest(theme[token], curses.COLORS)
             styles[style], styles[f"row-{style}"] = pair(hue, -1), pair(hue, row)
             if style != "dim":
                 styles[f"on-{style}"] = pair(back, hue)

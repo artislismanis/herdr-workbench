@@ -61,19 +61,22 @@ def palette(path: Path) -> dict[str, str | int]:
     """The theme herdr shows, with its custom colours. With auto_switch the board can't see which way herdr went, so it follows the dark one."""
     try:
         theme = tomllib.loads(path.read_text(encoding="utf-8")).get("theme", {})
-    except (OSError, tomllib.TOMLDecodeError):
+    except (OSError, ValueError):
+        theme = {}  # herdr falls back the same way, and an edit in progress mustn't stop the board
+    if not isinstance(theme, dict):
         theme = {}
     wanted = (theme.get("auto_switch") and theme.get("dark_name")) or theme.get("name") or DEFAULT
     name = re.sub(r"[ _]", "-", str(wanted).lower())
     base = THEMES.get(ALIASES.get(name, name), THEMES[DEFAULT])
-    custom = {k: v for k, v in theme.get("custom", {}).items() if k in TOKENS and re.fullmatch(r"#[0-9a-fA-F]{6}", str(v))}
+    colours = theme.get("custom", {})
+    custom = {k: v for k, v in colours.items() if k in TOKENS and re.fullmatch(r"#[0-9a-fA-F]{6}", str(v))} if isinstance(colours, dict) else {}
     return base | custom
 
 
-def nearest(colour: str | int) -> int:
+def nearest(colour: str | int, available: int = 256) -> int:
     """The closest of the 256 colours, because curses can't draw exact ones on this terminal type."""
     if isinstance(colour, int):
-        return colour
+        return colour - 8 if colour >= available else colour  # bright colours fall back to their base hue
     rgb = [int(colour[i : i + 2], 16) for i in (1, 3, 5)]
 
     def gap(other: list[int]) -> int:

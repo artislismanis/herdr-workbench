@@ -34,6 +34,12 @@ class Palette(unittest.TestCase):
         self.assertEqual(self.theme("not toml ["), THEMES[DEFAULT])
         self.assertEqual(palette(self.path.with_name("missing")), THEMES[DEFAULT])
 
+    def test_a_config_of_the_wrong_shape_uses_the_default(self):
+        self.assertEqual(self.theme('theme = "nord"\n'), THEMES[DEFAULT])
+        self.assertEqual(self.theme('[theme]\nname = "nord"\ncustom = "x"\n'), THEMES["nord"])
+        self.path.write_bytes(b"\xff\xfe[theme]")
+        self.assertEqual(palette(self.path), THEMES[DEFAULT])
+
     def test_custom_colours_go_on_top(self):
         found = self.theme('[theme]\nname = "nord"\n[theme.custom]\naccent = "#112233"\nred = "reset"\n')
         self.assertEqual((found["accent"], found["red"]), ("#112233", THEMES["nord"]["red"]))
@@ -60,6 +66,9 @@ class Nearest(unittest.TestCase):
     def test_terminal_colours_pass_through(self):
         self.assertEqual(nearest(4), 4)
         self.assertEqual(nearest(-1), -1)
+
+    def test_an_8_colour_terminal_gets_no_bright_ones(self):
+        self.assertEqual([nearest(c, 8) for c in TERMINAL.values()], [4, 0, 0, 0, -1, 5, 2, 3, 1])
 
     def test_every_theme_colour_lands_on_a_real_index(self):
         self.assertTrue(all(0 <= nearest(c) <= 255 for t in THEMES.values() for c in t.values() if c != -1))
