@@ -5,7 +5,7 @@ import textwrap
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from itertools import zip_longest
+from itertools import groupby, zip_longest
 from typing import Any, NamedTuple
 
 from .backlog import COLUMNS
@@ -120,20 +120,29 @@ def bar(value: float, total: float, size: int) -> str:
     return "█" * filled + "░" * (size - filled)
 
 
-def pipe(run: Run) -> list[Span]:
-    """The run's steps at a glance: done, here and still to come."""
-    spans: list[Span] = []
+def stage_groups(steps: list[dict[str, Any]]) -> list[list[int]]:
+    """Step indexes by stage, in order. A step without a stage stands alone."""
+    return [[index for index, _ in group] for _, group in groupby(enumerate(steps), lambda pair: pair[1].get("stage") or pair[0])]
+
+
+def stage_mark(run: Run, indexes: list[int]) -> Span:
+    """Red stopped, amber waiting on a person or had to go round again, green fine."""
     steps = run.pipeline["steps"]
-    for index in range(len(steps)):
-        if index:
-            spans.append(Span("─", "dim"))
-        if completed(run) or index < run.step:
-            spans.append(Span("●", "green"))
-        elif index == run.step:
-            spans.append(Span("◐", "red" if run.landed == "dropped" else COLOURS[run.status]))
-        else:
-            spans.append(Span("○", "dim"))
-    return [*spans, Span(" " * max(PIPE_WIDTH - 2 * len(steps) + 1, 0))]
+    if not completed(run) and run.step < indexes[0]:
+        return Span("○", "dim")
+    here = not completed(run) and run.step in indexes
+    reworked = any(run.loops.get(steps[index]["id"]) for index in indexes)
+    if here and (run.landed == "dropped" or run.status == "parked"):
+        return Span("◐", "red")
+    style = "yellow" if reworked or (here and run.status == "waiting") else "green"
+    return Span("◐" if here else "●", style)
+
+
+def pipe(run: Run) -> list[Span]:
+    """The run's stages at a glance, each coloured by its steps."""
+    groups = stage_groups(run.pipeline["steps"])
+    spans = [part for number, indexes in enumerate(groups) for part in ([Span("─", "dim")] if number else []) + [stage_mark(run, indexes)]]
+    return [*spans, Span(" " * max(PIPE_WIDTH - 2 * len(groups) + 1, 0))]
 
 
 def recent(events: list[dict[str, Any]], count: int) -> list[Line]:
