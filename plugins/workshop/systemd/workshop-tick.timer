@@ -2,7 +2,7 @@
 Description=Run workshop tick on a schedule
 
 [Timer]
-OnActiveSec=5min
+OnActiveSec=1s
 OnUnitActiveSec=5min
 
 [Install]
