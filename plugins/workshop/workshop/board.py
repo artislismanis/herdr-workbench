@@ -15,6 +15,7 @@ from .themes import TERMINAL, config_path, nearest, palette
 
 SKIPPED = "skipped.json"
 TABS = ("Deliveries", "Backlog", "PRs")
+TOP = 1  # a gap under herdr's tab bar
 WHEEL = 3
 ESCAPE = 27
 TAB_KEY = ord("\t")
@@ -213,8 +214,8 @@ class Board:
         chosen = self.selected(lines)
         self.regions = []
         screen.erase()
-        self.put(screen, 0, self.header(), styles, width)
-        for y, line in enumerate(self.window(lines, rows - 3), 2):
+        self.put(screen, TOP, self.header(), styles, width)
+        for y, line in enumerate(self.window(lines, rows - TOP - 3), TOP + 2):
             self.put(screen, y, line, styles, width, bool(line.ref) and line.ref == chosen and not self.open)
         self.put(screen, rows - 1, self.footer(), styles, width)
         screen.refresh()

@@ -310,6 +310,10 @@ class Mouse(Keys):
         self.assertTrue(any(attr == 2 for text, attr in drawn))
         self.assertEqual(drawn[-1][1], 1)
 
+    def test_the_header_sits_below_a_gap(self):
+        self.drawn()
+        self.assertEqual(self.spot("tab:0")[1], 1)
+
     def test_clicking_a_tab_switches_to_it_even_from_a_run(self):
         self.board.press(10)
         self.drawn()
@@ -363,10 +367,11 @@ class OpenBoard(unittest.TestCase):
         called.assert_called_once_with("herdr", "workspace", "focus", "w2")
 
     def test_opens_one_when_there_is_none(self):
-        answers = [{"result": {"workspaces": []}}, {"result": {"workspace": {"workspace_id": "w3"}, "root_pane": {"pane_id": "w3:p1"}}}]
+        answers = [{"result": {"workspaces": []}}, {"result": {"workspace": {"workspace_id": "w3"}, "tab": {"tab_id": "w3:t1"}, "root_pane": {"pane_id": "w3:p1"}}}]
         with mock.patch("workshop.tools.run_json", side_effect=answers), mock.patch("workshop.tools.run") as called, mock.patch.object(Tools, "_to_top") as top:
             Tools().open_board()
         top.assert_called_once_with("w3")
+        called.assert_any_call("herdr", "tab", "rename", "w3:t1", "Dashboard")
         self.assertEqual(called.call_args.args[:3], ("herdr", "pane", "run"))
         self.assertTrue(called.call_args.args[4].startswith("exec ") and called.call_args.args[4].endswith("workshop board"))
 
