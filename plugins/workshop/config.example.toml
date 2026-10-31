@@ -49,7 +49,7 @@ token = ""                   # or set JIRA_TOKEN
 # Set this if your board allows only the next column: a longer move walks it.
 # route = ["To Do", "In Progress", "Code Review", "Dev Done", "Ready for Release"]
 
-# The Jira status for each stage. A stage left out doesn't move the ticket. GitHub uses labels instead.
+# The Jira status for each move. A move left out doesn't change the ticket. GitHub uses labels instead.
 # [jira.moves]
 # working = "In Progress"
 # blocked = "Pause/Blocked"

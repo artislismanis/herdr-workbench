@@ -42,7 +42,7 @@ class Item:
 
 
 # Where a ticket has got to. Each source shows these its own way.
-STAGES = ("working", "blocked", "review", "approved", "merged", "dropped")
+TICKET_MOVES = ("working", "blocked", "review", "approved", "merged", "dropped")
 
 
 class Source(Protocol):
@@ -52,7 +52,7 @@ class Source(Protocol):
     def report(self, key: str, text: str) -> None: ...
     def finish(self, key: str) -> None: ...
     def guard(self, key: str) -> str: ...
-    def move(self, key: str, stage: str) -> None: ...
+    def move(self, key: str, move: str) -> None: ...
     def comments(self, key: str, since: float) -> list[Comment]: ...
     def backlog(self) -> list[Item]: ...
     def closed(self, key: str) -> bool: ...
@@ -128,13 +128,13 @@ class GitHubSource:
     def finish(self, key: str) -> None:
         pass
 
-    def move(self, key: str, stage: str) -> None:
+    def move(self, key: str, move: str) -> None:
         current = run_json("gh", "issue", "view", key, "--json", "labels", cwd=self.repo)["labels"]
-        stale = [f"{self.label}-{s}" for s in STAGES if s != stage and f"{self.label}-{s}" in [c["name"] for c in current]]
-        run("gh", "label", "create", f"{self.label}-{stage}", "--force", cwd=self.repo)
+        stale = [f"{self.label}-{s}" for s in TICKET_MOVES if s != move and f"{self.label}-{s}" in [c["name"] for c in current]]
+        run("gh", "label", "create", f"{self.label}-{move}", "--force", cwd=self.repo)
         removals = [arg for name in stale for arg in ("--remove-label", name)]
-        run("gh", "issue", "edit", key, "--add-label", f"{self.label}-{stage}", *removals, cwd=self.repo)
-        if stage == "merged":
+        run("gh", "issue", "edit", key, "--add-label", f"{self.label}-{move}", *removals, cwd=self.repo)
+        if move == "merged":
             run("gh", "issue", "close", key, cwd=self.repo)
 
     def comments(self, key: str, since: float) -> list[Comment]:
@@ -235,8 +235,8 @@ class JiraSource:
     def finish(self, key: str) -> None:
         pass
 
-    def move(self, key: str, stage: str) -> None:
-        target = self.moves.get(stage)
+    def move(self, key: str, move: str) -> None:
+        target = self.moves.get(move)
         if not target:
             return
         # Boards often allow only the next column, so a longer move walks the route. Only forwards
@@ -341,7 +341,7 @@ class MarkdownSource:
         done.mkdir(exist_ok=True)
         shutil.move(self._claimed(key), done / f"{key}.md")
 
-    def move(self, key: str, stage: str) -> None:
+    def move(self, key: str, move: str) -> None:
         pass
 
     def comments(self, key: str, since: float) -> list[Comment]:

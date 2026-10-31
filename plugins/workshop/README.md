@@ -51,10 +51,27 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 
 | Pipeline | Steps |
 |---|---|
-| `ticket` | Plan, build, verify by a fresh agent, draft PR |
-| `gated` | The same, with your approval after the plan |
+| `ticket` | `tasks`, `implement`, `ai-review` by a fresh agent, `open-pr` |
+| `gated` | The same, with your approval after `tasks` |
+
+Any step can set `stage`, and the Steps panel groups by it. It's a free name, so use your own, and leave it out for a flat list. The shipped pipelines use Build, Test and Deploy, from [the AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook).
 
 Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh` share one agent, so they must agree on the model.
+
+## Terms
+
+| Term | Means |
+|---|---|
+| Pipeline | The ordered steps a run follows, in a TOML file |
+| Stage | A group of steps, such as Build, and nothing else |
+| Step | One piece of work in a pipeline, by an agent, a person or workshop |
+| Round | One attempt at a step. A failed review sends the work round again |
+| Status | Where a run stands: `running`, `parked`, `waiting` or `delivered`, then what became of it, such as `merged` or `dropped` |
+| Column | Where a ticket sits on Backlog: New, Planned, Designed or Queued |
+| Move | What workshop does to the ticket as a run goes on: `working`, `blocked`, `review`, `approved` or `merged` |
+| Self-review | You reading the change in hunk, before anyone else sees it |
+| Peer review | Other people reviewing the PR |
+| AI review | The `ai-review` step: a fresh agent checks the work before you see it |
 
 ## Limits
 
@@ -62,7 +79,7 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 
 ## Tickets
 
-The ticket follows the run through `working`, `blocked`, `review`, `approved` and `merged`: `ai-<stage>` labels on GitHub, and the statuses in `[jira.moves]` on Jira. A draft PR stays in `working`, because it's still in self-review, and `review` starts when you mark it ready. Each `tick` follows the PR. Where a board allows only the next column, `route` lists the columns to walk. A move that fails is logged, leaves the ticket where it got to, and never stops a run. Workshop comments when it starts, when it stops and when the draft PR is ready.
+The ticket follows the run through `working`, `blocked`, `review`, `approved` and `merged`: `ai-<move>` labels on GitHub, and the statuses in `[jira.moves]` on Jira. A draft PR stays in `working`, because it's still in self-review, and `review` starts when you mark it ready. Each `tick` follows the PR. Where a board allows only the next column, `route` lists the columns to walk. A move that fails is logged, leaves the ticket where it got to, and never stops a run. Workshop comments when it starts, when it stops and when the draft PR is ready.
 
 When a run stops on a question or a problem, the ticket moves to `blocked`. Comment on it with what's missing, and the next `tick` hands that to the agent and carries on. That needs the schedule on, or a manual `workshop tick`. A merged PR moves the ticket to `merged`, and on GitHub closes the issue.
 
@@ -72,9 +89,9 @@ When a run stops on a question or a problem, the ticket moves to `blocked`. Comm
 
 Tab and Shift+Tab switch views. Tabs, rows and the buttons along the bottom work with the mouse as well as the keys, and the wheel scrolls. Clicking a row opens it. Dragging selects text inside the list or the panel and copies it on release, with `wl-copy`. Shift+drag is your terminal's own selection, across the whole window.
 
-Delivery, where it opens, shows counts and usage meters, then runs by who they wait on, each with a strip of its steps (`●─◐─○`), and recent events below. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Backlog shows a bar per stage, then a card column per stage on a wide enough window. Review lists PRs, yours and others', by whose move it is: `●` in cyan is yours, `○` in magenta someone else's, and yellow means someone else reviewed a PR you're asked to review. Enter shows its reviews. `g` goes to a run's workspace, with hunk open on a draft PR, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. On a window 130 wide or more, Delivery and Review show the selected item's detail in a panel beside the list, with its actions at the top. Clicking a row selects it, the wheel over the panel scrolls it, and so do Page Up and Page Down. Enter still opens the detail full width.
+Delivery, where it opens, shows counts and usage meters, then runs by who they wait on, each with a strip of its steps (`●─◐─○`), and recent events below. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Backlog shows a bar per column, then the columns as cards on a wide enough window. Review lists PRs, yours and others', by whose move it is: `●` in blue is yours, `○` in cyan someone else's, and yellow means someone else reviewed a PR you're asked to review. Enter shows its reviews. `g` goes to a run's workspace, with hunk open on a draft PR, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. On a window 130 wide or more, Delivery and Review show the selected item's detail in a panel beside the list, with its actions at the top. Clicking a row selects it, the wheel over the panel scrolls it, and so do Page Up and Page Down. Enter still opens the detail full width.
 
-A run's detail is built around what to do next. A stopped run starts with Needs you, taken from the `## Needs you` section of the report that stopped it, with its actions underneath. Steps come next, each with its verdict, rounds, cost and latest report, and the stopped step shows its findings in place. `▸` marks the report to read first. Older rounds sit behind `+2 older`, or press `e`: `verify.md` is always the latest, and `verify-1.md` is the first round, counting up. Enter or a click opens a report, and `esc` goes back.
+A run's detail is built around what to do next. A stopped run starts with Needs you, taken from the `## Needs you` section of the report that stopped it, with its actions underneath. Steps come next, each with its verdict, rounds, cost and latest report, and the stopped step shows its findings in place. `▸` marks the report to read first. Older rounds sit behind `+2 older`, or press `e`: `ai-review.md` is always the latest, and `ai-review-1.md` is the first round, counting up. Enter or a click opens a report, and `esc` goes back.
 
 Colours are the terminal's own, so the board follows its colour scheme. Use herdr's `terminal` theme to match. On a stopped run, the bottom row offers comment, retry, pass and drop, or approve, reject and drop at a gate. Each asks for its text, then runs the matching `workshop` command and leaves a comment on the ticket.
 

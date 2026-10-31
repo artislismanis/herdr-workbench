@@ -9,7 +9,7 @@ from workshop.pipeline import PipelineError, load, validate  # noqa: E402
 
 
 def agent(**extra):
-    return {"id": "build", "kind": "agent", "prompt": "build.md", **extra}
+    return {"id": "build", "kind": "agent", "prompt": "implement.md", **extra}
 
 
 class Validate(unittest.TestCase):
@@ -18,7 +18,7 @@ class Validate(unittest.TestCase):
             validate(raw)
 
     def test_the_shipped_pipeline_is_valid(self):
-        self.assertEqual([s["id"] for s in load("ticket")["steps"]], ["plan", "build", "verify", "pr"])
+        self.assertEqual([s["id"] for s in load("ticket")["steps"]], ["tasks", "implement", "ai-review", "open-pr"])
 
     def test_unknown_step_kind(self):
         self.rejects({"name": "x", "steps": [{"id": "a", "kind": "merge"}]}, "kind must be")
@@ -56,7 +56,7 @@ class Validate(unittest.TestCase):
         self.rejects({"name": "x", "steps": [{"id": "a", "kind": "gate"}]}, "report")
 
     def test_a_gate_takes_no_prompt(self):
-        self.rejects({"name": "x", "steps": [agent(), {"id": "a", "kind": "gate", "report": "build", "prompt": "plan.md"}]}, "takes only")
+        self.rejects({"name": "x", "steps": [agent(), {"id": "a", "kind": "gate", "report": "build", "prompt": "tasks.md"}]}, "takes only")
 
     def test_a_gate_only_rejects(self):
         steps = [agent(), {"id": "a", "kind": "gate", "report": "build", "then": {"NO": {"park": "x"}}}]
@@ -68,6 +68,14 @@ class Validate(unittest.TestCase):
     def test_a_loop_needs_a_max(self):
         step = agent(verdict=["NO"], then={"NO": {"goto": "build"}})
         self.rejects({"name": "x", "steps": [step]}, "max")
+
+    def test_any_step_can_name_a_stage_of_any_name(self):
+        steps = [{"id": "a", "stage": "Our build", "kind": "agent", "prompt": "tasks.md"}, {"id": "b", "stage": "Sign-off", "kind": "gate", "report": "a"}, {"id": "c", "stage": "Ship", "kind": "draft_pr"}]
+        self.assertEqual(validate({"name": "x", "steps": steps})["steps"][1]["stage"], "Sign-off")
+
+    def test_a_stage_is_a_name(self):
+        with self.assertRaisesRegex(PipelineError, "stage"):
+            validate({"name": "x", "steps": [{"id": "a", "stage": 1, "kind": "draft_pr"}]})
 
     def test_goto_must_exist(self):
         step = agent(verdict=["NO"], then={"NO": {"goto": "gone", "max": 1}})

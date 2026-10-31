@@ -21,7 +21,7 @@ BAD_EVENTS = ("parked", "check_failed", "move_failed", "report_failed")
 GOOD_EVENTS = ("finished", "approved", "landed")
 MOVES = (("you", "Your move"), ("others", "Waiting on others"), ("done", "Done lately"))
 SYMBOLS = {True: "●", False: "○"}  # with colour, so it reads in any theme
-STAGE_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
+COLUMN_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
 REVIEW_MARKS = {"APPROVED": ("✓", "green"), "CHANGES_REQUESTED": ("✗", "red")}
 MAX_LINES = 2000
 FINDINGS = 12  # lines of a stopped step's findings in the detail. The whole report is a click away
@@ -170,7 +170,7 @@ def delivery(run: Run, title: str, width: int) -> Line:
     detail = run.held or run.reason or run.landed or (f"PR #{number}" if number else "")
     room = max(width - 60, 30)
     title_width = room * 3 // 5
-    return Line([Span("  "), Span(" " + cell(run.landed or run.status, 8), "dim" if run.landed else COLOURS[run.status]), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
+    return Line([Span("  "), Span(" " + cell(run.label, 9), "dim" if run.landed else COLOURS[run.status]), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
 
 
 def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, usage: Usage | None = None) -> list[Line]:
@@ -200,10 +200,10 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
     if not repos:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
     lines = [plain(f"{repo}: couldn't update: {r['error']}", "red") for repo, r in repos.items() if r["error"]]
-    found = {column: [(f"{repo}/{i['key']}", i) for repo, r in repos.items() for i in r["items"] if i["stage"] == column and not started(repo, i["key"])] for column in COLUMNS}
+    found = {column: [(f"{repo}/{i['key']}", i) for repo, r in repos.items() for i in r["items"] if i["column"] == column and not started(repo, i["key"])] for column in COLUMNS}
     most = max(len(items) for items in found.values())
     for column, items in found.items():
-        lines.append(Line([Span(f"  {cell(column.title(), 10)}", "bold"), Span(bar(len(items), most, BAR), STAGE_COLOURS[column]), Span(f" {len(items)}")]))
+        lines.append(Line([Span(f"  {cell(column.title(), 10)}", "bold"), Span(bar(len(items), most, BAR), COLUMN_COLOURS[column]), Span(f" {len(items)}")]))
     lines.append(plain())
     if width < KANBAN_WIDTH:
         for column, items in found.items():
@@ -213,7 +213,7 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
                 lines.append(plain(f"  {cell(ticket, 22)} {clean(item['title'])}{clean(why)}", "yellow" if why else ""))
         return lines
     size = (width - 3) // len(COLUMNS) - 1
-    lines.append(Line([part for column, items in found.items() for part in (Span(" " + cell(f"{column.title()} {len(items)}", size - 1), f"on-{STAGE_COLOURS[column]}"), Span(" "))]))
+    lines.append(Line([part for column, items in found.items() for part in (Span(" " + cell(f"{column.title()} {len(items)}", size - 1), f"on-{COLUMN_COLOURS[column]}"), Span(" "))]))
     cards = [[row for ticket, item in items for row in card(ticket, item, skipped)] for items in found.values()]
     for row in zip_longest(*cards, fillvalue=("", "")):
         lines.append(Line([part for text, style in row for part in (Span(cell(text, size), style), Span(" "))]))
@@ -303,6 +303,8 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
     lines: list[Line] = []
     steps = run.pipeline["steps"]
     for index, step in enumerate(steps):
+        if step.get("stage") and (index == 0 or steps[index - 1].get("stage") != step["stage"]):
+            lines.append(plain(step["stage"], "bold"))
         seen = [e for e in events if e.get("step") == step["id"]]
         spent = [e for e in seen if e["type"] == "spent"]
         finished = [e for e in seen if e["type"] == "step" and e.get("state") == "done"]
@@ -343,7 +345,7 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
     lines = wrapped(f"{name(run)}  {title}", width, "bold")
     lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
-    lines += [Line([Span(f" {run.landed or run.status} ", run_style(run)), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
+    lines += [Line([Span(f" {run.label} ", run_style(run)), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
     if run.status in ("parked", "waiting"):
         lines += [plain(), *needs_you(run, stopped[1], width)]
     elif run.reason:

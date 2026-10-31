@@ -6,7 +6,7 @@ Be sceptical: pass only if you would merge it as it stands.
 
 Workshop commits after you and leaves generated files such as `__pycache__` out, so don't raise those.
 
-Write your report to `{run}/verify.md`:
+Write your report to `{run}/ai-review.md`:
 
 - What you checked and what is wrong, with file and line. Findings stand on their own.
 - A `## Needs you` section with anything only a person can decide, or nothing under it.

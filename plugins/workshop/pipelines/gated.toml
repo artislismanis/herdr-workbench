@@ -1,36 +1,41 @@
-# Like ticket, but a person approves the plan before anything is built:
+# Like ticket, but a person approves the tasks before anything is built:
 # workshop approve <key>, or workshop reject <key> "what to change".
 name = "gated"
 
 [[steps]]
-id = "plan"
+id = "tasks"
+stage = "Build"
 kind = "agent"
-prompt = "plan.md"
+prompt = "tasks.md"
 read_only = true
 verdict = ["READY", "BLOCKED"]
 then.BLOCKED = { park = "The ticket needs clarifying before it can be built." }
 
 [[steps]]
 id = "approve"
+stage = "Build"
 kind = "gate"
-report = "plan"
-then.REJECTED = { goto = "plan", max = 2, prompt = "replan.md" }
+report = "tasks"
+then.REJECTED = { goto = "tasks", max = 2, prompt = "revise.md" }
 
 [[steps]]
-id = "build"
+id = "implement"
+stage = "Build"
 kind = "agent"
-prompt = "build.md"
+prompt = "implement.md"
 publish = "pr"
 
 [[steps]]
-id = "verify"
+id = "ai-review"
+stage = "Test"
 kind = "agent"
-prompt = "verify.md"
+prompt = "ai-review.md"
 fresh = true
 read_only = true
 verdict = ["PASS", "CHANGES_NEEDED"]
-then.CHANGES_NEEDED = { goto = "build", max = 2, prompt = "fix.md" }
+then.CHANGES_NEEDED = { goto = "implement", max = 2, prompt = "fix.md" }
 
 [[steps]]
-id = "pr"
+id = "open-pr"
+stage = "Deploy"
 kind = "draft_pr"

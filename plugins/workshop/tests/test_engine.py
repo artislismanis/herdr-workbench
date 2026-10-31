@@ -180,14 +180,14 @@ class Case(unittest.TestCase):
 
     def to_verify(self):
         run = self.start()
-        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
-        return self.finish_agent(run, "ws-de-1", "build")
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        return self.finish_agent(run, "ws-de-1", "implement")
 
 
 class HappyPath(Case):
     def test_a_ticket_reaches_a_draft_pr_and_reports_it(self):
         run = self.to_verify()
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         self.assertEqual(run.status, "done")
         self.assertEqual(self.tools.commits, ["DE-1: Title"])
         self.assertEqual(self.source.finished, ["DE-1"])
@@ -199,27 +199,27 @@ class HappyPath(Case):
 
     def test_an_agent_still_working_leaves_the_run_where_it_is(self):
         run = self.engine.advance(self.start())
-        self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
+        self.assertEqual((run.status, run.current["id"]), ("running", "tasks"))
 
 
 class Concluding(Case):
     def parked_after_rounds(self):
         run = self.to_verify()
         for attempt in (1, 2):
-            run = self.finish_agent(run, f"ws-de-1-verify-{attempt}", "verify", "VERDICT: CHANGES_NEEDED\n")
-            run = self.finish_agent(run, "ws-de-1", "build")
-        run = self.finish_agent(run, "ws-de-1-verify-3", "verify", "VERDICT: CHANGES_NEEDED\n")
-        self.assertEqual((run.status, run.current["id"]), ("parked", "verify"))
+            run = self.finish_agent(run, f"ws-de-1-ai-review-{attempt}", "ai-review", "VERDICT: CHANGES_NEEDED\n")
+            run = self.finish_agent(run, "ws-de-1", "implement")
+        run = self.finish_agent(run, "ws-de-1-ai-review-3", "ai-review", "VERDICT: CHANGES_NEEDED\n")
+        self.assertEqual((run.status, run.current["id"]), ("parked", "ai-review"))
         return run
 
     def test_retry_with_guidance_gets_fresh_rounds_and_the_note_is_kept(self):
         run = self.engine.retry(self.parked_after_rounds(), "Use v2")
         self.assertEqual(run.status, "running")
-        self.assertNotIn("verify", run.loops)
+        self.assertNotIn("ai-review", run.loops)
         self.assertIn("A: Use v2", (self.kept() / "answers.md").read_text(encoding="utf-8"))
-        self.assertIn("[ai] Retrying verify. Use v2", self.source.reports)
-        run = self.finish_agent(run, "ws-de-1-verify-4", "verify", "VERDICT: CHANGES_NEEDED\n")
-        self.assertEqual((run.status, run.current["id"]), ("running", "build"))
+        self.assertIn("[ai] Retrying ai-review. Use v2", self.source.reports)
+        run = self.finish_agent(run, "ws-de-1-ai-review-4", "ai-review", "VERDICT: CHANGES_NEEDED\n")
+        self.assertEqual((run.status, run.current["id"]), ("running", "implement"))
 
     def test_retry_without_a_note_runs_the_step_again(self):
         run = self.engine.retry(self.parked_after_rounds())
@@ -228,11 +228,11 @@ class Concluding(Case):
     def test_pass_moves_on_past_a_reviewer(self):
         run = self.engine.accept(self.parked_after_rounds(), "Fine by me")
         self.assertEqual(run.status, "done")
-        self.assertIn("[ai] Passed verify by hand. Fine by me", self.source.reports)
+        self.assertIn("[ai] Passed ai-review by hand. Fine by me", self.source.reports)
 
     def test_pass_refuses_a_gate(self):
         run = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
-        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
         with self.assertRaisesRegex(KeyError, "no stopped agent step"):
             self.engine.accept(run)
 
@@ -276,7 +276,7 @@ class Concluding(Case):
 
     def gate(self):
         run = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
-        return self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        return self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
 
     def test_a_comment_cant_move_a_gate_and_posts_nothing(self):
         run = self.gate()
@@ -320,14 +320,14 @@ class Resume(Case):
         self.to_verify()
         self.engine = self.fresh_engine()
         run = self.engine.store.find("DE-1")
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         self.assertEqual(run.status, "done")
         self.assertEqual(self.tools.worktrees, 1)
 
     def test_a_failed_commit_parks_and_resume_finishes_without_rerunning_agents(self):
         self.tools.commit_fails = True
         run = self.to_verify()
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         self.assertEqual(run.status, "parked")
         self.assertIn("empty ident name", run.reason)
         prompts = len(self.tools.prompts)
@@ -339,7 +339,7 @@ class Resume(Case):
     def test_resume_doesnt_open_a_second_pr(self):
         self.tools.pr = "https://example.test/pr/9"
         run = self.to_verify()
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         self.assertEqual(self.tools.created, 0)
         self.assertEqual(run.pr, "https://example.test/pr/9")
 
@@ -347,10 +347,10 @@ class Resume(Case):
         run = self.start()
         run.status, run.reason = "parked", "herdr not found"
         prompts = len(self.tools.prompts)
-        (self.kept() / "plan.md").write_text("VERDICT: READY\n", encoding="utf-8")
+        (self.kept() / "tasks.md").write_text("VERDICT: READY\n", encoding="utf-8")
         self.tools.statuses["ws-de-1"] = "idle"
         run = self.engine.resume(run)
-        self.assertEqual(run.current["id"], "build")
+        self.assertEqual(run.current["id"], "implement")
         self.assertEqual(len(self.tools.prompts), prompts + 1)
         self.assertNotIn("`brief.md`", self.tools.prompts[-1][1])
 
@@ -364,12 +364,12 @@ class Resume(Case):
     def test_a_read_only_breach_reruns_the_step_on_resume(self):
         run = self.start()
         self.tools.changed = ["M src/a.py"]
-        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
         self.tools.changed = []
         prompts = len(self.tools.prompts)
         run = self.engine.resume(run)
         self.assertEqual(len(self.tools.prompts), prompts + 1)
-        self.assertEqual(run.current["id"], "plan")
+        self.assertEqual(run.current["id"], "tasks")
 
     def test_only_a_parked_run_can_be_resumed(self):
         with self.assertRaises(KeyError):
@@ -397,17 +397,17 @@ class Parking(Case):
         self.assertIn("without writing", self.engine.advance(run).reason)
 
     def test_a_blocked_plan_parks(self):
-        run = self.finish_agent(self.start(), "ws-de-1", "plan", "Too vague\nVERDICT: BLOCKED\n")
+        run = self.finish_agent(self.start(), "ws-de-1", "tasks", "Too vague\nVERDICT: BLOCKED\n")
         self.assertIn("clarifying", run.reason)
 
     def test_an_invented_verdict_parks(self):
-        run = self.finish_agent(self.start(), "ws-de-1", "plan", "VERDICT: MAYBE\n")
+        run = self.finish_agent(self.start(), "ws-de-1", "tasks", "VERDICT: MAYBE\n")
         self.assertIn("no valid verdict", run.reason)
 
     def test_a_read_only_step_that_edits_parks(self):
         run = self.start()
         self.tools.changed = ["M src/a.py"]
-        self.assertIn("read-only", self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n").reason)
+        self.assertIn("read-only", self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n").reason)
 
     def test_a_step_past_its_time_limit_parks(self):
         run = self.start()
@@ -417,7 +417,7 @@ class Parking(Case):
     def test_no_changes_means_no_pr(self):
         self.tools.ahead_count = 0
         run = self.to_verify()
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         self.assertIn("changed nothing", run.reason)
         self.assertEqual(self.tools.pushes, 0)
 
@@ -451,8 +451,8 @@ class Throttled(Case):
     def test_a_running_step_finishes_and_the_next_one_holds(self):
         run = self.start()
         self.throttle.held = "7d usage is 80%, inside the 25% reserve."
-        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
-        self.assertEqual((run.status, run.current["id"], len(self.tools.prompts)), ("running", "build", 1))
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        self.assertEqual((run.status, run.current["id"], len(self.tools.prompts)), ("running", "implement", 1))
 
     def test_a_hold_is_logged_once_and_so_is_its_end(self):
         self.throttle.held = "held"
@@ -474,21 +474,21 @@ class Throttled(Case):
 
     def test_steps_log_usage_at_start_and_end(self):
         run = self.start()
-        self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
-        plan = [e for e in self.engine.store.events(run) if e["type"] == "step" and e["step"] == "plan"]
-        self.assertEqual([(e["state"], e["usage"]) for e in plan], [("running", {"5h": 10, "7d": 20}), ("done", {"5h": 10, "7d": 20})])
+        self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        tasks = [e for e in self.engine.store.events(run) if e["type"] == "step" and e["step"] == "tasks"]
+        self.assertEqual([(e["state"], e["usage"]) for e in tasks], [("running", {"5h": 10, "7d": 20}), ("done", {"5h": 10, "7d": 20})])
 
 
 class Gates(Case):
     def setUp(self):
         super().setUp()
         self.run_ = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
-        self.run_ = self.finish_agent(self.run_, "ws-de-1", "plan", "VERDICT: READY\n")
+        self.run_ = self.finish_agent(self.run_, "ws-de-1", "tasks", "VERDICT: READY\n")
 
     def test_a_gate_waits_and_says_so(self):
         run = self.run_
         self.assertEqual((run.status, run.current["id"]), ("waiting", "approve"))
-        self.assertIn("plan needs your approval", run.reason)
+        self.assertIn("tasks needs your approval", run.reason)
         self.assertEqual(self.tools.notes, ["Workshop: DE-1 needs you"])
         self.assertIn("waiting", self.source.reports[-1])
         self.assertIn("workshop approve DE-1", self.engine.explain(run))
@@ -500,12 +500,12 @@ class Gates(Case):
 
     def test_approval_carries_on(self):
         run = self.engine.approve(self.run_)
-        self.assertEqual((run.status, run.current["id"], run.phase), ("running", "build", "prompted"))
+        self.assertEqual((run.status, run.current["id"], run.phase), ("running", "implement", "prompted"))
         self.assertEqual(run.reason, "")
 
     def test_rejection_goes_back_with_the_note(self):
         run = self.engine.reject(self.run_, "Use the existing client.")
-        self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
+        self.assertEqual((run.status, run.current["id"]), ("running", "tasks"))
         self.assertIn("Use the existing client.", (self.kept() / "feedback.md").read_text(encoding="utf-8"))
         self.assertIn("feedback.md", self.tools.prompts[-1][1])
 
@@ -513,7 +513,7 @@ class Gates(Case):
         run = self.run_
         for _ in range(2):
             run = self.engine.reject(run, "No.")
-            run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+            run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
         run = self.engine.reject(run, "No.")
         self.assertEqual(run.status, "parked")
         self.assertIn("after 2 rounds", run.reason)
@@ -535,14 +535,14 @@ class Questions(Case):
 
     def test_a_question_waits_for_a_person(self):
         run = self.asked()
-        self.assertEqual((run.status, run.reason), ("waiting", "plan asks: Which API version?"))
+        self.assertEqual((run.status, run.reason), ("waiting", "tasks asks: Which API version?"))
         self.assertIn("workshop answer DE-1", self.engine.explain(run))
 
     def test_a_question_beats_a_report(self):
         run = self.start()
         (self.kept() / "ask.md").write_text("Which?", encoding="utf-8")
-        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
-        self.assertEqual((run.status, run.current["id"]), ("waiting", "plan"))
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        self.assertEqual((run.status, run.current["id"]), ("waiting", "tasks"))
 
     def test_an_answer_goes_to_the_same_agent_and_the_step_goes_on(self):
         run = self.asked()
@@ -559,15 +559,15 @@ class Questions(Case):
         (self.kept() / "ask.md").unlink()
         run = self.engine.answered_in_pane(run)
         self.assertEqual((run.status, run.reason, run.blocked_at, self.source.moves[-1]), ("running", "", 0.0, "working"))
-        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
-        self.assertEqual(run.current["id"], "build")
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        self.assertEqual(run.current["id"], "implement")
 
     def test_a_pane_answer_still_being_worked_on_leaves_the_step_open(self):
         run = self.asked()
         (self.kept() / "ask.md").unlink()
         self.tools.statuses["ws-de-1"] = "working"
         run = self.engine.advance(self.engine.answered_in_pane(run))
-        self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
+        self.assertEqual((run.status, run.current["id"]), ("running", "tasks"))
 
     def test_an_open_question_keeps_waiting(self):
         run = self.asked()
@@ -575,7 +575,7 @@ class Questions(Case):
 
     def test_a_gate_never_clears_itself(self):
         run = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
-        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
         self.assertEqual(run.current["kind"], "gate")
         self.assertEqual(self.engine.answered_in_pane(run).status, "waiting")
 
@@ -589,7 +589,7 @@ class Questions(Case):
         self.tools.statuses.pop("ws-de-1")
         run = self.engine.answer(run, "v2")
         self.assertEqual(self.tools.started.count("ws-de-1"), 2)
-        self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
+        self.assertEqual((run.status, run.current["id"]), ("running", "tasks"))
 
     def test_a_failed_prompt_parks_the_run(self):
         run = self.asked()
@@ -599,11 +599,11 @@ class Questions(Case):
     def test_a_question_in_a_fresh_step_keeps_its_pane(self):
         run = self.to_verify()
         (self.kept() / "ask.md").write_text("Which?", encoding="utf-8")
-        self.tools.statuses["ws-de-1-verify-1"] = "idle"
+        self.tools.statuses["ws-de-1-ai-review-1"] = "idle"
         run = self.engine.advance(run)
-        self.assertEqual((run.status, run.step_agent), ("waiting", "ws-de-1-verify-1"))
+        self.assertEqual((run.status, run.step_agent), ("waiting", "ws-de-1-ai-review-1"))
         self.assertEqual(self.tools.closed, [])
-        self.assertEqual(self.engine.answer(run, "x").step_agent, "ws-de-1-verify-1")
+        self.assertEqual(self.engine.answer(run, "x").step_agent, "ws-de-1-ai-review-1")
 
     def test_only_a_question_can_be_answered(self):
         with self.assertRaises(KeyError):
@@ -614,7 +614,7 @@ class Review(Case):
     def finished(self):
         run = self.to_verify()
         (self.kept() / "notes.json").write_text('[{"file": "a.py", "line": 2, "note": "Look"}, {"file": "b.py", "line": 9, "note": "Elsewhere"}]', encoding="utf-8")
-        return self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        return self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
 
     def test_notes_land_in_hunk_and_the_rest_are_listed(self):
         text = self.engine.review(self.finished())
@@ -662,7 +662,7 @@ class Review(Case):
         self.assertEqual(self.tools.pushes, pushes + 1)
         self.assertEqual(self.tools.readied, run.pr)
         self.assertIn("1: Address review comments", self.tools.commits[-1])
-        self.assertEqual(run.stage, "review")
+        self.assertEqual(run.moved, "review")
         self.assertFalse(self.engine.reviewable(run))
 
     def test_only_a_draft_can_be_marked_ready(self):
@@ -672,7 +672,7 @@ class Review(Case):
     def test_the_handover_reaches_the_ticket(self):
         run = self.start()
         self.engine.store.files(run).mkdir(exist_ok=True)
-        (self.engine.store.files(run) / "verify.md").write_text("## Handover\n- New flag\nRecommendation: approve\n\nVERDICT: PASS\n", encoding="utf-8")
+        (self.engine.store.files(run) / "ai-review.md").write_text("## Handover\n- New flag\nRecommendation: approve\n\nVERDICT: PASS\n", encoding="utf-8")
         self.assertIn("Recommendation: approve", self.engine.handover(run))
 
     def test_a_run_without_a_pr_has_nothing_to_review(self):
@@ -689,13 +689,13 @@ class Telling(Case):
 
     def test_a_finished_run_notifies(self):
         run = self.to_verify()
-        self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         self.assertEqual(self.tools.notes, ["Workshop: DE-1 ready"])
 
 
 class Steps(Case):
     def pipeline(self, **extra):
-        return {"name": "x", "steps": [{"id": "plan", "kind": "agent", "prompt": "plan.md", **extra}]}
+        return {"name": "x", "steps": [{"id": "tasks", "kind": "agent", "prompt": "tasks.md", **extra}]}
 
     def start_with(self, pipeline):
         return self.engine.start("repo", "DE-1", self.root, "main", pipeline, self.source)
@@ -706,7 +706,7 @@ class Steps(Case):
 
     def test_a_fresh_step_gets_its_own_model(self):
         self.start_with(self.pipeline(model="opus", fresh=True))
-        self.assertEqual(self.tools.models["ws-de-1-plan-1"], "opus")
+        self.assertEqual(self.tools.models["ws-de-1-tasks-1"], "opus")
 
     def test_a_steps_own_limit_replaces_the_default(self):
         run = self.start_with(self.pipeline(minutes=5))
@@ -724,20 +724,20 @@ class Steps(Case):
 class Rework(Case):
     def test_changes_needed_goes_back_with_the_fix_prompt_and_a_new_verifier(self):
         run = self.to_verify()
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: CHANGES_NEEDED\n")
-        self.assertEqual(run.current["id"], "build")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: CHANGES_NEEDED\n")
+        self.assertEqual(run.current["id"], "implement")
         self.assertIn("asked for changes", self.tools.prompts[-1][1])
-        run = self.finish_agent(run, "ws-de-1", "build")
-        self.assertIn("ws-de-1-verify-2", self.tools.started)
-        self.assertEqual(run.current["id"], "verify")
-        self.assertIn("CHANGES_NEEDED", (self.kept() / "verify-1.md").read_text(encoding="utf-8"))
+        run = self.finish_agent(run, "ws-de-1", "implement")
+        self.assertIn("ws-de-1-ai-review-2", self.tools.started)
+        self.assertEqual(run.current["id"], "ai-review")
+        self.assertIn("CHANGES_NEEDED", (self.kept() / "ai-review-1.md").read_text(encoding="utf-8"))
 
     def test_each_round_is_costed_and_the_ticket_gets_the_summary(self):
         run = self.to_verify()
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         self.assertIn("Cost (API-equivalent USD)", self.engine.explain(run))
         spent = [e["step"] for e in self.engine.store.events(run) if e["type"] == "spent"]
-        self.assertEqual(spent, ["plan", "build", "verify"])
+        self.assertEqual(spent, ["tasks", "implement", "ai-review"])
 
     def test_run_files_stay_out_of_the_worktree(self):
         run = self.start()
@@ -747,7 +747,7 @@ class Rework(Case):
         self.assertFalse((Path(run.worktree) / ".workshop").exists())
 
     def test_a_step_can_publish_its_output_to_the_ticket(self):
-        pipeline = {"name": "x", "steps": [{"id": "spec", "kind": "agent", "prompt": "plan.md", "output": "spec.md", "publish": "ticket"}, {"id": "pr", "kind": "draft_pr"}]}
+        pipeline = {"name": "x", "steps": [{"id": "spec", "kind": "agent", "prompt": "tasks.md", "output": "spec.md", "publish": "ticket"}, {"id": "open-pr", "kind": "draft_pr"}]}
         run = self.engine.start("repo", "DE-1", self.root, "main", pipeline, self.source)
         (self.kept() / "spec.md").write_text("The design.", encoding="utf-8")
         self.tools.statuses["ws-de-1"] = "idle"
@@ -808,12 +808,12 @@ class Rework(Case):
         run = self.to_verify()
         self.assertEqual(self.source.moves, ["working"])
         self.source.move = mock.Mock(side_effect=ToolError("no such label"))
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         self.assertEqual(run.status, "done")
 
     def test_the_ticket_follows_the_prs_review(self):
         run = self.to_verify()
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         cases = (("OPEN", True, "", "working"), ("OPEN", False, "", "review"), ("OPEN", False, "CHANGES_REQUESTED", "review"), ("OPEN", False, "APPROVED", "approved"), ("MERGED", False, "APPROVED", "merged"))
         for state, draft, decision, stage in cases:
             self.tools.pr = {"state": state, "isDraft": draft, "reviewDecision": decision}
@@ -823,7 +823,7 @@ class Rework(Case):
 
     def test_a_stage_moves_the_ticket_once_and_a_closed_pr_leaves_it(self):
         run = self.to_verify()
-        run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         moved = len(self.source.moves)
         self.tools.pr = {"state": "OPEN", "isDraft": True, "reviewDecision": ""}
         self.engine.land(run)
@@ -835,9 +835,9 @@ class Rework(Case):
     def test_rework_stops_at_the_limit(self):
         run = self.to_verify()
         for attempt in (1, 2):
-            run = self.finish_agent(run, f"ws-de-1-verify-{attempt}", "verify", "VERDICT: CHANGES_NEEDED\n")
-            run = self.finish_agent(run, "ws-de-1", "build")
-        run = self.finish_agent(run, "ws-de-1-verify-3", "verify", "VERDICT: CHANGES_NEEDED\n")
+            run = self.finish_agent(run, f"ws-de-1-ai-review-{attempt}", "ai-review", "VERDICT: CHANGES_NEEDED\n")
+            run = self.finish_agent(run, "ws-de-1", "implement")
+        run = self.finish_agent(run, "ws-de-1-ai-review-3", "ai-review", "VERDICT: CHANGES_NEEDED\n")
         self.assertEqual(run.status, "parked")
         self.assertIn("after 2 rounds", run.reason)
 
@@ -870,7 +870,7 @@ class Generated(unittest.TestCase):
 
 class Explain(Case):
     def test_a_parked_run_says_why_and_what_to_run(self):
-        run = self.finish_agent(self.start(), "ws-de-1", "plan", "VERDICT: BLOCKED\n")
+        run = self.finish_agent(self.start(), "ws-de-1", "tasks", "VERDICT: BLOCKED\n")
         text = self.engine.explain(run)
         self.assertIn("Why:", text)
         self.assertIn("workshop retry, pass or drop DE-1", text)

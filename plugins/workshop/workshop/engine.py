@@ -273,7 +273,7 @@ class Engine:
         placed, outside = place(load_notes(kept / "notes.json"), files)
         self.tools.replace_notes(work, placed)
         self.store.event(run, "review", notes=len(placed), outside=len(outside))
-        lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {kept / 'verify.md'}"]
+        lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {self._last_report(run)}"]
         return "\n".join(lines + [f"  {n['file']}:{n['line']} {n['note']}" for n in outside])
 
     def push_fixes(self, run: Run) -> None:
@@ -302,6 +302,9 @@ class Engine:
     def reviewable(self, run: Run) -> bool:
         return self.delivered(run) and not run.opened
 
+    def _last_report(self, run: Run) -> Path:
+        return self._report(run, [s for s in run.pipeline["steps"] if s["kind"] == "agent"][-1])
+
     def handover(self, run: Run) -> str:
         """What the last report to write one tells the person taking over."""
         for step in reversed(run.pipeline["steps"]):
@@ -325,7 +328,7 @@ class Engine:
 
     def explain(self, run: Run) -> str:
         step = run.current["id"] if run.current else "finished"
-        lines = [f"{run.key} on {run.repo}: {run.status} at {step}"]
+        lines = [f"{run.key} on {run.repo}: {run.label} at {step}"]
         if run.status in ("parked", "waiting"):
             lines += [f"Why: {run.reason}", f"Then: {self.next_action(run)}"]
         elif run.held:
@@ -354,7 +357,7 @@ class Engine:
             notes.write(f"{text}\n\n")
 
     def _prepare(self, run: Run) -> None:
-        # Each stage records what it made, so a resume skips what already exists.
+        # Each part records what it made, so a resume skips what already exists.
         if not run.worktree:
             run.branch = f"workshop/{slug(run.key)}"
             path = self.tools.worktree(Path(run.repo_path), run.branch, run.base)
@@ -475,7 +478,7 @@ class Engine:
             reports = [self._report(run, s) for s in run.pipeline["steps"] if s.get("publish") == "pr"]
             body = reports[0].read_text(encoding="utf-8") if reports and reports[0].exists() else f"Delivers {ticket.key}."
             run.pr = self.tools.create_pr(work, run.branch, run.base, title, body)
-        self.store.event(run, "step", step="pr", state="done", pr=run.pr)
+        self.store.event(run, "step", step=run.current["id"], state="done", pr=run.pr)
         run.step, run.phase = run.step + 1, ""
 
     def _finish(self, run: Run) -> None:
@@ -517,12 +520,12 @@ class Engine:
         except STOPS as failed:
             self.store.event(run, "report_failed", reason=str(failed))
 
-    def _move(self, run: Run, stage: str) -> None:
-        if stage == run.stage:
+    def _move(self, run: Run, move: str) -> None:
+        if move == run.moved:
             return
         # The board is a view of the run, so a failure here never stops one.
         try:
-            self.source_for(run).move(run.key, stage)
-            run.stage = stage
+            self.source_for(run).move(run.key, move)
+            run.moved = move
         except STOPS as failed:
-            self.store.event(run, "move_failed", stage=stage, reason=str(failed))
+            self.store.event(run, "move_failed", move=move, reason=str(failed))
