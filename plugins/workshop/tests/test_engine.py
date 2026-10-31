@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Ticket  # noqa: E402
 from workshop.store import Store  # noqa: E402
+from workshop.tools import Tools  # noqa: E402
 
 
 class FakeSource:
@@ -259,6 +261,32 @@ class Rework(Case):
         run = self.finish_agent(run, "ws-de-1-verify-3", "verify", "VERDICT: CHANGES_NEEDED\n")
         self.assertEqual(run.status, "parked")
         self.assertIn("after 2 rounds", run.reason)
+
+
+class Generated(unittest.TestCase):
+    def repo(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        work = Path(tmp.name)
+        subprocess.run(["git", "init", "-q", str(work)], check=True)
+        (work / "pkg" / "__pycache__").mkdir(parents=True)
+        (work / "pkg" / "__pycache__" / "a.pyc").write_text("x", encoding="utf-8")
+        (work / "pkg" / "a.py").write_text("x", encoding="utf-8")
+        return work
+
+    def test_caches_dont_count_as_changes(self):
+        self.assertEqual(Tools().changes(self.repo()), ["?? pkg/"])
+
+    def test_a_cache_alone_isnt_a_change(self):
+        work = self.repo()
+        (work / "pkg" / "a.py").unlink()
+        self.assertEqual(Tools().changes(work), [])
+
+    def test_caches_arent_committed(self):
+        work = self.repo()
+        Tools().stage(work)
+        names = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=work, capture_output=True, text=True).stdout
+        self.assertEqual(names.split(), ["pkg/a.py"])
 
 
 class Explain(Case):

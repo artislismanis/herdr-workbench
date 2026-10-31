@@ -8,6 +8,8 @@ from pathlib import Path
 from .shell import ToolError, run, run_json
 
 IGNORED = ".workshop/"
+# Running a repo's checks leaves these behind, even where it doesn't ignore them.
+GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
 
 
 def slug(key: str) -> str:
@@ -60,10 +62,15 @@ class Tools:
         run("herdr", "agent", "prompt", name, text, "--wait", "--until", "working", "--timeout", "60000")
 
     def changes(self, work: Path) -> list[str]:
-        return sorted(run("git", "status", "--porcelain", cwd=work).splitlines())
+        lines = run("git", "status", "--porcelain", cwd=work).splitlines()
+        return sorted(line for line in lines if not any(g in line.split("/") or g + "/" in line for g in GENERATED))
+
+    def stage(self, work: Path) -> None:
+        excludes = [f":(exclude,glob)**/{g}/**" for g in GENERATED]
+        run("git", "add", "-A", "--", ".", *excludes, cwd=work)
 
     def commit_all(self, work: Path, message: str) -> None:
-        run("git", "add", "-A", cwd=work)
+        self.stage(work)
         if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=work).returncode != 0:
             run("git", "commit", "-m", message, cwd=work)
 
