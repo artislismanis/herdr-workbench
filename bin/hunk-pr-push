@@ -54,8 +54,6 @@ done < <(jq -r '.skipped[]' <<<"$draft")
 
 body="$(jq -r .body <<<"$draft")"
 count="$(jq '.comments | length' <<<"$draft")"
-[ -n "$body" ] || [ "$count" -gt 0 ] || die "nothing to post: no agent notes in this review."
-
 own=0
 [ "$(jq -r .author.login <<<"$pr")" != "$me" ] || own=1
 
@@ -83,7 +81,13 @@ esac
 case "$as" in approve|request-changes)
   [ "$own" = 0 ] || die "GitHub refuses $as from a PR's author."
 esac
+if [ "$as" = request-changes ] && [ -z "$body" ]; then
+  read -rp "Requesting changes needs a comment on the PR: " body || body=""
+  draft="$(jq --arg body "$body" '.body = $body' <<<"$draft")"
+fi
 [ "$as" != request-changes ] || [ -n "$body" ] || die "requesting changes needs a PR-level comment."
+# An approval says enough by itself. Anything else needs something to say.
+[ "$as" = approve ] || [ -n "$body" ] || [ "$count" -gt 0 ] || die "nothing to post: no agent notes in this review."
 if [ "$as" = approve ] && [ "$(jq '.autoMergeRequest != null' <<<"$pr")" = true ]; then
   read -rp "Auto-merge is on, so approving may merge this PR. Approve? [y/N] " answer || answer=n
   [ "$answer" = y ] || { echo "Cancelled."; exit 0; }

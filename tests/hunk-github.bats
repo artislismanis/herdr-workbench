@@ -61,7 +61,7 @@ JSON
 }
 
 notes() { printf '%s' "$1" >"$STUB/notes.json"; }
-push() { run --separate-stderr "$REPO_ROOT/bin/hunk-pr-push" "$@" "$REPO"; }
+push() { run --separate-stderr "$REPO_ROOT/bin/hunk-pr-push" "$@" "$REPO" </dev/null; }
 posted() { jq -r "$1" "$STUB/posted.json"; }
 
 AGENT_NOTE='{"source": "agent", "author": "claude", "filePath": "f.txt", "newRange": [2, 2], "body": "fix this"}'
@@ -163,6 +163,21 @@ AGENT_NOTE='{"source": "agent", "author": "claude", "filePath": "f.txt", "newRan
   push --as request-changes
   [ "$status" -ne 0 ]
   echo "$stderr" | grep -q "needs a PR-level comment"
+}
+
+@test "push: requesting changes asks for the PR-level comment when the notes are all inline" {
+  notes "{\"comments\": [$AGENT_NOTE]}"
+  run bash -c "echo 'see the notes' | '$REPO_ROOT/bin/hunk-pr-push' --as request-changes '$REPO'"
+  [ "$status" -eq 0 ]
+  [ "$(posted .body)" = "see the notes" ]
+  [ "$(posted .event)" = REQUEST_CHANGES ]
+}
+
+@test "push: a clean review can be approved with no notes" {
+  push --as approve
+  [ "$status" -eq 0 ]
+  [ "$(posted .event)" = APPROVE ]
+  [ "$(posted '.comments | length')" = 0 ]
 }
 
 @test "push: approving with auto-merge on asks again, and no means no" {
