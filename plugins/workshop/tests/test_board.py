@@ -301,14 +301,79 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.assertIn(" Delivery 1 ", self.board.header().text)
 
-    def test_r_polls_once_at_a_time(self):
-        with mock.patch("workshop.board.poll") as polled, mock.patch("workshop.board.threading.Thread") as thread:
+    def test_r_refreshes_once_at_a_time(self):
+        with mock.patch("workshop.board.threading.Thread") as thread:
             self.board.press(ord("r"))
             self.board.press(ord("r"))
             self.assertEqual(thread.call_count, 1)
             thread.call_args.kwargs["target"]()
-            polled.assert_called_once()
+        self.tools.workshop.assert_called_once_with("refresh")
         self.assertFalse(self.board.refreshing)
+
+    def stopped(self, status="parked", step=0):
+        self.store.save(run("1", status, step=step, reason="Stuck", pane="w1:p1"))
+        self.board.seen = None
+        self.board.reload()
+
+    def type_in(self, text):
+        for letter in text:
+            self.board.press(ord(letter))
+
+    def sent(self):
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(10)
+            thread.call_args.kwargs["target"]()
+        return self.tools.workshop.call_args.args
+
+    def test_a_running_run_offers_no_actions(self):
+        self.assertNotIn("drop", self.board.footer().text)
+        self.board.press(ord("d"))
+        self.assertIsNone(self.board.asking)
+
+    def test_a_stopped_run_offers_them(self):
+        self.stopped()
+        self.assertIn("c comment", self.board.footer().text)
+
+    def test_a_comment_sends_what_you_typed(self):
+        self.stopped()
+        self.board.press(ord("c"))
+        self.type_in("use q and r")
+        self.assertEqual(self.sent(), ("comment", "1", "use q and r"))
+
+    def test_typing_takes_backspace_and_esc_cancels(self):
+        self.stopped()
+        self.board.press(ord("c"))
+        self.type_in("ab")
+        self.board.press(127)
+        self.assertEqual(self.board.typed, "a")
+        self.board.press(27)
+        self.assertIsNone(self.board.asking)
+        self.tools.workshop.assert_not_called()
+
+    def test_a_comment_needs_words_but_a_drop_doesnt(self):
+        self.stopped()
+        self.board.press(ord("c"))
+        self.board.press(10)
+        self.assertIsNotNone(self.board.asking)
+        self.board.press(27)
+        self.board.press(ord("d"))
+        self.assertEqual(self.sent(), ("drop", "1"))
+
+    def test_a_failed_command_shows_why(self):
+        self.tools.workshop.side_effect = ToolError("no such run")
+        self.stopped()
+        self.board.press(ord("d"))
+        self.sent()
+        self.assertIn("no such run", self.board.footer().text)
+
+    def test_a_gate_offers_approve_and_reject_not_pass(self):
+        gated = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "check", "kind": "gate", "report": "plan"}]}
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))
+        self.board.seen = None
+        self.board.reload()
+        footer = self.board.footer().text
+        self.assertIn("a approve", footer)
+        self.assertNotIn("p pass", footer)
 
 
 class Mouse(Keys):

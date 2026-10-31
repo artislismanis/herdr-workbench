@@ -38,6 +38,10 @@ class Tools:
         made = run_json("herdr", "workspace", "create", "--cwd", str(path), "--label", label, "--no-focus")
         return made["result"]["root_pane"]["pane_id"]
 
+    def workshop(self, *args: str) -> None:
+        # The command, not the engine, so the board takes the same lock as everything else.
+        run(f"{Path.home()}/.local/bin/workshop", *args)
+
     def focus(self, pane: str) -> None:
         run("herdr", "workspace", "focus", pane.split(":")[0])
 
