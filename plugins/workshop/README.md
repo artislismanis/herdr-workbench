@@ -63,7 +63,7 @@ When a run stops on a question or a problem, the ticket moves to `blocked`. Comm
 
 ## Board
 
-`prefix+shift+b` opens the board in a `workshop` workspace, or goes back to it if it's open. Quitting closes that workspace. Opening it costs no tokens or API calls: it reads run files, the event log and the backlog snapshot, and shows how old the snapshot is.
+`prefix+shift+b` opens the board in a `workshop` workspace at the top of the list, or goes back to it if it's open. Quitting closes that workspace. Opening it costs no tokens or API calls: it reads run files, the event log and the backlog snapshot, and shows how old the snapshot is.
 
 Tab and Shift+Tab switch views. Tabs, rows and the buttons along the bottom work with the mouse as well as the keys, and the wheel scrolls. Clicking a row opens it. The board captures the mouse, so hold Shift to select text in it, if your terminal supports that.
 
