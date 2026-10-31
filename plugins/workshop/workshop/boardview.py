@@ -302,6 +302,8 @@ def findings(report: str, name: str, width: int) -> list[Line]:
 def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], width: int, stopped: tuple[str, str] = ("", ""), earlier: bool = False) -> list[Line]:
     lines: list[Line] = []
     steps = run.pipeline["steps"]
+    margin = "  " if any(step.get("stage") for step in steps) else ""
+    width -= len(margin)
     for index, step in enumerate(steps):
         if step.get("stage") and (index == 0 or steps[index - 1].get("stage") != step["stage"]):
             lines.append(plain(step["stage"], "bold"))
@@ -317,18 +319,18 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
             prices = [e["usd"] for e in spent]
             notes += [f"{sum(e['minutes'] for e in spent):.1f} min", "unpriced" if None in prices else f"${sum(prices):.2f}"]
         latest, older = files_of(step, reports)
-        row = [Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(notes), max(min(28, width - 53), 5)), "dim")]  # the report beats the numbers on a narrow panel
+        row = [Span(f"{margin}{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(notes), max(min(28, width - 53), 5)), "dim")]  # the report beats the numbers on a narrow panel
         if latest:
             row += [Span("▸ " if current else "  ", "yellow"), Span(latest.rsplit("/", 1)[-1], "mine")]
         if older and not earlier:
             row += [Span("  "), Span(f" +{len(older)} older ", "button", f"key:{ord('e')}")]
         lines.append(Line(row, path=latest))
         if earlier:
-            lines += [Line([Span("│ ", "dim"), Span(" " * max(width - 40, 12)), Span(path.rsplit("/", 1)[-1], "mine"), Span(f"  round {number}", "dim")], path=path) for number, path in older]
+            lines += [Line([Span(f"{margin}│ ", "dim"), Span(" " * max(width - 40, 12)), Span(path.rsplit("/", 1)[-1], "mine"), Span(f"  round {number}", "dim")], path=path) for number, path in older]
         if current and stopped[0] == files_name(step):
-            lines += findings(stopped[1], stopped[0], width - 6)
+            lines += [Line([Span(margin), *line.spans], path=line.path) for line in findings(stopped[1], stopped[0], width - 6)]
         if index < len(steps) - 1:
-            lines.append(plain("│", "dim"))
+            lines.append(plain(f"{margin}│", "dim"))
     return lines
 
 
