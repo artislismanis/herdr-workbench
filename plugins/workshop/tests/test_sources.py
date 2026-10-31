@@ -7,8 +7,37 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.sources import GitHubSource, JiraSource, MarkdownSource  # noqa: E402
+from workshop.sources import GitHubSource, JiraSource, MarkdownSource, PullRequestSource  # noqa: E402
 from workshop.tools import slug  # noqa: E402
+
+
+class PullRequests(unittest.TestCase):
+    def source(self, **pr):
+        found = {"title": "T", "body": "B", "url": "u", "state": "OPEN", "isCrossRepository": False, "baseRefName": "main"} | pr
+        patch = mock.patch("workshop.sources.run_json", return_value=found)
+        self.addCleanup(patch.stop)
+        self.gh = patch.start()
+        return PullRequestSource(Path("/repo"))
+
+    def test_an_open_pr_from_this_repo_can_run(self):
+        self.assertEqual(self.source().guard("pr-7"), "")
+        self.assertEqual(self.gh.call_args.args[:4], ("gh", "pr", "view", "7"))
+
+    def test_forks_never_run(self):
+        self.assertIn("fork", self.source(isCrossRepository=True).guard("pr-7"))
+
+    def test_a_closed_pr_doesnt_run(self):
+        self.assertIn("merged", self.source(state="MERGED").guard("pr-7"))
+
+    def test_nothing_reaches_github(self):
+        source = self.source()
+        with mock.patch("workshop.sources.run") as run:
+            source.claim("pr-7")
+            source.report("pr-7", "hello")
+            source.move("pr-7", "working")
+            source.finish("pr-7")
+        run.assert_not_called()
+        self.gh.assert_not_called()
 
 
 class Markdown(unittest.TestCase):

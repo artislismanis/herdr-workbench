@@ -351,6 +351,50 @@ class MarkdownSource:
         return ""  # local files you put there yourself
 
 
+class PullRequestSource:
+    """A PR under review. It only reads: what reaches GitHub is what you post from hunk, so a review stays silent."""
+
+    def __init__(self, repo: Path) -> None:
+        self.repo = repo
+
+    def details(self, key: str) -> dict[str, Any]:
+        return run_json("gh", "pr", "view", key.removeprefix("pr-"), "--json", "title,body,url,state,isCrossRepository,baseRefName", cwd=self.repo)
+
+    def guard(self, key: str) -> str:
+        pr = self.details(key)
+        if pr["isCrossRepository"]:
+            return "it comes from a fork, and forks never run"
+        return "" if pr["state"] == "OPEN" else f"it is {pr['state'].lower()}"
+
+    def get(self, key: str) -> Ticket:
+        pr = self.details(key)
+        return Ticket(key, pr["title"], pr["body"], pr["url"])
+
+    def closed(self, key: str) -> bool:
+        return self.details(key)["state"] != "OPEN"
+
+    def ready(self) -> list[str]:
+        return []
+
+    def backlog(self) -> list[Item]:
+        return []
+
+    def comments(self, key: str, since: float) -> list[Comment]:
+        return []
+
+    def claim(self, key: str) -> None:
+        pass
+
+    def report(self, key: str, text: str) -> None:
+        pass
+
+    def finish(self, key: str) -> None:
+        pass
+
+    def move(self, key: str, move: str) -> None:
+        pass
+
+
 def make_source(name: str, repo: dict[str, Any], jira: dict[str, Any]) -> Source:
     path = Path(repo["path"]).expanduser()
     label = repo.get("label", "ai")

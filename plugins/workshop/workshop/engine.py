@@ -32,7 +32,7 @@ class Engine:
         self.mark = prefix + " "
         self.command = "/" + prefix.strip("[]")  # [ai] gives /ai
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None) -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "") -> Run:
         if self.store.exists(repo, key) and not restart:
             raise Park(f"{key} already has a run. Use workshop resume {key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
@@ -41,7 +41,7 @@ class Engine:
         if reason:
             raise Park(f"{key}: {reason}")
         source.claim(key)
-        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {})
+        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr))
         if restart and self.store.exists(repo, key):
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
@@ -278,7 +278,8 @@ class Engine:
         work, kept = Path(run.worktree), self.store.files(run)
         if self.tools.review_open(work):  # reloading would drop what's been added since
             return "Already open in hunk."
-        files = self.tools.open_review(run.pane, work, run.base)
+        # A PR shows what GitHub shows: against where it branched, not against wherever its base has got to.
+        files = self.tools.open_review(run.pane, work, self.tools.fork_point(work, run.base) if run.reviewing else f"origin/{run.base}")
         placed, outside = place(load_notes(kept / "notes.json"), files)
         self.tools.replace_notes(work, placed)
         self.store.event(run, "review", notes=len(placed), outside=len(outside))
@@ -306,10 +307,13 @@ class Engine:
         return self.land(run)
 
     def delivered(self, run: Run) -> bool:
-        return run.status == "done" and bool(run.pr) and not run.landed
+        return run.status == "done" and bool(run.pr) and not run.landed and not run.reviewing
 
     def reviewable(self, run: Run) -> bool:
         return self.delivered(run) and not run.opened
+
+    def review_ready(self, run: Run) -> bool:
+        return self.reviewable(run) or (run.reviewing and run.status == "done" and not run.landed)
 
     def _last_report(self, run: Run) -> Path:
         return self._report(run, [s for s in run.pipeline["steps"] if s["kind"] == "agent"][-1])
@@ -324,6 +328,8 @@ class Engine:
 
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
+        if run.reviewing:
+            return "Post it with prefix+shift+u in the workspace" if run.status == "done" else f"workshop retry, pass or drop {run.key}"
         if self.reviewable(run):
             return "Finish with prefix+shift+u in the workspace"
         if self.delivered(run):
@@ -368,8 +374,11 @@ class Engine:
     def _prepare(self, run: Run) -> None:
         # Each part records what it made, so a resume skips what already exists.
         if not run.worktree:
-            run.branch = f"workshop/{slug(run.key)}"
-            path = self.tools.worktree(Path(run.repo_path), run.branch, run.base)
+            if run.reviewing:
+                path, run.branch = self.tools.pr_worktree(Path(run.repo_path), run.key.removeprefix("pr-"), run.base)
+            else:
+                run.branch = f"workshop/{slug(run.key)}"
+                path = self.tools.worktree(Path(run.repo_path), run.branch, run.base)
             run.worktree = str(path)
             ticket = self.source_for(run).get(run.key)
             (self.store.files(run) / "brief.md").write_text(f"# {ticket.key}: {ticket.title}\n\n{ticket.body}\n", encoding="utf-8")
@@ -435,6 +444,8 @@ class Engine:
                 raise Park(f"{step['id']} ran past its time limit. See {report}.")
             return
         run.phase, run.command_pid = "", 0
+        if run.reviewing and self.tools.tracked_changes(Path(run.worktree)):
+            raise Park(f"{step['id']} changed tracked files, and a review only posts from a clean checkout. Restore them in {run.worktree}, then pass or retry.")
         verdict = "PASS" if finished.read_text(encoding="utf-8").strip() == "0" else "FAILED"
         self.store.event(run, "step", step=step["id"], state="done", verdict=verdict)
         if verdict == "PASS":
@@ -459,7 +470,7 @@ class Engine:
             agent = run.agent
             if self.tools.agent_status(agent) == "gone":
                 self.tools.start_agent(agent, run.pane, self.store.files(run), step.get("model", ""))
-        text = prompt_text(run.next_prompt or step["prompt"]).replace("{run}", str(self.store.files(run)))
+        text = prompt_text(run.next_prompt or step["prompt"]).replace("{run}", str(self.store.files(run))).replace("{base}", run.base)
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()
@@ -509,6 +520,8 @@ class Engine:
         run.next_prompt = rule.get("prompt", "")
 
     def _draft_pr(self, run: Run) -> None:
+        if run.reviewing:
+            raise Park("A review never commits or pushes, whatever its pipeline says.")
         work = Path(run.worktree)
         ticket = self.source_for(run).get(run.key)
         title = f"{ticket.key}: {ticket.title}"
@@ -532,7 +545,7 @@ class Engine:
         self.store.save(run)
         try:
             self.review(run)
-            self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there, and prefix+shift+u there finishes it.")
+            self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there, and prefix+shift+u there {'posts' if run.reviewing else 'finishes'} it.")
         except STOPS as failed:  # the PR is delivered either way, and g tries again
             self.store.event(run, "review_failed", reason=str(failed))
             self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} hunk didn't open: g on the board tries again.")

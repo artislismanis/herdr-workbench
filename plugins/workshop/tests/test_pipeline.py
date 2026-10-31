@@ -20,6 +20,11 @@ class Validate(unittest.TestCase):
     def test_the_shipped_pipeline_is_valid(self):
         self.assertEqual([s["id"] for s in load("ticket")["steps"]], ["tasks", "implement", "qa", "ai-review", "open-pr"])
 
+    def test_the_review_pipeline_is_valid_and_can_post_nothing(self):
+        steps = load("review")["steps"]
+        self.assertEqual([s["id"] for s in steps], ["qa", "ai-review"])
+        self.assertNotIn("draft_pr", [s["kind"] for s in steps])
+
     def test_unknown_step_kind(self):
         self.rejects({"name": "x", "steps": [{"id": "a", "kind": "merge"}]}, "kind must be")
 

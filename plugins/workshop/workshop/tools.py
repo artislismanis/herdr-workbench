@@ -37,6 +37,15 @@ class Tools:
         args = [branch] if known.returncode == 0 else ["--create", branch, "--base", base]
         return Path(run_json("wt", "switch", *args, "--no-cd", "--yes", "--format=json", cwd=repo)["path"])
 
+    def pr_worktree(self, repo: Path, number: str, base: str) -> tuple[Path, str]:
+        """The PR's own branch, which is how hunk-pr-push finds the PR."""
+        run("git", "fetch", "origin", base, cwd=repo)
+        path = Path(run_json("wt", "switch", f"pr:{number}", "--no-cd", "--yes", "--format=json", cwd=repo)["path"])
+        return path, run("git", "branch", "--show-current", cwd=path).strip()
+
+    def fork_point(self, work: Path, base: str) -> str:
+        return run("git", "merge-base", f"origin/{base}", "HEAD", cwd=work).strip()
+
     def workspace(self, path: Path, label: str) -> str:
         made = run_json("herdr", "workspace", "create", "--cwd", str(path), "--label", label, "--no-focus")
         return made["result"]["root_pane"]["pane_id"]
@@ -97,10 +106,10 @@ class Tools:
     def close_pane(self, pane: str) -> None:
         subprocess.run(["herdr", "pane", "close", pane], capture_output=True)
 
-    def open_review(self, pane: str, work: Path, base: str) -> list[dict[str, Any]]:
+    def open_review(self, pane: str, work: Path, against: str) -> list[dict[str, Any]]:
         """Opens hunk beside the agent, or reuses a review already open, and returns its files."""
         if not self.review_open(work):
-            run("herdr", "pane", "run", self.split(pane, work), f"hunk diff origin/{base}")
+            run("herdr", "pane", "run", self.split(pane, work), f"hunk diff {against}")
             for _ in range(REVIEW_WAIT):
                 if self.review_open(work):
                     break
@@ -141,6 +150,9 @@ class Tools:
     def changes(self, work: Path) -> list[str]:
         lines = run("git", "status", "--porcelain", "--untracked-files=all", cwd=work).splitlines()
         return sorted(line for line in lines if not any(f"{g}/" in line for g in GENERATED))
+
+    def tracked_changes(self, work: Path) -> list[str]:
+        return run("git", "status", "--porcelain", "--untracked-files=no", cwd=work).splitlines()
 
     def stage(self, work: Path) -> None:
         excludes = [f":(exclude,glob)**/{g}/**" for g in GENERATED]

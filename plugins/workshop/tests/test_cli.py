@@ -10,7 +10,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop import __main__ as cli  # noqa: E402
-from workshop.__main__ import finish_choices, main  # noqa: E402
+from workshop.__main__ import finish_choices, main, repo_of  # noqa: E402
 
 
 class Finish(unittest.TestCase):
@@ -55,6 +55,29 @@ class Filling(unittest.TestCase):
 
     def test_limits_are_checked_before_each_start(self):
         self.assertEqual(self.tick(["1", "2"], held=lambda active: "held" if active else ""), ["1"])
+
+
+class ReviewRepo(unittest.TestCase):
+    CFG = {"repos": {"mine": {"path": "/tmp"}}}
+
+    def origin(self, url):
+        patch = mock.patch("workshop.__main__.run", return_value=url + "\n")
+        self.addCleanup(patch.stop)
+        patch.start()
+
+    def test_finds_the_repo_by_origin_not_by_table_name(self):
+        for origin in ("git@github.com:o/r.git", "https://github.com/o/r.git", "https://github.com/o/r"):
+            self.origin(origin)
+            self.assertEqual(repo_of(self.CFG, "https://github.com/o/r/pull/12"), ("mine", "12"))
+
+    def test_a_similar_name_is_not_a_match(self):
+        self.origin("git@github.com:o/my-r.git")
+        with self.assertRaisesRegex(KeyError, "needs a .repos. table"):
+            repo_of(self.CFG, "https://github.com/o/r/pull/12")
+
+    def test_anything_else_is_not_a_pr(self):
+        with self.assertRaisesRegex(KeyError, "not a PR link"):
+            repo_of(self.CFG, "12; rm -rf /")
 
 
 class Cli(unittest.TestCase):

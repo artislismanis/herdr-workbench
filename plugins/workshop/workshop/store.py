@@ -40,6 +40,7 @@ class Run:
     landed: str = ""  # what became of the PR
     moved: str = ""  # where the ticket last moved to
     opened: bool = False  # the PR has left draft
+    reviewing: bool = False  # someone's PR under review, not a delivery, so workshop only reads it
 
     @property
     def current(self) -> dict[str, Any] | None:

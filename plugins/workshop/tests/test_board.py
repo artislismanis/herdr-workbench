@@ -10,7 +10,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
-from workshop.board import Board  # noqa: E402
+from workshop.board import REVIEW, Board  # noqa: E402
 from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -423,7 +423,7 @@ class Keys(unittest.TestCase):
             self.store.save(run(key, pane=f"w{key}:p1"))
             self.store.event(run(key), "claimed")
         self.tools = mock.Mock()
-        engine = mock.Mock(store=self.store, tools=self.tools, **{"reviewable.return_value": False, "delivered.return_value": False, "handover.return_value": ""})
+        engine = mock.Mock(store=self.store, tools=self.tools, **{"reviewable.return_value": False, "review_ready.return_value": False, "delivered.return_value": False, "handover.return_value": ""})
         engine.throttle.hold_new.return_value = ""
         engine.throttle.snapshot.return_value = {"5h": 10}
         self.board = Board(engine, {"repos": {}}, lambda: 500.0)
@@ -610,7 +610,7 @@ class Keys(unittest.TestCase):
         self.assertLess(2, next(i for i, t in enumerate(lines) if "Recommendation" in t))
 
     def draft(self):
-        self.board.engine.reviewable.return_value = True
+        self.board.engine.reviewable.return_value = self.board.engine.review_ready.return_value = True
         self.store.save(run("7", status="done", pr="http://p/7", pane="w1:p1"))
         self.board.picked = ("r", "7")
         self.board.seen = None
@@ -630,6 +630,33 @@ class Keys(unittest.TestCase):
             self.tools.focus.assert_called_once_with("w1:p1")
             thread.call_args.kwargs["target"]()
         self.tools.workshop.assert_called_once_with("review", "7")
+
+    def on_pr(self, **fields):
+        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 200.0, "error": "", "items": [pr(**fields)]}})
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab = REVIEW
+        self.board.picked = ("#pr", self.board.snapshot["prs"]["items"][0]["url"])
+
+    def test_a_key_starts_an_ai_review_of_the_selected_pr(self):
+        self.on_pr()
+        self.assertIn("a ai review", self.board.footer().text)
+        url = self.board.picked[1]
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(ord("a"))
+            thread.call_args.kwargs["target"]()
+        self.tools.workshop.assert_called_once_with("pr", url)
+
+    def test_a_pr_with_a_run_or_merged_offers_no_ai_review(self):
+        self.on_pr(move="done")
+        self.assertNotIn("a ai review", self.board.footer().text)
+        self.on_pr()
+        self.store.save(run("pr-7", pr=self.board.picked[1]))
+        self.board.seen = None
+        self.board.reload()
+        self.assertNotIn("a ai review", self.board.footer().text)
+        self.board.press(ord("a"))
+        self.tools.workshop.assert_not_called()
 
     def test_a_message_clears_by_itself(self):
         now = [500.0]
