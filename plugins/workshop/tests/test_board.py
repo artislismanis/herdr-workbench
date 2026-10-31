@@ -426,7 +426,7 @@ class Keys(unittest.TestCase):
         self.board.press(curses.KEY_DOWN)
         self.board.press(10)
         self.assertEqual(self.board.open, ("r", "2"))
-        self.assertIn("Steps", joined(self.board.lines(100)))
+        self.assertIn("Workflow", joined(self.board.lines(100)))
         self.board.press(27)
         self.assertIsNone(self.board.open)
 
@@ -762,7 +762,7 @@ class Panel(Mouse):
         return 169
 
     def test_the_selected_item_shows_beside_the_list(self):
-        self.assertIn("Steps", joined(self.board.panel(self.wide())))
+        self.assertIn("Workflow", joined(self.board.panel(self.wide())))
 
     def test_a_stopped_run_explains_itself_with_no_click(self):
         self.store.save(run("1", "parked", pane="w1:p1", reason="Stuck"))
