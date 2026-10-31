@@ -25,6 +25,7 @@ REVIEW_MARKS = {"APPROVED": ("✓", "green"), "CHANGES_REQUESTED": ("✗", "red"
 MAX_LINES = 2000
 FINDINGS = 12  # lines of a stopped step's findings in the detail. The whole report is a click away
 BAD_VERDICTS = ("CHANGES_NEEDED", "BLOCKED")
+FILE_NOTES = {"brief.md": "the ticket", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "the reviewer's line notes", "ask.md": "the open question"}
 RECENT = 10
 LANDED = 5
 BAR = 30
@@ -287,13 +288,13 @@ def files_name(step: dict[str, Any]) -> str:
     return step.get("output", f"{step['id']}.md")
 
 
-def files_of(step: dict[str, Any], reports: tuple[str, ...]) -> tuple[str, list[str]]:
-    """A step's latest report, and earlier rounds newest first: the engine keeps those as name-1.md, name-2.md."""
+def files_of(step: dict[str, Any], reports: tuple[str, ...]) -> tuple[str, list[tuple[int, str]]]:
+    """A step's latest report, and earlier rounds newest first. The engine renames each one as the next round starts: name-1.md is the first."""
     name = files_name(step)
     stem, _, suffix = name.rpartition(".")
     rounds = [(int(found[1]), path) for path in reports if (found := re.fullmatch(rf"{re.escape(stem)}-(\d+)\.{re.escape(suffix)}", path.rsplit("/", 1)[-1]))]
     latest = next((path for path in reports if path.rsplit("/", 1)[-1] == name), "")
-    return latest, [path for _, path in sorted(rounds, reverse=True)]
+    return latest, sorted(rounds, reverse=True)
 
 
 def findings(report: str, name: str, width: int) -> list[Line]:
@@ -321,12 +322,12 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         latest, older = files_of(step, reports)
         row = [Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(notes), max(min(28, width - 52), 6)), "dim")]  # the report beats the numbers on a narrow panel
         if latest:
-            row.append(Span(latest.rsplit("/", 1)[-1], "mine"))
+            row += [Span("▸ " if current else "  ", "yellow"), Span(latest.rsplit("/", 1)[-1], "mine")]
         if older and not earlier:
-            row.append(Span(f"  +{len(older)} earlier", "button", f"key:{ord('e')}"))
+            row += [Span("  "), Span(f" +{len(older)} older ", "button", f"key:{ord('e')}")]
         lines.append(Line(row, path=latest))
         if earlier:
-            lines += [Line([Span("│ ", "dim"), Span(" " * 54), Span(path.rsplit("/", 1)[-1], "mine")], path=path) for path in older]
+            lines += [Line([Span("│ ", "dim"), Span(" " * max(width - 40, 12)), Span(path.rsplit("/", 1)[-1], "mine"), Span(f"  round {number}", "dim")], path=path) for number, path in older]
         if current and stopped[0] == files_name(step):
             lines += findings(stopped[1], stopped[0], width - 6)
         if index < len(steps) - 1:
@@ -355,6 +356,6 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
         lines += wrapped(run.reason, width, "dim")
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
     lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
-    owned = {path for step in run.pipeline["steps"] for path in (files_of(step, reports)[0], *files_of(step, reports)[1])}
-    others = [Line([Span("  "), Span(clean(path.rsplit("/", 1)[-1]), "mine")], path=path) for path in reports if path not in owned]
+    owned = {path for step in run.pipeline["steps"] for path in (files_of(step, reports)[0], *(p for _, p in files_of(step, reports)[1]))}
+    others = [Line([Span("  "), Span(cell(path.rsplit("/", 1)[-1], 14), "mine"), Span(FILE_NOTES.get(path.rsplit("/", 1)[-1], ""), "dim")], path=path) for path in reports if path not in owned]
     return [*lines, plain(), rule("Steps", width), *timeline(run, events, reports, width, stopped, earlier), plain(), rule("Ticket and notes", width), *others, *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]

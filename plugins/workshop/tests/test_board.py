@@ -179,7 +179,7 @@ class Drill(unittest.TestCase):
     def test_a_narrow_panel_keeps_the_report_in_view(self):
         row = next(line for line in self.stopped_view_at(56) if line.text.startswith("◐ verify"))
         self.assertLessEqual(columns(row.text), 56)
-        self.assertIn("+2 earlier", row.text)
+        self.assertIn("+2 older", row.text)
 
     def stopped_view_at(self, width):
         return drill(run(status="parked", step=1, reason="R"), [], "T", "", "/f", width, ("/f/verify.md", "/f/verify-1.md", "/f/verify-2.md"), ("verify.md", self.report))
@@ -199,8 +199,23 @@ class Drill(unittest.TestCase):
     def test_a_step_shows_its_latest_report_and_hides_earlier_rounds(self):
         row = next(line for line in self.stopped_view() if line.text.startswith("◐ verify"))
         self.assertEqual(row.path, "/f/verify.md")
-        self.assertIn("+2 earlier", row.text)
+        self.assertIn("+2 older", row.text)
         self.assertNotIn("verify-1.md", joined(self.stopped_view()))
+
+    def test_the_report_to_read_first_is_marked(self):
+        row = next(line for line in self.stopped_view() if line.text.startswith("◐ verify"))
+        self.assertIn("▸ verify.md", row.text)
+
+    def test_older_rounds_name_their_round(self):
+        lines = drill(run(status="parked", step=1), [], "", "", "/f", 90, ("/f/verify.md", "/f/verify-2.md"), earlier=True)
+        self.assertIn("verify-2.md  round 2", joined(lines))
+
+    def test_ticket_files_say_what_they_are(self):
+        self.assertIn("the ticket", joined(self.stopped_view()))
+
+    def test_a_dropped_run_still_shows_why_it_stopped(self):
+        lines = drill(run(status="done", landed="dropped", step=1), [], "", "", "/f", 90, ("/f/verify.md",), ("verify.md", self.report))
+        self.assertIn("Nothing was built", joined(lines))
 
     def test_earlier_rounds_expand_newest_first(self):
         lines = drill(run(status="parked", step=1), [], "", "", "/f", 90, ("/f/verify.md", "/f/verify-1.md", "/f/verify-2.md"), earlier=True)

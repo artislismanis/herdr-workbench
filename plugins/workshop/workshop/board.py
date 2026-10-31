@@ -104,7 +104,7 @@ class Board:
 
     def stop_report(self, run: Run) -> tuple[str, str]:
         """What the stopped step wrote, so the reason for stopping needs no second look."""
-        if run.status not in ("parked", "waiting") or run.current is None:
+        if (run.status not in ("parked", "waiting") and run.landed != "dropped") or run.current is None:
             return "", ""
         name = files_name(run.current)
         path = self.store.files(run) / name
