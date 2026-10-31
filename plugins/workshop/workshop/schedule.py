@@ -33,7 +33,7 @@ def turn_on(every: str) -> str:
         raise ToolError(f"bad frequency {every}: use a number and s, m, min or h, like 10m")
     dropin().parent.mkdir(parents=True, exist_ok=True)
     # An empty line clears the shipped value: these settings add up otherwise.
-    dropin().write_text(f"[Timer]\nOnBootSec=\nOnBootSec={every}\nOnUnitActiveSec=\nOnUnitActiveSec={every}\n", encoding="utf-8")
+    dropin().write_text(f"[Timer]\nOnActiveSec=\nOnActiveSec={every}\nOnUnitActiveSec=\nOnUnitActiveSec={every}\n", encoding="utf-8")
     systemctl("daemon-reload")
     systemctl("enable", TIMER)
     systemctl("restart", TIMER)

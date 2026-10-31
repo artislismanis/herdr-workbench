@@ -35,7 +35,7 @@ class Schedule(unittest.TestCase):
         self.assertIn("every 10m", sched.schedule(["10m"]))
         text = sched.dropin().read_text(encoding="utf-8")
         self.assertIn("OnUnitActiveSec=\nOnUnitActiveSec=10m\n", text)
-        self.assertIn("OnBootSec=\nOnBootSec=10m\n", text)
+        self.assertIn("OnActiveSec=\nOnActiveSec=10m\n", text)
         self.assertEqual(self.calls, [("daemon-reload",), ("enable", sched.TIMER), ("restart", sched.TIMER)])
         self.state = "enabled"
         self.assertEqual(sched.schedule([]), "on, every 10m")
