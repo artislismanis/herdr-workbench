@@ -273,14 +273,19 @@ class Engine:
         lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {kept / 'verify.md'}"]
         return "\n".join(lines + [f"  {n['file']}:{n['line']} {n['note']}" for n in outside])
 
-    def ready(self, run: Run) -> Run:
-        """Your go on a finished draft: commits what review changed, pushes it and opens the PR to reviewers."""
-        if not self.reviewable(run):
-            raise KeyError(f"{run.key} has no draft PR to mark ready")
+    def push_fixes(self, run: Run) -> None:
+        """Your go on what review changed. Agents never commit, so this is how fixes reach the PR."""
         work = Path(run.worktree)
         self.tools.commit_all(work, f"{run.key}: Address review comments")
         self.tools.push(work, run.branch)
-        self.tools.mark_ready(work, run.pr)
+        self.store.event(run, "pushed")
+
+    def ready(self, run: Run) -> Run:
+        """Your go on a finished draft: any fixes go first, then the PR opens to reviewers."""
+        if not self.reviewable(run):
+            raise KeyError(f"{run.key} has no draft PR to mark ready")
+        self.push_fixes(run)
+        self.tools.mark_ready(Path(run.worktree), run.pr)
         self.store.event(run, "ready")
         self._post(run, "Marked ready for review.")
         return self.land(run)
@@ -299,7 +304,7 @@ class Engine:
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
         if self.reviewable(run):
-            return f"Review in hunk: g on the board, or workshop review {run.key}. Send comments to the agent with prefix+shift+s. Then m, or workshop ready {run.key}, pushes any fixes and marks the PR ready"
+            return "Finish with prefix+shift+u in the workspace"
         actions = f"workshop retry, pass or drop {run.key}, or {self.command} retry, pass or drop on the ticket"
         if run.status == "parked":
             return f"Comment on the ticket, or {actions}"

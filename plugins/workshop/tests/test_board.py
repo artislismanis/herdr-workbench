@@ -481,12 +481,11 @@ class Keys(unittest.TestCase):
         self.tap(x + 3, y, 119)
         self.assertEqual(self.board.viewing, path)
 
-    def test_the_status_closes_the_header(self):
+    def test_the_status_follows_the_title_and_pr(self):
         lines = texts(drill(run(status="done", pr="http://p/1"), [], "T", "", "/f", 90, handover="- New flag\nRecommendation: approve"))
-        at = next(i for i, t in enumerate(lines) if "Steps" in t)
-        self.assertIn("done", lines[at - 2])
-        self.assertLess(next(i for i, t in enumerate(lines) if "Recommendation" in t), at - 2)
-        self.assertLess(next(i for i, t in enumerate(lines) if t.startswith("PR:")), at - 2)
+        self.assertTrue(lines[1].startswith("PR:"))
+        self.assertIn("done", lines[2])
+        self.assertLess(2, next(i for i, t in enumerate(lines) if "Recommendation" in t))
 
     def draft(self):
         self.board.engine.reviewable.return_value = True
@@ -495,12 +494,12 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
 
-    def test_a_draft_offers_review_and_ready(self):
+    def test_a_draft_only_offers_the_review(self):
         self.draft()
-        self.assertIn("m ready", self.board.footer().text)
         self.assertIn("g review", self.board.footer().text)
+        self.assertNotIn("ready", self.board.footer().text)
         self.board.press(ord("m"))
-        self.assertEqual(self.sent(), ("ready", "7"))
+        self.assertIsNone(self.board.asking)
 
     def test_g_on_a_draft_reopens_the_review_first(self):
         self.draft()

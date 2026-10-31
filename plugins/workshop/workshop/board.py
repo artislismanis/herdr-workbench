@@ -45,7 +45,6 @@ class Ask(NamedTuple):
 
 # Key, button label, command, what to ask for, and whether it's needed.
 STOPPED = ((ord("c"), "c comment", "comment", "Comment on the ticket", True), (ord("t"), "t retry", "retry", "Retry, with an optional note", False), (ord("p"), "p pass", "pass", "Pass this step, with an optional note", False), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
-DRAFT = ((ord("m"), "m ready", "ready", "Push any fixes and mark the PR ready? Enter confirms", False),)
 GATE = ((ord("a"), "a approve", "approve", "Approve this gate? Enter confirms", False), (ord("x"), "x reject", "reject", "Reject, saying what to change", True), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
 
 
@@ -119,7 +118,7 @@ class Board:
             return []
         action = self.engine.next_action(run) if run.status in ("parked", "waiting") or self.engine.reviewable(run) else ""
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
-        buttons = tuple((label, key) for key, label, *_ in self.run_actions(run))
+        buttons = (("g review", ord("g")),) if self.engine.reviewable(run) else tuple((label, key) for key, label, *_ in self.run_actions(run))
         return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), buttons, self.earlier, self.engine.handover(run) if run.status == "done" else "")
 
     def panel(self, width: int) -> list[Line]:
@@ -223,8 +222,6 @@ class Board:
         return self.run_actions(self.target(lines))
 
     def run_actions(self, run: Run | None) -> tuple[tuple[int, str, str, str, bool], ...]:
-        if run is not None and self.engine.reviewable(run):
-            return DRAFT
         if run is None or run.status not in ("parked", "waiting"):
             return ()
         return GATE if run.current and run.current["kind"] == "gate" else STOPPED
@@ -244,7 +241,7 @@ class Board:
             # While another command runs, the words stay put for a second enter.
             if not self.refreshing and (self.typed.strip() or not asking.required):
                 self.asking = None
-                words = [self.typed.strip()] if self.typed.strip() and asking.command not in ("approve", "ready") else []
+                words = [self.typed.strip()] if self.typed.strip() and asking.command != "approve" else []
                 self.send(asking.command, asking.key, *words)
         elif key in BACKSPACES:
             self.typed = self.typed[:-1]

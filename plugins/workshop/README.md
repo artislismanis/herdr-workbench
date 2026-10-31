@@ -22,7 +22,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop explain <key>` | One run in detail |
 | `workshop resume <key>` | Tries a parked run's stopped step again |
 | `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff. A run does this itself when its PR is ready |
-| `workshop ready <key>` | Commits and pushes what review changed, and marks the draft PR ready |
+| `workshop finish` | Ends a review from its workspace, on `prefix+shift+u`: see Board |
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
 | `workshop answer <key> <text>` | Answers an agent's question |
 | `workshop retry <key> [note]` | Runs a stopped step again, with guidance if given |
@@ -78,7 +78,9 @@ A run's detail is built around what to do next. A stopped run starts with Needs 
 
 Colours follow herdr's theme, and a change shows within a second. The nearest of the terminal's 256 colours is used, so they're close rather than exact. With `auto_switch` it follows the dark theme. On a stopped run, the bottom row offers comment, retry, pass and drop, or approve, reject and drop at a gate. Each asks for its text, then runs the matching `workshop` command and leaves a comment on the ticket.
 
-Each run works in a linked worktree, grouped under its repo's workspace in herdr, which opens if it isn't already. A finished run opens hunk beside its agent, and its detail shows the reviewer's handover: what changed, and a recommendation to approve, or to approve after named checks. The ticket's Draft PR comment carries the same text. Comment in hunk and send those to the agent with `prefix+shift+s` if it needs changes. Nothing is pushed until `m` asks and you confirm: it commits and pushes what's changed, then marks the PR ready.
+Each run works in a linked worktree, grouped under its repo's workspace in herdr, which opens if it isn't already. A finished run opens hunk beside its agent, and its detail shows the reviewer's handover: what changed, and a recommendation to approve, or to approve after named checks. The ticket's Draft PR comment carries the same text. Comment in hunk and send those to the agent with `prefix+shift+s` if it needs changes.
+
+`prefix+shift+u` finishes a review, and offers only what applies. On a delivered run that's pushing the agent's fixes, marking the PR ready, or posting the notes as a PR comment. GitHub won't let you approve your own PR, so ready is the end of it. Anywhere else it's a plain PR review, with approve and request changes. Nothing is pushed until you choose it there.
 
 ## Concluding a stopped run
 

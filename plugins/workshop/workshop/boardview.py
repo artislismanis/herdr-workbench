@@ -333,18 +333,18 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     prices = [e["usd"] for e in spent]
     total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
     lines = wrapped(f"{name(run)}  {title}", width, "bold")
+    lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
+    lines += [Line([Span(f" {run.landed or run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
     if run.status in ("parked", "waiting"):
         lines += [plain(), *needs_you(run, stopped[1], width)]
     elif run.reason:
         lines += wrapped(run.reason, width, "dim")
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
-    lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
     if handover:
         lines += [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))]
     if buttons:
         lines += [plain(), Line([Span("  "), *(part for label, key in buttons for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" ")))])]
     lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
-    lines += [plain(), Line([Span(f" {run.landed or run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
     owned = {path for step in run.pipeline["steps"] for path in (files_of(step, reports)[0], *(p for _, p in files_of(step, reports)[1]))}
     others = [Line([Span("  "), Span(cell(path.rsplit("/", 1)[-1], 14), "mine"), Span(FILE_NOTES.get(path.rsplit("/", 1)[-1], ""), "dim")], path=path) for path in reports if path not in owned]
     return [*lines, plain(), rule("Steps", width), *timeline(run, events, reports, width, stopped, earlier), plain(), rule("Ticket and notes", width), *others, *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]

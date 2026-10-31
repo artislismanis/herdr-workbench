@@ -29,8 +29,8 @@ description = "Review: open hunk with the PR's GitHub threads"
 [[keys.command]]
 key = "prefix+shift+u"
 type = "popup"
-command = "\"$HOME/.config/herdr/bin/hunk-pr-push\""
-description = "Review: post the agent's notes to the PR"
+command = "\"$HOME/.local/bin/workshop\" finish"
+description = "Review: finish, by posting to the PR, or pushing fixes and marking it ready"
 width = 90
 height = 30
 
