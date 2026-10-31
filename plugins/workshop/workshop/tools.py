@@ -153,11 +153,11 @@ class Tools:
         except (OSError, subprocess.TimeoutExpired):
             return ""
 
-    def start_command(self, command: str, work: Path, output: Path, finished: Path) -> int:
-        """Runs a repo's own command in the background, because it can outlast a tick. The exit code lands in finished."""
+    def start_command(self, command: str, work: Path, output: Path, finished: Path, then: str = "") -> int:
+        """Runs a repo's own command in the background, because it can outlast a tick. The exit code lands in finished, then the then command runs."""
         with output.open("w", encoding="utf-8") as log:
-            wrapper = 'sh -c "$1"; echo $? > "$2"'
-            return subprocess.Popen(["sh", "-c", wrapper, "sh", command, str(finished)], cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True).pid
+            wrapper = 'sh -c "$1"; echo $? > "$2"; sh -c "$3" >/dev/null 2>&1'
+            return subprocess.Popen(["sh", "-c", wrapper, "sh", command, str(finished), then], cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True).pid
 
     def stop_command(self, pid: int) -> None:
         with contextlib.suppress(ProcessLookupError):
