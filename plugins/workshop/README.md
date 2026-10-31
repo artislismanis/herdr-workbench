@@ -21,7 +21,8 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop needs-you` | Only what's waiting on you, and what to run |
 | `workshop explain <key>` | One run in detail |
 | `workshop resume <key>` | Tries a parked run's stopped step again |
-| `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff |
+| `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff. A run does this itself when its PR is ready |
+| `workshop ready <key>` | Commits and pushes what review changed, and marks the draft PR ready |
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
 | `workshop answer <key> <text>` | Answers an agent's question |
 | `workshop retry <key> [note]` | Runs a stopped step again, with guidance if given |
@@ -71,11 +72,13 @@ When a run stops on a question or a problem, the ticket moves to `blocked`. Comm
 
 Tab and Shift+Tab switch views. Tabs, rows and the buttons along the bottom work with the mouse as well as the keys, and the wheel scrolls. Clicking a row opens it. Dragging selects text inside the list or the panel and copies it on release, with `wl-copy`. Shift+drag is your terminal's own selection, across the whole window.
 
-Delivery, where it opens, shows counts and usage meters, then runs by who they wait on, each with a strip of its steps (`●─◐─○`), and recent events below. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Backlog shows a bar per stage, then a card column per stage on a wide enough window. Review lists PRs, yours and others', by whose move it is: `●` in cyan is yours, `○` in magenta someone else's, and yellow means someone else reviewed a PR you're asked to review. Enter shows its reviews. `g` goes to a run's workspace, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. On a window 130 wide or more, Delivery and Review show the selected item's detail in a panel beside the list, with its actions at the top. Clicking a row selects it, the wheel over the panel scrolls it, and so do Page Up and Page Down. Enter still opens the detail full width.
+Delivery, where it opens, shows counts and usage meters, then runs by who they wait on, each with a strip of its steps (`●─◐─○`), and recent events below. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Backlog shows a bar per stage, then a card column per stage on a wide enough window. Review lists PRs, yours and others', by whose move it is: `●` in cyan is yours, `○` in magenta someone else's, and yellow means someone else reviewed a PR you're asked to review. Enter shows its reviews. `g` goes to a run's workspace, with hunk open on a draft PR, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. On a window 130 wide or more, Delivery and Review show the selected item's detail in a panel beside the list, with its actions at the top. Clicking a row selects it, the wheel over the panel scrolls it, and so do Page Up and Page Down. Enter still opens the detail full width.
 
 A run's detail is built around what to do next. A stopped run starts with Needs you, taken from the `## Needs you` section of the report that stopped it, with its actions underneath. Steps come next, each with its verdict, rounds, cost and latest report, and the stopped step shows its findings in place. `▸` marks the report to read first. Older rounds sit behind `+2 older`, or press `e`: `verify.md` is always the latest, and `verify-1.md` is the first round, counting up. Enter or a click opens a report, and `esc` goes back.
 
 Colours follow herdr's theme, and a change shows within a second. The nearest of the terminal's 256 colours is used, so they're close rather than exact. With `auto_switch` it follows the dark theme. On a stopped run, the bottom row offers comment, retry, pass and drop, or approve, reject and drop at a gate. Each asks for its text, then runs the matching `workshop` command and leaves a comment on the ticket.
+
+Each run works in a linked worktree, grouped under its repo's workspace in herdr, which opens if it isn't already. A finished run opens hunk beside its agent, and its detail shows the reviewer's handover: what changed, and a recommendation to approve, or to approve after named checks. The ticket's Draft PR comment carries the same text. Comment in hunk and send those to the agent with `prefix+shift+s` if it needs changes. Nothing is pushed until `m` asks and you confirm: it commits and pushes what's changed, then marks the PR ready.
 
 ## Concluding a stopped run
 

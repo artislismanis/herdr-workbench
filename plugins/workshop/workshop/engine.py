@@ -10,7 +10,7 @@ from typing import Any
 
 from .cost import summary
 from .pipeline import prompt_text
-from .review import load_notes, place
+from .review import load_notes, place, section
 from .shell import ToolError
 from .sources import Source
 from .store import Run, Store
@@ -273,8 +273,33 @@ class Engine:
         lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {kept / 'verify.md'}"]
         return "\n".join(lines + [f"  {n['file']}:{n['line']} {n['note']}" for n in outside])
 
+    def ready(self, run: Run) -> Run:
+        """Your go on a finished draft: commits what review changed, pushes it and opens the PR to reviewers."""
+        if not self.reviewable(run):
+            raise KeyError(f"{run.key} has no draft PR to mark ready")
+        work = Path(run.worktree)
+        self.tools.commit_all(work, f"{run.key}: Address review comments")
+        self.tools.push(work, run.branch)
+        self.tools.mark_ready(work, run.pr)
+        self.store.event(run, "ready")
+        self._post(run, "Marked ready for review.")
+        return self.land(run)
+
+    def reviewable(self, run: Run) -> bool:
+        return run.status == "done" and bool(run.pr) and not run.landed and run.stage not in ("review", "approved")
+
+    def handover(self, run: Run) -> str:
+        """What the last report to write one tells the person taking over."""
+        for step in reversed(run.pipeline["steps"]):
+            report = self._report(run, step)
+            if step["kind"] == "agent" and report.exists() and (lines := section(report.read_text(encoding="utf-8"), "handover")):
+                return "\n".join(lines)
+        return ""
+
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
+        if self.reviewable(run):
+            return f"Review in hunk: g on the board, or workshop review {run.key}. Send comments to the agent with prefix+shift+s. Then m, or workshop ready {run.key}, pushes any fixes and marks the PR ready"
         actions = f"workshop retry, pass or drop {run.key}, or {self.command} retry, pass or drop on the ticket"
         if run.status == "parked":
             return f"Comment on the ticket, or {actions}"
@@ -438,12 +463,16 @@ class Engine:
         run.step, run.phase = run.step + 1, ""
 
     def _finish(self, run: Run) -> None:
-        self._post(run, f"Draft PR ready: {run.pr}\n\n{summary(self.store.events(run))}".strip())
+        self._post(run, "\n\n".join(part for part in (f"Draft PR ready: {run.pr}", self.handover(run), summary(self.store.events(run))) if part))
         self.source_for(run).finish(run.key)
         run.status = "done"
         self.store.event(run, "finished", pr=run.pr)
-        self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} Review it with: workshop review {run.key}")
+        self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there.")
         self.store.save(run)
+        try:
+            self.review(run)
+        except STOPS as failed:  # the PR is delivered either way, and g tries again
+            self.store.event(run, "review_failed", reason=str(failed))
 
     def _park(self, run: Run, reason: str) -> None:
         # Reported once: a parked run waits for a person, it never retries by itself.

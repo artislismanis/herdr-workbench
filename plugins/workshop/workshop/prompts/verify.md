@@ -8,6 +8,7 @@ Write your report to `{run}/verify.md`:
 
 - What you checked and what is wrong, with file and line. Findings stand on their own.
 - A `## Needs you` section with anything only a person can decide, or nothing under it.
+- If it passes, a `## Handover` section for the person who picks this up: two to four short bullets on what changed and what's worth a look, then a line starting `Recommendation:` that says `approve`, or `approve after` and the specific checks a person should do first.
 - A last line that is exactly `VERDICT: PASS` or `VERDICT: CHANGES_NEEDED`.
 
 Also write `{run}/notes.json`, for the person who reviews this after you: a JSON array of `{"file": "path", "line": 12, "note": "text"}`, using line numbers in the new version of a changed file. Include your findings, and anything else they should look at closely. Write `[]` if there's nothing.

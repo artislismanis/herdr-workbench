@@ -35,7 +35,8 @@ class Tools:
         return Path(run_json("wt", "switch", *args, "--no-cd", "--yes", "--format=json", cwd=repo)["path"])
 
     def workspace(self, path: Path, label: str) -> str:
-        made = run_json("herdr", "workspace", "create", "--cwd", str(path), "--label", label, "--no-focus")
+        # A linked worktree, so herdr groups it under its repo's workspace, opening that if it has to.
+        made = run_json("herdr", "worktree", "open", "--cwd", str(path), "--path", str(path), "--label", label, "--no-focus")
         return made["result"]["root_pane"]["pane_id"]
 
     def copy(self, text: str) -> None:
@@ -152,6 +153,9 @@ class Tools:
     def find_pr(self, work: Path, branch: str) -> str:
         found = run_json("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url", cwd=work)
         return found[0]["url"] if found else ""
+
+    def mark_ready(self, work: Path, pr: str) -> None:
+        run("gh", "pr", "ready", pr, cwd=work)
 
     def create_pr(self, work: Path, branch: str, base: str, title: str, body: str) -> str:
         made = run("gh", "pr", "create", "--draft", "--base", base, "--head", branch, "--title", title, "--body", body, cwd=work)

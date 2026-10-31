@@ -5,6 +5,21 @@ from pathlib import Path
 from typing import Any
 
 
+def section(text: str, heading: str) -> list[str]:
+    """The lines under a report's heading, subheadings included."""
+    found: list[str] = []
+    depth = 0
+    for line in text.splitlines():
+        level = len(line) - len(line.lstrip("#"))
+        if level and not depth and line.lstrip("#").strip().lower() == heading:
+            depth = level
+        elif level and depth and level <= depth:
+            depth = 0
+        elif depth and line.strip() and not line.startswith("VERDICT:"):
+            found.append(line)
+    return found
+
+
 def load_notes(path: Path) -> list[dict[str, Any]]:
     """The reviewer's notes. It writes this file by hand, so a bad one means no notes, not a stop."""
     try:
