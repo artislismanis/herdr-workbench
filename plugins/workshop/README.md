@@ -65,7 +65,7 @@ When a run stops on a question or a problem, the ticket moves to `blocked`. Comm
 
 `prefix+shift+b` opens the board in a `workshop` workspace, or goes back to it if it's open. Quitting closes that workspace. Opening it costs no tokens or API calls: it reads run files, the event log and the backlog snapshot, and shows how old the snapshot is.
 
-Tabs, rows and the buttons along the bottom work with the mouse as well as the keys, and the wheel scrolls. Clicking a row opens it. The board captures the mouse, so hold Shift to select text in it, if your terminal supports that.
+Tab and Shift+Tab switch views. Tabs, rows and the buttons along the bottom work with the mouse as well as the keys, and the wheel scrolls. Clicking a row opens it. The board captures the mouse, so hold Shift to select text in it, if your terminal supports that.
 
 Deliveries shows counts and usage meters, then runs by who they wait on, each with a strip of its steps (`●─◐─○`), and recent events below. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Backlog shows a bar per stage, then a card column per stage on a wide enough window. PRs lists yours and others' by whose move it is: `●` in cyan is yours, `○` in magenta someone else's, and yellow means someone else reviewed a PR you're asked to review. Enter shows its reviews. `g` goes to a run's workspace, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. The board is read-only: approve, reject and answer stay on the command line.
 

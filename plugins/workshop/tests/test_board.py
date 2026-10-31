@@ -228,6 +228,12 @@ class Keys(unittest.TestCase):
         self.board.press(10)
         self.assertIsNone(self.board.open)
 
+    def test_shift_tab_goes_back_and_wraps_round(self):
+        self.board.press(curses.KEY_BTAB)
+        self.assertEqual(self.board.tab, 2)
+        self.board.press(curses.KEY_BTAB)
+        self.assertEqual(self.board.tab, 1)
+
     def test_a_pr_opens_and_g_finds_its_run(self):
         self.store.save(run("1", pane="w1:p1", pr="u"))
         self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 200.0, "error": "", "items": [pr()]}})
