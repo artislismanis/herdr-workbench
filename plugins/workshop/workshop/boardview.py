@@ -26,7 +26,7 @@ REVIEW_MARKS = {"APPROVED": ("✓", "green"), "CHANGES_REQUESTED": ("✗", "red"
 MAX_LINES = 2000
 FINDINGS = 12  # lines of a stopped step's findings in the detail. The whole report is a click away
 BAD_VERDICTS = ("CHANGES_NEEDED", "BLOCKED", "FAILED")
-FILE_NOTES = {"brief.md": "the ticket", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "the reviewer's line notes", "ask.md": "the open question"}
+FILE_NOTES = {"brief.md": "the ticket", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "line notes", "ask.md": "the open question"}
 RECENT = 10
 LANDED = 5
 BAR = 30
@@ -307,11 +307,11 @@ def files_of(step: dict[str, Any], reports: tuple[str, ...]) -> tuple[str, list[
     return latest, sorted(rounds, reverse=True)
 
 
-def findings(report: str, name: str, width: int) -> list[Line]:
+def findings(report: str, name: str, width: int, lead: str = "") -> list[Line]:
     items = section(report, "findings") or body(report)
     parts = [part.text for item in items for part in wrapped(item, width)]
-    lines = [plain("│   ┌ Findings", "dim"), *(Line([Span("│   │ ", "dim"), Span(text)]) for text in parts[:FINDINGS])]
-    return [*lines, plain(f"│   └ more in {name}" if len(parts) > FINDINGS else "│   └", "dim")]
+    lines = [plain(f"{lead}┌ Findings", "dim"), *(Line([Span(f"{lead}│ ", "dim"), Span(text)]) for text in parts[:FINDINGS])]
+    return [*lines, plain(f"{lead}└ more in {name}" if len(parts) > FINDINGS else f"{lead}└", "dim")]
 
 
 def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[str, Any]]) -> Line:
@@ -325,31 +325,42 @@ def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[st
 
 def file_row(lead: list[Span], path: str, room: int, label: str = "") -> Line:
     name = path.rsplit("/", 1)[-1]
-    return Line([*lead, Span(cell(label, 26)), Span(cell(FILE_NOTES.get(name, ""), room), "dim"), Span("  "), Span(name, "mine")], path=path)
+    return Line([*lead, Span(cell(label, 25)), Span(cell(FILE_NOTES.get(name, ""), room), "dim"), Span("  "), Span(name, "mine")], path=path)
 
 
-def ticket_rows(run: Run, files: list[str], margin: str, room: int) -> list[Line]:
+def branch(staged: bool, in_stage: bool, last: bool) -> str:
+    """Where a row hangs: the same tree as herdr's sidebar, so a stage's steps read as one group."""
+    if not staged:
+        return ""
+    return " " + ("  " if not in_stage else "└ " if last else "├ ")
+
+
+def ticket_rows(run: Run, files: list[str], staged: bool, room: int) -> list[Line]:
     """What the run started from. There's no step for it yet, so it leads the timeline. Everything people added sits with it."""
     stage = run.pipeline.get("ticket_stage")
     heading = [Line([Span(f" {stage} ", "on-green"), Span("  done", "green")])] if stage else []
-    rows = [file_row([Span(f"{margin}● " if not index else f"{margin}  ", "green")], path, room, "" if index else "ticket") for index, path in enumerate(files)]
-    return [*heading, *rows, plain() if stage else plain(f"{margin}│", "dim")] if rows else heading
+    rows = [file_row([Span(branch(staged, bool(stage), index == len(files) - 1), "dim"), Span("● ", "green")], path, room, "" if index else "ticket") for index, path in enumerate(files)]
+    return [*heading, *rows, plain()] if heading or rows else []
 
 
 def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], width: int, stopped: tuple[str, str] = ("", ""), earlier: bool = False) -> list[Line]:
     steps = run.pipeline["steps"]
-    margin = "  " if any(step.get("stage") for step in steps) or run.pipeline.get("ticket_stage") else ""
-    width -= len(margin)
-    room = max(min(28, width - 53), 5)
+    staged = any(step.get("stage") for step in steps) or bool(run.pipeline.get("ticket_stage"))
+    width -= len(branch(staged, True, True))
+    room = max(min(28, width - 52), 5)
     owned = {path for step in steps for path in (files_of(step, reports)[0], *(p for _, p in files_of(step, reports)[1]))}
     loose = [path for path in reports if path not in owned]
     notes = [path for path in loose if path.endswith("/notes.json")]
-    lines = ticket_rows(run, sorted((path for path in loose if path not in notes), key=lambda path: not path.endswith("/brief.md")), margin, room)
+    lines = ticket_rows(run, sorted((path for path in loose if path not in notes), key=lambda path: not path.endswith("/brief.md")), staged, room)
     writes_notes = max((index for index, step in enumerate(steps) if step["kind"] == "agent"), default=-1)
-    groups = {indexes[0]: indexes for indexes in stage_groups(steps)}
+    groups = stage_groups(steps)
+    starts = {indexes[0]: indexes for indexes in groups}
+    ends = {indexes[-1] for indexes in groups}
     for index, step in enumerate(steps):
-        if step.get("stage") and index in groups:
-            lines.append(stage_heading(run, step["stage"], groups[index], events))
+        if step.get("stage") and index in starts:
+            lines.append(stage_heading(run, step["stage"], starts[index], events))
+        hang = branch(staged, bool(step.get("stage")), index in ends)
+        under = f"{hang.replace('├', '│').replace('└', ' ')}  "
         seen = [e for e in events if e.get("step") == step["id"]]
         spent = [e for e in seen if e["type"] == "spent"]
         finished = [e for e in seen if e["type"] == "step" and e.get("state") == "done"]
@@ -362,20 +373,20 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
             prices = [e["usd"] for e in spent]
             facts += [f"{sum(e['minutes'] for e in spent):.1f} min", "unpriced" if None in prices else f"${sum(prices):.2f}"]
         latest, older = files_of(step, reports)
-        row = [Span(f"{margin}{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(facts), room), "dim")]  # the report beats the numbers on a narrow panel
+        row = [Span(hang, "dim"), Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 15), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(facts), room), "dim")]  # the report beats the numbers on a narrow panel
         if latest:
             row += [Span("▸ " if current else "  ", "yellow"), Span(latest.rsplit("/", 1)[-1], "mine")]
         if older and not earlier:
             row += [Span("  "), Span(f" +{len(older)} older ", "button", f"key:{ord('e')}")]
         lines.append(Line(row, path=latest))
         if index == writes_notes:
-            lines += [file_row([Span(f"{margin}│ ", "dim")], path, room) for path in notes]
+            lines += [file_row([Span(under, "dim")], path, room) for path in notes]
         if earlier:
-            lines += [Line([Span(f"{margin}│ ", "dim"), Span(" " * max(width - 40, 12)), Span(path.rsplit("/", 1)[-1], "mine"), Span(f"  round {number}", "dim")], path=path) for number, path in older]
+            lines += [Line([Span(under, "dim"), Span(" " * max(width - 40, 12)), Span(path.rsplit("/", 1)[-1], "mine"), Span(f"  round {number}", "dim")], path=path) for number, path in older]
         if current and stopped[0] == files_name(step):
-            lines += [Line([Span(margin), *line.spans], path=line.path) for line in findings(stopped[1], stopped[0], width - 6)]
-        if index < len(steps) - 1:
-            lines.append(plain() if index + 1 in groups and steps[index + 1].get("stage") else plain(f"{margin}│", "dim"))
+            lines += findings(stopped[1], stopped[0], width - 4, under)
+        if staged and index in ends and index < len(steps) - 1:
+            lines.append(plain())
     return lines
 
 

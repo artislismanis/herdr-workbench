@@ -154,7 +154,23 @@ class Drill(unittest.TestCase):
         heads = [i for i, t in enumerate(lines) if t.startswith(" Build ")]
         self.assertEqual(len(heads), 1)
         self.assertLess(heads[0], next(i for i, t in enumerate(lines) if t.startswith(" Test ")))
-        self.assertTrue(lines[heads[0] + 1].startswith("  "))
+        self.assertTrue(lines[heads[0] + 1].startswith(" ├ "))
+        self.assertTrue(lines[heads[0] + 2].startswith(" └ "))
+        self.assertEqual(lines[heads[0] + 3], "")
+
+    def test_rows_under_a_step_follow_the_tree(self):
+        steps = [{"id": "a", "kind": "agent", "stage": "Build"}, {"id": "b", "kind": "agent", "stage": "Build"}]
+        staged = run(step=0, status="parked")
+        staged.pipeline = {"name": "x", "steps": steps}
+        lines = texts(drill(staged, [], "", "", "/f", 90, ("/f/a.md", "/f/notes.json", "/f/brief.md"), ("a.md", "## Findings\n- Broken\n")))
+        self.assertTrue(any(t.startswith(" │   ┌ Findings") for t in lines))
+        last = next(t for t in lines if "notes.json" in t)
+        self.assertTrue(last.startswith("     "))
+        self.assertNotIn("│", last)
+
+    def test_a_flat_pipeline_has_no_tree(self):
+        where = texts(drill(run(), [], "", "", "/f", 80))
+        self.assertFalse(any(t.startswith(("│", "├", "└")) for t in where))
 
     def test_a_stage_shows_its_status_and_total(self):
         steps = [{"id": "a", "kind": "agent", "stage": "Build"}, {"id": "b", "kind": "agent", "stage": "Build"}, {"id": "c", "kind": "agent", "stage": "Test"}]
