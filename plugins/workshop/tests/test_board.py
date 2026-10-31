@@ -8,7 +8,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
-from workshop.board import Board, ago, backlog, clean, deliveries, drill  # noqa: E402
+from workshop.board import Board, ago, backlog, clean, deliveries, drill, pull, pulls  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
@@ -102,6 +102,39 @@ class Drill(unittest.TestCase):
         self.assertTrue(any("unpriced" in t for t in lines))
 
 
+def pr(url="u", move="you", mine=False, state="needs review", **fields):
+    return {"repo": "r", "number": 7, "title": "A change", "url": url, "author": "them", "mine": mine, "move": move, "state": state, "checks": "SUCCESS", "threads": 0, "reviews": {}, "waiting_on": [], "beaten": [], **fields}
+
+
+class PRs(unittest.TestCase):
+    def rows(self, *items):
+        return [line for line in pulls({"prs": {"polled_at": 1.0, "error": "", "items": list(items)}}) if line.pr]
+
+    def test_groups_by_whose_move_it_is(self):
+        lines = pulls({"prs": {"polled_at": 1.0, "error": "", "items": [pr("a", "others", True), pr("b"), pr("c", "done", True)]}})
+        self.assertEqual([line.pr["url"] for line in lines if line.pr], ["b", "a", "c"])
+        self.assertIn("Your move 1", texts(lines))
+
+    def test_mine_and_others_differ_by_symbol_and_colour(self):
+        mine, theirs = self.rows(pr("a", mine=True), pr("b"))
+        self.assertEqual((mine.text[2], mine.style), ("●", "mine"))
+        self.assertEqual((theirs.text[2], theirs.style), ("○", "others"))
+
+    def test_someone_getting_there_first_stands_out(self):
+        row = self.rows(pr(beaten=["sam"]))[0]
+        self.assertEqual(row.style, "yellow")
+        self.assertIn("reviewed by sam", row.text)
+
+    def test_shows_a_failed_poll_and_a_first_run(self):
+        self.assertEqual(pulls({"prs": {"error": "gh failed", "items": []}})[0].style, "red")
+        self.assertIn("Press r", pulls({})[0].text)
+
+    def test_the_detail_lists_reviews_and_who_is_asked(self):
+        lines = texts(pull(pr(reviews={"sam": "CHANGES_REQUESTED"}, waiting_on=["alex"])))
+        self.assertIn("  sam: changes requested", lines)
+        self.assertIn("  alex: asked", lines)
+
+
 class Keys(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -132,6 +165,19 @@ class Keys(unittest.TestCase):
         self.board.press(ord("\t"))
         self.board.press(10)
         self.assertIsNone(self.board.open)
+
+    def test_a_pr_opens_and_g_finds_its_run(self):
+        self.store.save(run("1", pane="w1:p1", pr="u"))
+        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 200.0, "error": "", "items": [pr()]}})
+        self.board.reload()
+        self.board.press(ord("\t"))
+        self.board.press(ord("\t"))
+        self.assertIn("PRs 5m old", self.board.header())
+        self.board.press(10)
+        self.assertEqual(self.board.open, ("#pr", "u"))
+        self.assertIn("Reviews", texts(self.board.lines(100)))
+        self.board.press(ord("g"))
+        self.tools.focus.assert_called_once_with("w1:p1")
 
     def test_the_selection_follows_the_run_when_rows_reorder(self):
         self.board.press(curses.KEY_DOWN)

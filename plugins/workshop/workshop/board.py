@@ -13,11 +13,13 @@ from .engine import STOPS, Engine
 from .store import Run
 
 SKIPPED = "skipped.json"
-TABS = ("Deliveries", "Backlog")
+TABS = ("Deliveries", "Backlog", "PRs")
 HEADINGS = {"parked": "Needs you", "waiting": "Needs you", "running": "With agents", "done": "With people"}
 ORDER = ("parked", "waiting", "running", "done")
 COLOURS = {"parked": "red", "waiting": "yellow", "running": "green", "done": ""}
 BAD_EVENTS = ("parked", "check_failed", "move_failed", "report_failed")
+MOVES = (("you", "Your move"), ("others", "Waiting on others"), ("done", "Done lately"))
+SYMBOLS = {True: "●", False: "○"}  # with colour, so it reads in any theme
 RECENT = 10
 LANDED = 5
 
@@ -26,6 +28,13 @@ class Line(NamedTuple):
     text: str
     style: str = ""
     run: Run | None = None
+    pr: dict[str, Any] | None = None
+
+    @property
+    def ref(self) -> tuple[str, str] | None:
+        if self.pr:
+            return ("#pr", self.pr["url"])
+        return (self.run.repo, self.run.key) if self.run else None
 
 
 def clean(text: str) -> str:
@@ -88,6 +97,44 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
     return lines
 
 
+def facts(pr: dict[str, Any]) -> str:
+    checks = {"SUCCESS": "CI green", "FAILURE": "CI failing", "ERROR": "CI failing", "PENDING": "CI running"}.get(pr["checks"], "")
+    threads = f"{pr['threads']} thread(s)" if pr["threads"] else ""
+    first = f"reviewed by {', '.join(pr['beaten'])}" if pr["beaten"] else ""
+    return "  ".join(part for part in (first, threads, checks) if part)
+
+
+def pr_style(pr: dict[str, Any]) -> str:
+    if pr["move"] == "done":
+        return "dim"
+    if pr["beaten"]:
+        return "yellow"
+    if pr["state"] == "checks failing":
+        return "red"
+    return "mine" if pr["mine"] else "others"
+
+
+def pulls(snapshot: dict[str, Any]) -> list[Line]:
+    found = snapshot.get("prs")
+    if not found:
+        return [Line("Nothing saved yet. Press r, or wait for the next tick.")]
+    lines = [Line(f"Couldn't update: {found['error']}", "red")] if found["error"] else []
+    for move, heading in MOVES:
+        items = [p for p in found["items"] if p["move"] == move]
+        lines += [Line(""), Line(f"{heading} {len(items)}", "bold")]
+        lines += [Line(f"  {SYMBOLS[p['mine']]} {p['repo'] + '#' + str(p['number']):26} {p['state']:20} {p['title'][:44]:44} {facts(p)}", pr_style(p), pr=p) for p in items]
+    return lines
+
+
+def pull(pr: dict[str, Any]) -> list[Line]:
+    lines = [Line(f"{SYMBOLS[pr['mine']]} {pr['repo']}#{pr['number']}  {pr['title']}", "bold"), Line(pr["url"]), Line(f"{pr['state']}, by {pr['author']}", pr_style(pr))]
+    if details := facts(pr):
+        lines.append(Line(details))
+    lines += [Line(""), Line("Reviews", "bold")]
+    lines += [Line(f"  {who}: {state.lower().replace('_', ' ')}") for who, state in pr["reviews"].items()] or [Line("  None yet", "dim")]
+    return lines + [Line(f"  {who}: asked", "dim") for who in pr["waiting_on"]]
+
+
 def steps(run: Run, events: list[dict[str, Any]]) -> list[Line]:
     lines = []
     for index, step in enumerate(run.pipeline["steps"]):
@@ -147,17 +194,22 @@ class Board:
     def drilled(self) -> Run | None:
         return next((r for r in self.runs if (r.repo, r.key) == self.open), None)
 
+    def opened_pr(self) -> dict[str, Any] | None:
+        return next((p for p in self.snapshot.get("prs", {}).get("items", []) if ("#pr", p["url"]) == self.open), None)
+
     def lines(self, width: int) -> list[Line]:
+        if pr := self.opened_pr():
+            return pull(pr)
         if run := self.drilled():
             action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
             events = [e for e in self.events if (e["repo"], e["key"]) == self.open]
             return drill(run, events, self.title(run), action, str(self.store.files(run)), width)
         if self.tab == 0:
             return deliveries(self.runs, self.events, self.title)
-        return backlog(self.snapshot, self.skipped, self.store.exists)
+        return backlog(self.snapshot, self.skipped, self.store.exists) if self.tab == 1 else pulls(self.snapshot)
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:
-        return [(line.run.repo, line.run.key) for line in lines if line.run]
+        return [line.ref for line in lines if line.ref]
 
     def selected(self, lines: list[Line]) -> tuple[str, str] | None:
         choices = self.choices(lines)
@@ -198,7 +250,7 @@ class Board:
         return True
 
     def jump(self, target: tuple[str, str] | None) -> None:
-        run = next((r for r in self.runs if (r.repo, r.key) == target), None)
+        run = next((r for r in self.runs if target in ((r.repo, r.key), ("#pr", r.pr))), None)
         try:
             if run is None or not run.pane:
                 raise KeyError("no workspace")
@@ -222,8 +274,10 @@ class Board:
 
     def header(self) -> str:
         tabs = "  ".join(f"[{t}]" if i == self.tab else f" {t} " for i, t in enumerate(TABS))
-        times = [r["polled_at"] for r in self.snapshot.get("repos", {}).values()]
-        age = f"backlog {ago(self.clock() - min(times))} old" if times and min(times) else "backlog not polled"
+        kind = "PRs" if self.tab == 2 else "backlog"
+        sources = [self.snapshot.get("prs", {})] if self.tab == 2 else self.snapshot.get("repos", {}).values()
+        times = [source.get("polled_at", 0) for source in sources]
+        age = f"{kind} {ago(self.clock() - min(times))} old" if times and min(times) else f"{kind} not polled"
         held = self.engine.throttle.hold_new(len([r for r in self.runs if r.status == "running"]))
         return "  ".join(part for part in (f"Workshop  {tabs}", age, f"held: {held}" if held else "") if part)
 
@@ -236,7 +290,7 @@ class Board:
 
     def window(self, lines: list[Line], height: int) -> list[Line]:
         chosen = self.selected(lines)
-        at = next((i for i, line in enumerate(lines) if line.run and (line.run.repo, line.run.key) == chosen), None)
+        at = next((i for i, line in enumerate(lines) if line.ref and line.ref == chosen), None)
         if at is not None:
             self.offset = max(min(self.offset, at), at - height + 1)
         self.offset = max(0, min(self.offset, len(lines) - height))
@@ -249,7 +303,7 @@ class Board:
         screen.erase()
         screen.addnstr(0, 0, clean(self.header()), width - 1, curses.A_BOLD)
         for y, line in enumerate(self.window(lines, rows - 2), 1):
-            mark = curses.A_REVERSE if line.run and (line.run.repo, line.run.key) == chosen and not self.open else 0
+            mark = curses.A_REVERSE if line.ref and line.ref == chosen and not self.open else 0
             screen.addnstr(y, 0, clean(line.text), width - 1, styles[line.style] | mark)
         screen.addnstr(rows - 1, 0, clean(self.footer()), width - 1, curses.A_DIM)
         screen.refresh()
@@ -257,9 +311,9 @@ class Board:
     def loop(self, screen: curses.window) -> None:
         curses.curs_set(0)
         curses.use_default_colors()
-        for pair, colour in enumerate((curses.COLOR_RED, curses.COLOR_YELLOW, curses.COLOR_GREEN), 1):
+        for pair, colour in enumerate((curses.COLOR_RED, curses.COLOR_YELLOW, curses.COLOR_GREEN, curses.COLOR_CYAN, curses.COLOR_MAGENTA), 1):
             curses.init_pair(pair, colour, -1)
-        styles = {"": 0, "bold": curses.A_BOLD, "dim": curses.A_DIM, "red": curses.color_pair(1), "yellow": curses.color_pair(2), "green": curses.color_pair(3)}
+        styles = {"": 0, "bold": curses.A_BOLD, "dim": curses.A_DIM, "red": curses.color_pair(1), "yellow": curses.color_pair(2), "green": curses.color_pair(3), "mine": curses.color_pair(4), "others": curses.color_pair(5)}
         screen.timeout(1000)
         while True:
             self.reload()
