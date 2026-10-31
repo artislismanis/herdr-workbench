@@ -70,8 +70,13 @@ def running(engine: Engine) -> list[Run]:
     return [r for r in engine.store.all() if r.status == "running"]
 
 
+def read_limits(engine: Engine) -> None:
+    engine.throttle.update(engine.tools.claude_usage())
+
+
 def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     """Move every run on, then start one ready ticket if there's room. Polling costs no tokens."""
+    read_limits(engine)
     advance_all(engine)
     check_tickets(engine)
     poll(cfg, engine.store)  # before the limits below, or a full workshop stops the board updating
@@ -266,6 +271,7 @@ def main(argv: list[str]) -> int:
             case "stats":
                 print(stats(engine.store.history()))
             case "refresh":
+                read_limits(engine)
                 locked(root, lambda: check_tickets(engine))
                 show_refresh(cfg, engine.store)
             case "board":

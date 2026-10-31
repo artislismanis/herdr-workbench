@@ -78,7 +78,7 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 
 ## Limits
 
-`[throttle]` paces work against Claude's limits, using `~/.local/state/claude-usage.json`, which the status line saves. See `config.example.toml`. Running steps always finish. Without the file, or with an old one, tickets run one at a time.
+`[throttle]` paces work against Claude's limits, using `~/.local/state/claude-usage.json`. The status line saves it, and each tick and board refresh updates it from `claude -p /usage`, which costs no tokens and includes use outside herdr. See `config.example.toml`. Running steps always finish. `/usage` prints text for people, so if it can't be read the saved figures stay. Without the file, or with an old one, tickets run one at a time.
 
 ## Tickets
 

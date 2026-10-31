@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.throttle import STALE_AFTER, WEEK, Throttle  # noqa: E402
+from workshop.throttle import STALE_AFTER, WEEK, Throttle, live_windows  # noqa: E402
 
 NOW = 10_000_000.0
 LATER = NOW + 3600
@@ -100,6 +100,48 @@ class Tickets(Case):
     def test_settings_replace_the_defaults(self):
         self.usage(five=61)
         self.assertEqual(Throttle(self.path, {"pause_new_at": 70}, lambda: NOW).hold_new(0), "")
+
+
+class Live(unittest.TestCase):
+    TEXT = (
+        "You are currently using your subscription to power your Claude Code usage\n\n"
+        "Current session: 83% used · resets Oct 31, 7:10pm (Europe/London)\n"
+        "Current week (all models): 45% used · resets Nov 2, 1am (Europe/London)\n\n"
+        "Last 24h · 475 requests · 65 sessions\n"
+    )
+    NOW = 1793470000.0  # 31 Oct 2026, 18:06 UTC
+
+    def path(self):
+        return Path(tempfile.mkdtemp()) / "usage.json"
+
+    def test_both_windows_are_read(self):
+        found = live_windows(self.TEXT, self.NOW)
+        self.assertEqual(found["five_hour"], {"used_percentage": 83, "resets_at": 1793473800.0})
+        self.assertEqual(found["seven_day"], {"used_percentage": 45, "resets_at": 1793581200.0})
+
+    def test_a_reset_after_new_year_is_next_year(self):
+        text = "Current session: 1% used · resets Jan 1, 12:10am (Europe/London)\n"
+        self.assertEqual(live_windows(text, self.NOW)["five_hour"]["resets_at"], 1798762200.0)
+
+    def test_a_bare_time_earlier_today_is_tomorrow(self):
+        text = "Current session: 1% used · resets 5pm (UTC)\n"
+        self.assertEqual(live_windows(text, self.NOW)["five_hour"]["resets_at"], 1793552400.0)
+
+    def test_an_unknown_zone_is_skipped(self):
+        self.assertEqual(live_windows("Current session: 1% used · resets 5pm (Mars/Base)\n", self.NOW), {})
+
+    def test_an_update_replaces_what_it_read_and_keeps_the_rest(self):
+        path = self.path()
+        path.write_text(json.dumps({"seven_day": {"used_percentage": 9, "resets_at": 1}, "extra": 1}), encoding="utf-8")
+        Throttle(path, {}, clock=lambda: self.NOW).update("Current session: 20% used · resets 8pm (UTC)\n")
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual((saved["five_hour"]["used_percentage"], saved["seven_day"]["used_percentage"], saved["extra"], saved["at"]), (20, 9, 1, self.NOW))
+
+    def test_text_it_cant_read_leaves_the_file_alone(self):
+        path = self.path()
+        path.write_text('{"at": 1}', encoding="utf-8")
+        Throttle(path, {}, clock=lambda: self.NOW).update("Usage is shown in the app\n")
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"at": 1})
 
 
 if __name__ == "__main__":
