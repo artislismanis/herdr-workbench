@@ -23,11 +23,18 @@ class Place(unittest.TestCase):
     def test_hunk_edges_count(self):
         self.assertEqual(len(place([note(line=3), note(line=5), note(line=10)], FILES)[0]), 3)
 
-    def test_a_line_between_hunks_is_outside(self):
-        self.assertEqual(place([note(line=7)], FILES)[1], [note(line=7)])
+    def test_a_line_between_hunks_waits_on_that_files_first_change(self):
+        placed, outside = place([note(line=7)], FILES)
+        self.assertEqual(placed, [{"filePath": "a.py", "newLine": 3, "summary": "PR-level: a.py:7 Look", "author": "pr-level"}])
+        self.assertEqual(outside, [])
 
-    def test_a_file_not_in_the_diff_is_outside(self):
-        self.assertEqual(place([note(file="b.py")], FILES)[1], [note(file="b.py")])
+    def test_a_file_not_in_the_diff_waits_on_the_first_change(self):
+        placed = place([note(file="b.py")], FILES)[0]
+        self.assertEqual((placed[0]["filePath"], placed[0]["newLine"], placed[0]["author"]), ("a.py", 3, "pr-level"))
+        self.assertIn("b.py:", placed[0]["summary"])
+
+    def test_with_no_changed_line_a_note_stays_outside(self):
+        self.assertEqual(place([note()], []), ([], [note()]))
 
 
 class Load(unittest.TestCase):

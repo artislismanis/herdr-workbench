@@ -616,9 +616,8 @@ class Review(Case):
     def test_notes_land_in_hunk_and_the_rest_are_listed(self):
         text = self.engine.review(self.finished())
         self.assertEqual(self.tools.reviews[-1], ("p1", "main"))
-        self.assertEqual([n["summary"] for n in self.tools.review_notes], ["Look"])
-        self.assertIn("Loaded 1 note(s)", text)
-        self.assertIn("b.py:9 Elsewhere", text)
+        self.assertEqual([n["summary"] for n in self.tools.review_notes], ["Look", "PR-level: b.py:9 Elsewhere"])
+        self.assertIn("Loaded 2 note(s)", text)
 
     def test_missing_notes_still_open_the_review(self):
         run = self.finished()
