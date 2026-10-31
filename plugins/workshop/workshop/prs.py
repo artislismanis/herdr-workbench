@@ -34,12 +34,20 @@ def searches(scope: str, now: float) -> dict[str, tuple[str, int]]:
 
 
 def latest_reviews(pr: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Each person's last word. Bots advise and dismissed or unsent reviews don't count."""
+    """Each person's standing review. As on GitHub, a later comment doesn't clear an approval or a block. Bots advise, and dismissed or unsent reviews don't count."""
     found: dict[str, dict[str, Any]] = {}
     for review in pr["reviews"]["nodes"]:
-        if review["author"] and review["author"]["__typename"] != "Bot" and review["state"] not in ("PENDING", "DISMISSED"):
-            found[review["author"]["login"]] = review
+        if not review["author"] or review["author"]["__typename"] == "Bot" or review["state"] in ("PENDING", "DISMISSED"):
+            continue
+        who = review["author"]["login"]
+        if review["state"] != "COMMENTED" or found.get(who, review)["state"] == "COMMENTED":
+            found[who] = review
     return found
+
+
+def waiting_on(pr: dict[str, Any]) -> list[str]:
+    asked = [n["requestedReviewer"] or {} for n in pr["reviewRequests"]["nodes"]]
+    return [person.get("login") or person.get("name", "") for person in asked]
 
 
 def reviewed_commit(review: dict[str, Any]) -> str:
@@ -47,15 +55,15 @@ def reviewed_commit(review: dict[str, Any]) -> str:
 
 
 def my_move(pr: dict[str, Any], reviews: dict[str, dict[str, Any]], head: str, failing: bool, threads: int) -> tuple[str, str]:
-    asked = [r for r in reviews.values() if r["state"] == "CHANGES_REQUESTED"]
+    asked = {who: r for who, r in reviews.items() if r["state"] == "CHANGES_REQUESTED"}
     if pr["isDraft"]:
         return "you", "draft"
     if failing:
         return "you", "checks failing"
     if asked:
-        if all(reviewed_commit(r) == head for r in asked):
+        if all(reviewed_commit(r) == head for r in asked.values()):
             return "you", "changes requested"
-        return ("others", "re-review requested") if pr["reviewRequests"]["nodes"] else ("you", "fixed, re-request")
+        return ("others", "re-review requested") if set(asked) & set(waiting_on(pr)) else ("you", "fixed, re-request")
     if threads:
         return "you", "comments to address"
     if any(r["state"] == "APPROVED" for r in reviews.values()):
@@ -104,7 +112,7 @@ def classify(pr: dict[str, Any], me: str, requested: bool = False, merged: bool 
         "checks": checks,
         "threads": threads,
         "reviews": {who: r["state"] for who, r in reviews.items()},
-        "waiting_on": [(n["requestedReviewer"] or {}).get("login") or (n["requestedReviewer"] or {}).get("name", "") for n in pr["reviewRequests"]["nodes"]],
+        "waiting_on": waiting_on(pr),
         "beaten": beaten,
         "updated": pr["updatedAt"],
     }

@@ -51,12 +51,20 @@ class MyPRs(unittest.TestCase):
         self.assertEqual(move(reviews=old), ("you", "fixed, re-request"))
         self.assertEqual(move(reviews=old, waiting=["them"]), ("others", "re-review requested"))
 
+    def test_asking_someone_else_isnt_a_re_request(self):
+        old = [review("them", "CHANGES_REQUESTED", "older")]
+        self.assertEqual(move(reviews=old, waiting=["other"]), ("you", "fixed, re-request"))
+
     def test_open_threads_then_approved(self):
         self.assertEqual(move(threads=[False, True]), ("you", "comments to address"))
         self.assertEqual(move(reviews=[review("them", "APPROVED")]), ("you", "approved"))
 
     def test_only_each_persons_last_review_counts(self):
         self.assertEqual(move(reviews=[review("them", "CHANGES_REQUESTED"), review("them", "APPROVED")]), ("you", "approved"))
+
+    def test_a_later_comment_doesnt_clear_a_block_or_an_approval(self):
+        self.assertEqual(move(reviews=[review("them", "CHANGES_REQUESTED"), review("them", "COMMENTED")]), ("you", "changes requested"))
+        self.assertEqual(move(reviews=[review("them", "APPROVED"), review("them", "COMMENTED")]), ("you", "approved"))
 
     def test_bots_and_dismissed_reviews_dont_count(self):
         self.assertEqual(move(reviews=[review("copilot", "CHANGES_REQUESTED", kind="Bot"), review("them", "DISMISSED")]), ("others", "awaiting review"))
