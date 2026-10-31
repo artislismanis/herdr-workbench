@@ -21,6 +21,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop needs-you` | Only what's waiting on you, and what to run |
 | `workshop explain <key>` | One run in detail |
 | `workshop resume <key>` | Tries a parked run's stopped step again |
+| `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff |
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
 | `workshop answer <key> <text>` | Answers an agent's question |
 | `workshop list` | Ready tickets |

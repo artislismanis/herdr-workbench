@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch]"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | list | doctor [--no-launch]"""
 
 import fcntl
 import json
@@ -20,7 +20,7 @@ from .tools import Tools
 
 
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "list": 0, "doctor": 0}
 
 
 def config_path() -> Path:
@@ -151,6 +151,8 @@ def main(argv: list[str]) -> int:
                 print(engine.explain(engine.store.find(argv[1])))
             case "resume":
                 locked(root, lambda: print(engine.explain(engine.resume(engine.store.find(argv[1])))))
+            case "review":
+                locked(root, lambda: print(engine.review(engine.store.find(argv[1]))))
             case "approve":
                 locked(root, lambda: print(engine.explain(engine.approve(engine.store.find(argv[1])))))
             case "reject":

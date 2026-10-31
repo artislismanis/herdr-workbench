@@ -3,11 +3,14 @@
 import json
 import re
 import subprocess
+import time
 from pathlib import Path
+from typing import Any
 
 from .shell import ToolError, run, run_json
 
 IGNORED = ".workshop/"
+REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
 
@@ -45,6 +48,27 @@ class Tools:
 
     def close_pane(self, pane: str) -> None:
         subprocess.run(["herdr", "pane", "close", pane], capture_output=True)
+
+    def open_review(self, pane: str, work: Path, base: str) -> list[dict[str, Any]]:
+        """Opens hunk beside the agent, or reuses a review already open, and returns its files."""
+        if not self._review_open(work):
+            run("herdr", "pane", "run", self.split(pane, work), f"hunk diff origin/{base}")
+            for _ in range(REVIEW_WAIT):
+                if self._review_open(work):
+                    break
+                time.sleep(0.5)
+            else:
+                raise ToolError("hunk didn't open a review.")
+        return run_json("hunk", "session", "review", "--repo", str(work), "--json")["review"]["files"]
+
+    def _review_open(self, work: Path) -> bool:
+        return subprocess.run(["hunk", "session", "get", "--repo", str(work)], capture_output=True).returncode == 0
+
+    def replace_notes(self, work: Path, notes: list[dict[str, Any]]) -> None:
+        # Your own notes stay: clear only takes agent notes without --include-user.
+        run("hunk", "session", "comment", "clear", "--repo", str(work), "--yes")
+        if notes:
+            run("hunk", "session", "comment", "apply", "--repo", str(work), "--stdin", stdin=json.dumps({"comments": notes}))
 
     def notify(self, title: str, body: str) -> None:
         # Best effort: a notification must never stop a run.
