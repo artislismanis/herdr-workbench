@@ -51,10 +51,12 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 
 | Pipeline | Steps |
 |---|---|
-| `ticket` | `tasks`, `implement`, `ai-review` by a fresh agent, `open-pr` |
+| `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `open-pr` |
 | `gated` | The same, with your approval after `tasks` |
 
 Any step can set `stage`, and the Steps panel groups by it. It's a free name, so use your own, and leave it out for a flat list. The shipped pipelines use Build, Test and Deploy, from [the AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook).
+
+A `command` step runs what the repo sets for that step id under `[repos.<name>.commands]`, with no agent and no tokens. Its output is the report, and a failed `qa` goes back to `implement`. A repo without the command skips the step, shown as `SKIPPED`, and `ai-review` runs the repo's checks itself. Commands run as you, with your access, so only set them on repos you trust.
 
 Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh` share one agent, so they must agree on the model.
 
@@ -71,6 +73,7 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 | Move | What workshop does to the ticket as a run goes on: `working`, `blocked`, `review`, `approved` or `merged` |
 | Self-review | You reading the change in hunk, before anyone else sees it |
 | Peer review | Other people reviewing the PR |
+| QA | The `qa` step: the repo's own tests, run as a command |
 | AI review | The `ai-review` step: a fresh agent checks the work before you see it |
 
 ## Limits

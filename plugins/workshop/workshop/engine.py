@@ -32,7 +32,7 @@ class Engine:
         self.mark = prefix + " "
         self.command = "/" + prefix.strip("[]")  # [ai] gives /ai
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False) -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None) -> Run:
         if self.store.exists(repo, key) and not restart:
             raise Park(f"{key} already has a run. Use workshop resume {key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
@@ -41,7 +41,7 @@ class Engine:
         if reason:
             raise Park(f"{key}: {reason}")
         source.claim(key)
-        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline)
+        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {})
         if restart and self.store.exists(repo, key):
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
@@ -64,6 +64,8 @@ class Engine:
                 self._prepare(run)
                 if step["kind"] == "agent":
                     self._agent(run, step)
+                elif step["kind"] == "command":
+                    self._command(run, step)
                 elif step["kind"] == "gate":
                     self._wait(run, f"{step['report']} needs your approval. See {self._report(run, run.pipeline['steps'][run.index_of(step['report'])])}.")
                 else:
@@ -397,13 +399,47 @@ class Engine:
         run.held = held
         return bool(held)
 
-    def _prompt_agent(self, run: Run, step: dict[str, Any]) -> None:
-        work = Path(run.worktree)
-        report = self._report(run, step)
+    def _keep_earlier(self, report: Path) -> None:
         if report.exists():
             # The new round writes over it, and a failed round is worth keeping.
             earlier = len(list(report.parent.glob(f"{report.stem}-*{report.suffix}")))
             report.rename(report.with_stem(f"{report.stem}-{earlier + 1}"))
+
+    def _command(self, run: Run, step: dict[str, Any]) -> None:
+        """Runs the repo's command for this step. A repo without one skips it, and the timeline says so."""
+        report = self._report(run, step)
+        finished = report.with_suffix(".exit")
+        if run.phase == "":
+            command = run.commands.get(step["id"])
+            if not command:
+                self.store.event(run, "step", step=step["id"], state="done", verdict="SKIPPED")
+                run.step += 1
+                return
+            self._keep_earlier(report)
+            finished.unlink(missing_ok=True)
+            run.command_pid = self.tools.start_command(command, Path(run.worktree), report, finished)
+            run.phase, run.started_at = "prompted", self.clock()
+            self.store.event(run, "step", step=step["id"], state="running")
+            return
+        if not finished.exists():
+            if self.clock() - run.started_at > step.get("minutes", STEP_TIMEOUT / 60) * 60:
+                self.tools.stop_command(run.command_pid)
+                run.phase, run.command_pid = "", 0
+                raise Park(f"{step['id']} ran past its time limit. See {report}.")
+            return
+        run.phase, run.command_pid = "", 0
+        verdict = "PASS" if finished.read_text(encoding="utf-8").strip() == "0" else "FAILED"
+        self.store.event(run, "step", step=step["id"], state="done", verdict=verdict)
+        if verdict == "PASS":
+            run.step += 1
+        elif rule := step.get("then", {}).get("FAILED"):
+            self._follow(run, step, rule, verdict, f"See {report}.")
+        else:
+            raise Park(f"{step['id']} failed. See {report}.")
+
+    def _prompt_agent(self, run: Run, step: dict[str, Any]) -> None:
+        work = Path(run.worktree)
+        self._keep_earlier(self._report(run, step))
         run.baseline = self.tools.changes(work) if step.get("read_only") else []
         if step.get("fresh"):
             # A new agent each time: nothing checks its own work.

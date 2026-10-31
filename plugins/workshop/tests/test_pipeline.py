@@ -18,7 +18,7 @@ class Validate(unittest.TestCase):
             validate(raw)
 
     def test_the_shipped_pipeline_is_valid(self):
-        self.assertEqual([s["id"] for s in load("ticket")["steps"]], ["tasks", "implement", "ai-review", "open-pr"])
+        self.assertEqual([s["id"] for s in load("ticket")["steps"]], ["tasks", "implement", "qa", "ai-review", "open-pr"])
 
     def test_unknown_step_kind(self):
         self.rejects({"name": "x", "steps": [{"id": "a", "kind": "merge"}]}, "kind must be")
@@ -46,7 +46,7 @@ class Validate(unittest.TestCase):
         validate({"name": "x", "steps": [agent(id="a", model="opus"), agent(id="b", model="haiku", fresh=True)]})
 
     def test_the_gated_pipeline_is_valid(self):
-        self.assertEqual([s["kind"] for s in load("gated")["steps"]], ["agent", "gate", "agent", "agent", "draft_pr"])
+        self.assertEqual([s["kind"] for s in load("gated")["steps"]], ["agent", "gate", "agent", "command", "agent", "draft_pr"])
 
     def test_outputs_and_publishing_are_checked(self):
         self.rejects({"name": "x", "steps": [agent(output="../secret")]}, "plain file name")
@@ -76,6 +76,12 @@ class Validate(unittest.TestCase):
     def test_a_stage_is_a_name(self):
         with self.assertRaisesRegex(PipelineError, "stage"):
             validate({"name": "x", "steps": [{"id": "a", "stage": 1, "kind": "draft_pr"}]})
+
+    def test_a_command_only_passes_or_fails(self):
+        with self.assertRaisesRegex(PipelineError, "verdict"):
+            validate({"name": "x", "steps": [{"id": "qa", "kind": "command", "verdict": ["OK"]}]})
+        with self.assertRaisesRegex(PipelineError, "takes only"):
+            validate({"name": "x", "steps": [{"id": "qa", "kind": "command", "verdict": ["PASS", "FAILED"], "prompt": "x"}]})
 
     def test_goto_must_exist(self):
         step = agent(verdict=["NO"], then={"NO": {"goto": "gone", "max": 1}})
