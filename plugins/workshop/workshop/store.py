@@ -22,6 +22,7 @@ class Run:
     phase: str = ""  # "" before a step starts, "prompted" while an agent works on it
     status: str = "running"  # running, parked, done
     reason: str = ""
+    held: str = ""  # why the throttle is keeping the next step back
     worktree: str = ""
     branch: str = ""
     pane: str = ""

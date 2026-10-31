@@ -5,6 +5,13 @@
 # A ticket runs only if you were the last person to change it. To run one anyway, add the
 # label <label>-override yourself, or use: workshop start <repo> <key> --override
 
+# Paces work against Claude's limits, in percent. These are the defaults.
+# [throttle]
+# pause_new_at = 60          # no new tickets above this 5h usage
+# pause_steps_at = 85        # no new agent steps above this 5h usage
+# weekly_pace_margin = 5     # no new tickets when 7d usage passes the share of the week gone plus this
+# weekly_reserve = 25        # no new agent steps in the last of the week's allowance
+
 # One table per repo. `source` is github, jira or markdown.
 [repos.my-app]
 path = "~/src/my-app"

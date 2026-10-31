@@ -15,6 +15,7 @@ from .pipeline import PipelineError, load
 from .shell import ToolError
 from .sources import Source, make_source
 from .store import Run, Store
+from .throttle import Throttle, usage_path
 from .tools import Tools
 
 
@@ -47,11 +48,15 @@ def advance_all(engine: Engine) -> None:
             engine.advance(run)
 
 
+def running(engine: Engine) -> list[Run]:
+    return [r for r in engine.store.all() if r.status == "running"]
+
+
 def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     """Move every run on, then start one ready ticket if there's room. Polling costs no tokens."""
     advance_all(engine)
-    active = [r for r in engine.store.all() if r.status == "running"]
-    if len(active) >= cfg.get("max_active", 2):
+    active = running(engine)
+    if len(active) >= cfg.get("max_active", 2) or engine.throttle.hold_new(len(active)):
         return
     skipped: dict[str, str] = {}
     for name, repo in cfg["repos"].items():
@@ -76,11 +81,14 @@ def save_skipped(skipped: dict[str, str]) -> None:
 def show_status(engine: Engine) -> None:
     for run in engine.store.all():
         step = run.current["id"] if run.current else "-"
-        print(f"{run.status:8} {run.repo}/{run.key} {step} {run.reason or run.pr}")
+        print(f"{run.status:8} {run.repo}/{run.key} {step} {run.held or run.reason or run.pr}")
+    if held := engine.throttle.hold_new(len(running(engine))):
+        print(f"held     new tickets: {held}")
     skipped = state_root() / "skipped.json"
     if skipped.exists():
         for ticket, reason in json.loads(skipped.read_text(encoding="utf-8")).items():
-            print(f"skipped  {ticket} {reason}")
+            if not engine.store.exists(*ticket.split("/", 1)):
+                print(f"skipped  {ticket} {reason}")
 
 
 def show_doctor(cfg: dict[str, Any], launch: bool) -> int:
@@ -112,7 +120,7 @@ def main(argv: list[str]) -> int:
     cfg = config()
     root = state_root()
     root.mkdir(parents=True, exist_ok=True)
-    engine = Engine(Tools(), Store(root), source_for(cfg))
+    engine = Engine(Tools(), Store(root), source_for(cfg), Throttle(usage_path(), cfg.get("throttle", {})))
     try:
         match command:
             case "tick":

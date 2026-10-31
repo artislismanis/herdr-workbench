@@ -54,8 +54,8 @@ class Tools:
         return json.loads(done.stdout)["result"]["agent"]["agent_status"]
         return json.loads(done.stdout)["result"]["agent"]["agent_status"]
 
-    def start_agent(self, name: str, pane: str) -> None:
-        run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane)
+    def start_agent(self, name: str, pane: str, model: str = "") -> None:
+        run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane, *(["--", "--model", model] if model else []))
 
     def prompt(self, name: str, text: str) -> None:
         # Waits only until the agent has started, so "idle" afterwards means it finished.
