@@ -19,6 +19,10 @@ from .throttle import Throttle, usage_path
 from .tools import Tools
 
 
+# Each command and how many arguments it needs.
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "explain": 1, "resume": 1, "list": 0, "doctor": 0}
+
+
 def config_path() -> Path:
     return Path(os.environ.get("WORKSHOP_CONFIG", "~/.config/workshop/config.toml")).expanduser()
 
@@ -109,7 +113,7 @@ def locked(root: Path, work: Callable[[], None]) -> None:
 
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else ""
-    if command not in ("tick", "advance", "start", "status", "explain", "resume", "list", "doctor"):
+    if command not in COMMANDS or len(argv) <= COMMANDS[command]:
         print(__doc__, file=sys.stderr)
         return 2
     if command == "advance" and not config_path().exists():
@@ -117,7 +121,11 @@ def main(argv: list[str]) -> int:
     if not config_path().exists():
         print(f"workshop: no config at {config_path()}. Copy config.example.toml there.", file=sys.stderr)
         return 1
-    cfg = config()
+    try:
+        cfg = config()
+    except tomllib.TOMLDecodeError as bad:
+        print(f"workshop: {config_path()} isn't valid TOML: {bad}", file=sys.stderr)
+        return 1
     root = state_root()
     root.mkdir(parents=True, exist_ok=True)
     engine = Engine(Tools(), Store(root), source_for(cfg), Throttle(usage_path(), cfg.get("throttle", {})))
