@@ -305,6 +305,8 @@ class Engine:
         """What a person does now, for a run that's waiting on one."""
         if self.reviewable(run):
             return "Finish with prefix+shift+u in the workspace"
+        if run.status == "done" and run.pr and not run.landed:
+            return "With reviewers. Ask for review if nobody's assigned. It lands when the PR merges, and prefix+shift+e removes the worktree"
         actions = f"workshop retry, pass or drop {run.key}, or {self.command} retry, pass or drop on the ticket"
         if run.status == "parked":
             return f"Comment on the ticket, or {actions}"

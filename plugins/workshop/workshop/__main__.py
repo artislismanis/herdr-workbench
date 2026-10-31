@@ -180,9 +180,18 @@ def finish(engine: Engine, root: Path) -> None:
     if action == "comment":
         post_review(path, "--as", "comment")
     elif action:
-        locked(root, lambda: engine.push_fixes(delivered) if action == "push" else engine.ready(delivered))
+        outcome = ["Workshop is busy, so nothing happened. Try again in a moment."]
+
+        def act() -> None:
+            try:
+                engine.push_fixes(delivered) if action == "push" else engine.ready(delivered)
+                outcome[0] = "Pushed." if action == "push" else "Marked ready."
+            except ToolError as failed:
+                outcome[0] = str(failed)
+
+        locked(root, act)
+        print(outcome[0])
     if action:
-        print("Pushed." if action == "push" else "Done.")
         input("Enter closes this.")
 
 

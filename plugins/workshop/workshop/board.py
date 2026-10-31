@@ -116,7 +116,7 @@ class Board:
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:
             return []
-        action = self.engine.next_action(run) if run.status in ("parked", "waiting") or self.engine.reviewable(run) else ""
+        action = self.engine.next_action(run) if run.status in ("parked", "waiting") or (run.status == "done" and run.pr and not run.landed) else ""
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
         buttons = (("g review", ord("g")),) if self.engine.reviewable(run) else tuple((label, key) for key, label, *_ in self.run_actions(run))
         return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), buttons, self.earlier, self.engine.handover(run) if run.status == "done" else "")
