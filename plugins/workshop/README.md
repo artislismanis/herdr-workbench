@@ -25,6 +25,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
 | `workshop answer <key> <text>` | Answers an agent's question |
 | `workshop list` | Ready tickets |
+| `workshop schedule [<every>\|off]` | Shows, sets or stops the tick timer |
 | `workshop doctor [--no-launch]` | Finds what would stop a run |
 
 A `waiting` run stopped as planned, at a gate or with a question. A `parked` run stopped because something went wrong. Neither counts towards `max_active`.
@@ -55,9 +56,12 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 Nothing runs by itself by default: without a schedule, a run moves only on agent events or a `tick`, so held runs stay held and new tickets wait. A systemd user timer is installed but off. Turning it on means ready tickets start unattended:
 
 ```bash
-systemctl --user enable --now workshop-tick.timer   # every 5 minutes
-systemctl --user disable --now workshop-tick.timer
+workshop schedule 5m    # on, every 5 minutes. Run it again with a new value to change the frequency
+workshop schedule off
+workshop schedule       # shows on or off, and how often
 journalctl --user -u workshop-tick.service
 ```
+
+The frequency takes a number and `s`, `m`, `min` or `h`. A tick costs no tokens, so shorter only means tickets start, and held runs carry on, sooner. It's kept in a systemd drop-in, so reinstalling doesn't reset it. `off` clears it.
 
 It only runs while the distro is up.

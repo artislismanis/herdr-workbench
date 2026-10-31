@@ -196,6 +196,7 @@ STUB
   "$REPO_ROOT/install.sh" --rollback | bash
   grep -qx -- '--user disable --now workshop-tick.timer' "$HOME/.systemctl-calls"
   [ ! -e "$HOME/.config/systemd/user/workshop-tick.timer" ]
+  [ ! -e "$HOME/.config/systemd/user/workshop-tick.timer.d" ]
 }
 
 @test "--dry-run runs no integration install" {

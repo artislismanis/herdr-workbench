@@ -1,5 +1,5 @@
 [Unit]
-Description=Run workshop tick every 5 minutes
+Description=Run workshop tick on a schedule
 
 [Timer]
 OnBootSec=5min
