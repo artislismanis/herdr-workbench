@@ -563,6 +563,12 @@ class Selecting(Keys):
         self.drag((6, 6), (3, 8))
         self.tools.copy.assert_called_once_with("line\nmiddle\nlast")
 
+    def test_wide_letters_take_two_cells(self):
+        self.paint(120)
+        self.board.painted[6] = [(0, "日本 ok"), (8, "next")]
+        self.drag((0, 6), (11, 6))
+        self.tools.copy.assert_called_once_with("日本 ok next")
+
     def test_a_drag_upwards_works_too(self):
         self.paint(120)
         self.board.painted[6] = [(0, "hello")]

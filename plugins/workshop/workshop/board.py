@@ -354,10 +354,16 @@ class Board:
 
     def row_text(self, y: int, left: int, right: int) -> str:
         cells = [" "] * right
-        for x, text in self.painted.get(y, []):
-            for at, letter in enumerate(text, x):
-                if left <= at < right:
+        for at, text in self.painted.get(y, []):
+            for letter in text:
+                wide = columns(letter)
+                if wide and left <= at < right:
                     cells[at] = letter
+                    if wide == 2 and at + 1 < right:
+                        cells[at + 1] = ""  # the letter fills both cells
+                elif not wide and left < at <= right:
+                    cells[at - 1] += letter
+                at += wide
         return "".join(cells[left:right]).rstrip()
 
     def copy_selection(self, start: tuple[int, int], end: tuple[int, int]) -> None:
