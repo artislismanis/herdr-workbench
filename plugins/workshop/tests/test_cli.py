@@ -9,7 +9,22 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.__main__ import main  # noqa: E402
+from workshop.__main__ import finish_choices, main  # noqa: E402
+
+
+class Finish(unittest.TestCase):
+    def actions(self, changed, draft):
+        return [action for _, _, action in finish_choices(changed, draft)]
+
+    def test_a_clean_draft_can_go_ready_or_post(self):
+        self.assertEqual(self.actions([], True), ["ready", "comment"])
+
+    def test_fixes_must_be_pushed_before_anything_is_posted(self):
+        self.assertEqual(self.actions([" M a.py"], True), ["push", "ready"])
+
+    def test_a_pr_already_ready_is_never_marked_again(self):
+        self.assertEqual(self.actions([" M a.py"], False), ["push"])
+        self.assertEqual(self.actions([], False), ["comment"])
 
 
 class Cli(unittest.TestCase):

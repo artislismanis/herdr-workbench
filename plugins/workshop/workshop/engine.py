@@ -10,7 +10,7 @@ from typing import Any
 
 from .cost import summary
 from .pipeline import prompt_text
-from .review import load_notes, place
+from .review import load_notes, place, section
 from .shell import ToolError
 from .sources import Source
 from .store import Run, Store
@@ -192,6 +192,7 @@ class Engine:
         """Follow a finished run's PR, so the ticket shows where the review has got to."""
         try:
             pr = self.tools.pr_state(run.pr)
+            run.opened = run.opened or not pr["isDraft"]
             if pr["state"] != "OPEN":
                 run.landed = pr["state"].lower()
                 self.store.event(run, "landed", state=run.landed)
@@ -266,6 +267,8 @@ class Engine:
         if not run.pr:
             raise KeyError(f"{run.key} has no PR to review yet")
         work, kept = Path(run.worktree), self.store.files(run)
+        if self.tools.review_open(work):  # reloading would drop what's been added since
+            return "Already open in hunk."
         files = self.tools.open_review(run.pane, work, run.base)
         placed, outside = place(load_notes(kept / "notes.json"), files)
         self.tools.replace_notes(work, placed)
@@ -273,8 +276,46 @@ class Engine:
         lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {kept / 'verify.md'}"]
         return "\n".join(lines + [f"  {n['file']}:{n['line']} {n['note']}" for n in outside])
 
+    def push_fixes(self, run: Run) -> None:
+        """Your go on what review changed. Agents never commit, so this is how fixes reach the PR."""
+        if not self.delivered(run):
+            raise KeyError(f"{run.key} has no open PR to push to")
+        work = Path(run.worktree)
+        self.tools.commit_all(work, f"{run.key}: Address review comments")
+        self.tools.push(work, run.branch)
+        self.store.event(run, "pushed")
+
+    def ready(self, run: Run) -> Run:
+        """Your go on a finished draft: any fixes go first, then the PR opens to reviewers."""
+        if not self.reviewable(run):
+            raise KeyError(f"{run.key} has no draft PR to mark ready")
+        self.push_fixes(run)
+        self.tools.mark_ready(Path(run.worktree), run.pr)
+        run.opened = True
+        self.store.event(run, "ready")
+        self._post(run, "Marked ready for review.")
+        return self.land(run)
+
+    def delivered(self, run: Run) -> bool:
+        return run.status == "done" and bool(run.pr) and not run.landed
+
+    def reviewable(self, run: Run) -> bool:
+        return self.delivered(run) and not run.opened
+
+    def handover(self, run: Run) -> str:
+        """What the last report to write one tells the person taking over."""
+        for step in reversed(run.pipeline["steps"]):
+            report = self._report(run, step)
+            if step["kind"] == "agent" and report.exists() and (lines := section(report.read_text(encoding="utf-8", errors="replace"), "handover")):
+                return "\n".join(lines)
+        return ""
+
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
+        if self.reviewable(run):
+            return "Finish with prefix+shift+u in the workspace"
+        if self.delivered(run):
+            return "With reviewers. Ask for review if nobody's assigned. It lands when the PR merges, and prefix+shift+e removes the worktree"
         actions = f"workshop retry, pass or drop {run.key}, or {self.command} retry, pass or drop on the ticket"
         if run.status == "parked":
             return f"Comment on the ticket, or {actions}"
@@ -322,7 +363,7 @@ class Engine:
             (self.store.files(run) / "brief.md").write_text(f"# {ticket.key}: {ticket.title}\n\n{ticket.body}\n", encoding="utf-8")
             self.store.event(run, "worktree", path=run.worktree)
         if not run.pane:
-            run.pane = self.tools.workspace(Path(run.worktree), run.key)
+            run.pane = self.tools.linked(Path(run.repo_path), Path(run.worktree), run.key)
         if not run.agent:
             run.agent = f"ws-{slug(run.key)}"
 
@@ -438,12 +479,17 @@ class Engine:
         run.step, run.phase = run.step + 1, ""
 
     def _finish(self, run: Run) -> None:
-        self._post(run, f"Draft PR ready: {run.pr}\n\n{summary(self.store.events(run))}".strip())
+        self._post(run, "\n\n".join(part for part in (f"Draft PR ready: {run.pr}", self.handover(run), summary(self.store.events(run))) if part))
         self.source_for(run).finish(run.key)
         run.status = "done"
         self.store.event(run, "finished", pr=run.pr)
-        self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} Review it with: workshop review {run.key}")
         self.store.save(run)
+        try:
+            self.review(run)
+            self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there.")
+        except STOPS as failed:  # the PR is delivered either way, and g tries again
+            self.store.event(run, "review_failed", reason=str(failed))
+            self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} hunk didn't open: g on the board tries again.")
 
     def _park(self, run: Run, reason: str) -> None:
         # Reported once: a parked run waits for a person, it never retries by itself.

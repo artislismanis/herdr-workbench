@@ -301,7 +301,7 @@ class Keys(unittest.TestCase):
             self.store.save(run(key, pane=f"w{key}:p1"))
             self.store.event(run(key), "claimed")
         self.tools = mock.Mock()
-        engine = mock.Mock(store=self.store, tools=self.tools)
+        engine = mock.Mock(store=self.store, tools=self.tools, **{"reviewable.return_value": False, "delivered.return_value": False, "handover.return_value": ""})
         engine.throttle.hold_new.return_value = ""
         engine.throttle.snapshot.return_value = {"5h": 10}
         self.board = Board(engine, {"repos": {}}, lambda: 500.0)
@@ -480,6 +480,34 @@ class Keys(unittest.TestCase):
         x, y = self.spot(("#file", path))
         self.tap(x + 3, y, 119)
         self.assertEqual(self.board.viewing, path)
+
+    def test_the_status_follows_the_title_and_pr(self):
+        lines = texts(drill(run(status="done", pr="http://p/1"), [], "T", "", "/f", 90, handover="- New flag\nRecommendation: approve"))
+        self.assertTrue(lines[1].startswith("PR:"))
+        self.assertIn("done", lines[2])
+        self.assertLess(2, next(i for i, t in enumerate(lines) if "Recommendation" in t))
+
+    def draft(self):
+        self.board.engine.reviewable.return_value = True
+        self.store.save(run("7", status="done", pr="http://p/7", pane="w1:p1"))
+        self.board.picked = ("r", "7")
+        self.board.seen = None
+        self.board.reload()
+
+    def test_a_draft_only_offers_the_review(self):
+        self.draft()
+        self.assertIn("g review", self.board.footer().text)
+        self.assertNotIn("ready", self.board.footer().text)
+        self.board.press(ord("m"))
+        self.assertIsNone(self.board.asking)
+
+    def test_g_on_a_draft_goes_there_then_reopens_the_review(self):
+        self.draft()
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(ord("g"))
+            self.tools.focus.assert_called_once_with("w1:p1")
+            thread.call_args.kwargs["target"]()
+        self.tools.workshop.assert_called_once_with("review", "7")
 
     def test_a_message_clears_by_itself(self):
         now = [500.0]

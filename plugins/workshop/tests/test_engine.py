@@ -66,7 +66,7 @@ class FakeTools:
         self.statuses = {}
         self.models = {}
         self.notes = []
-        self.reviews, self.review_notes = [], None
+        self.reviews, self.review_notes, self.open_already = [], None, False
         self.prompts, self.started, self.closed = [], [], []
         self.changed, self.commits, self.pushes = [], [], 0
         self.commit_fails = False
@@ -83,7 +83,7 @@ class FakeTools:
         self.work.mkdir(exist_ok=True)
         return self.work
 
-    def workspace(self, path, label):
+    def linked(self, repo, path, label):
         return "p1"
 
     def split(self, pane, path):
@@ -131,6 +131,12 @@ class FakeTools:
 
     def ahead(self, work, base):
         return self.ahead_count
+
+    def mark_ready(self, work, pr):
+        self.readied = pr
+
+    def review_open(self, work):
+        return self.open_already
 
     def push(self, work, branch):
         self.pushes += 1
@@ -612,16 +618,62 @@ class Review(Case):
 
     def test_notes_land_in_hunk_and_the_rest_are_listed(self):
         text = self.engine.review(self.finished())
-        self.assertEqual(self.tools.reviews, [("p1", "main")])
-        self.assertEqual([n["summary"] for n in self.tools.review_notes], ["Look"])
-        self.assertIn("Loaded 1 note(s)", text)
-        self.assertIn("b.py:9 Elsewhere", text)
+        self.assertEqual(self.tools.reviews[-1], ("p1", "main"))
+        self.assertEqual([n["summary"] for n in self.tools.review_notes], ["Look", "PR-level: b.py:9 Elsewhere"])
+        self.assertIn("Loaded 2 note(s)", text)
 
     def test_missing_notes_still_open_the_review(self):
         run = self.finished()
         (self.kept() / "notes.json").unlink()
         self.assertIn("Loaded 0 note(s)", self.engine.review(run))
         self.assertEqual(self.tools.review_notes, [])
+
+    def test_a_finished_run_opens_its_own_review(self):
+        self.finished()
+        self.assertEqual(self.tools.reviews, [("p1", "main")])
+
+    def test_a_review_that_wont_open_leaves_the_run_delivered(self):
+        def fails(pane, work, base):
+            raise ToolError("hunk didn't open a review.")
+
+        self.tools.open_review = fails
+        run = self.finished()
+        self.assertEqual(run.status, "done")
+        self.assertIn("review_failed", [e["type"] for e in self.engine.store.events(run)])
+
+    def test_an_open_review_keeps_what_was_added_since(self):
+        run = self.finished()
+        self.tools.review_notes = "kept"
+        self.tools.open_already = True
+        self.assertIn("Already open", self.engine.review(run))
+        self.assertEqual(self.tools.review_notes, "kept")
+
+    def test_a_landed_run_takes_no_more_pushes(self):
+        run = self.finished()
+        run.landed = "merged"
+        with self.assertRaises(KeyError):
+            self.engine.push_fixes(run)
+
+    def test_ready_pushes_fixes_then_opens_the_pr(self):
+        run = self.finished()
+        pushes = self.tools.pushes
+        self.tools.pr = {"state": "OPEN", "isDraft": False, "reviewDecision": ""}
+        run = self.engine.ready(run)
+        self.assertEqual(self.tools.pushes, pushes + 1)
+        self.assertEqual(self.tools.readied, run.pr)
+        self.assertIn("1: Address review comments", self.tools.commits[-1])
+        self.assertEqual(run.stage, "review")
+        self.assertFalse(self.engine.reviewable(run))
+
+    def test_only_a_draft_can_be_marked_ready(self):
+        with self.assertRaises(KeyError):
+            self.engine.ready(self.start())
+
+    def test_the_handover_reaches_the_ticket(self):
+        run = self.start()
+        self.engine.store.files(run).mkdir(exist_ok=True)
+        (self.engine.store.files(run) / "verify.md").write_text("## Handover\n- New flag\nRecommendation: approve\n\nVERDICT: PASS\n", encoding="utf-8")
+        self.assertIn("Recommendation: approve", self.engine.handover(run))
 
     def test_a_run_without_a_pr_has_nothing_to_review(self):
         with self.assertRaises(KeyError):

@@ -1,8 +1,9 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | review <key> | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | review <key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
 import os
+import subprocess
 import sys
 import tomllib
 from collections.abc import Callable
@@ -12,10 +13,10 @@ from typing import Any
 from .backlog import poll
 from .board import show
 from .doctor import doctor
-from .engine import PREFIX, Engine, Park
+from .engine import PREFIX, STOPS, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
-from .shell import ToolError
+from .shell import ToolError, run, run_json
 from .sources import Source, make_source
 from .stats import stats
 from .store import Run, Store
@@ -24,7 +25,7 @@ from .tools import Tools
 
 
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 def config_path() -> Path:
@@ -139,6 +140,63 @@ def locked(root: Path, work: Callable[[], None]) -> None:
         work()
 
 
+def here() -> str:
+    """The checkout of the pane the popup opened over."""
+    pane = os.environ.get("HERDR_ACTIVE_PANE_ID")
+    cwd = run_json("herdr", "pane", "get", pane)["result"]["pane"]["cwd"] if pane else os.getcwd()
+    return run("git", "rev-parse", "--show-toplevel", cwd=cwd).strip()
+
+
+def post_review(path: str, *args: str) -> int:
+    return subprocess.run([str(Path.home() / ".config/herdr/bin/hunk-pr-push"), *args, path]).returncode
+
+
+def finish_choices(changed: list[str], draft: bool) -> list[tuple[str, str, str]]:
+    """Only what can happen now: posting needs a clean tree, and a PR is marked ready once."""
+    found = [("p", "push the fixes", "push")] if changed else []
+    found += [("r", "push any fixes and mark the PR ready" if changed else "mark the PR ready", "ready")] if draft else []
+    return found + ([("c", "post the review notes as a PR comment", "comment")] if not changed else [])
+
+
+def finish(engine: Engine, root: Path) -> int:
+    """Ends a review from the workspace it happened in. Anything that isn't a delivered run is a plain PR review."""
+    path = here()
+    delivered = next((r for r in engine.store.all() if r.worktree == path and engine.delivered(r)), None)
+    if delivered is None:
+        return post_review(path)
+    behind = engine.tools.unpushed(Path(path), delivered.branch)
+    changed = engine.tools.changes(Path(path)) + ([f"{behind} commit(s) not pushed"] if behind else [])
+    print(f"{delivered.repo}/{delivered.key}  {delivered.pr}")
+    print("\n".join(["Changed since the PR:", *changed]) if changed else "Nothing has changed since the PR.")
+    print("\nTo change it, comment in hunk and send those to the agent with prefix+shift+s.\n")
+    choices = finish_choices(changed, engine.reviewable(delivered))
+    for key, label, _ in choices:
+        print(f"[{key}] {label}")
+    try:
+        answer = input("[n] cancel: ").strip().lower()
+    except EOFError:
+        answer = "n"
+    action = next((a for key, _, a in choices if key == answer), "")
+    if action == "comment":
+        return post_review(path, "--as", "comment")
+    if action:
+        outcome = ["Workshop is busy, so nothing happened. Try again in a moment."]
+
+        def act() -> None:
+            try:
+                # You may have taken a while to choose, and a tick can have moved it on.
+                now = engine.store.load(delivered.repo, delivered.key)
+                engine.push_fixes(now) if action == "push" else engine.ready(now)
+                outcome[0] = "Pushed." if action == "push" else "Marked ready."
+            except STOPS as failed:
+                outcome[0] = str(failed)
+
+        locked(root, act)
+        print(outcome[0])
+        input("Enter closes this.")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else ""
     if command not in COMMANDS or len(argv) <= COMMANDS[command]:
@@ -146,6 +204,8 @@ def main(argv: list[str]) -> int:
         return 2
     if command == "advance" and not config_path().exists():
         return 0  # herdr fires this for everyone who has the plugin, configured or not
+    if command == "finish" and not config_path().exists():
+        return post_review(here())  # no runs here, so it's a plain PR review
     if not config_path().exists():
         print(f"workshop: no config at {config_path()}. Copy config.example.toml there.", file=sys.stderr)
         return 1
@@ -180,6 +240,8 @@ def main(argv: list[str]) -> int:
                 locked(root, lambda: print(engine.explain(engine.resume(engine.store.find(argv[1])))))
             case "review":
                 locked(root, lambda: print(engine.review(engine.store.find(argv[1]))))
+            case "finish":
+                return finish(engine, root)
             case "approve":
                 locked(root, lambda: print(engine.explain(engine.approve(engine.store.find(argv[1])))))
             case "reject":

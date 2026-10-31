@@ -116,10 +116,10 @@ class Board:
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:
             return []
-        action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
+        action = self.engine.next_action(run) if run.status in ("parked", "waiting") or self.engine.delivered(run) else ""
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
-        buttons = tuple((label, key) for key, label, *_ in self.run_actions(run))
-        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), buttons, self.earlier)
+        buttons = (("g review", ord("g")),) if self.engine.reviewable(run) else tuple((label, key) for key, label, *_ in self.run_actions(run))
+        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), buttons, self.earlier, self.engine.handover(run) if run.status == "done" else "")
 
     def panel(self, width: int) -> list[Line]:
         """The selected item beside the list, with its actions at the top."""
@@ -272,6 +272,8 @@ class Board:
             if run is None or not run.pane:
                 raise KeyError("no workspace")
             self.engine.tools.focus(run.pane)
+            if self.engine.reviewable(run):
+                self.send("review", run.key)  # hunk may have been closed since
         except STOPS:
             self.say("That run has no workspace now.")
 
@@ -300,8 +302,10 @@ class Board:
         if self.message and self.clock() - self.said < MESSAGE_SECONDS:
             return Line([Span(self.message, "yellow")])
         moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), ("enter open", 10)]
-        stopped = moves[:1] * bool(self.open) + [(action[1], action[0]) for action in self.actions(self.lines(width))]
-        common = [("g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        lines = self.lines(width)
+        run = self.target(lines)
+        stopped = moves[:1] * bool(self.open) + [(action[1], action[0]) for action in self.actions(lines)]
+        common = [("g review" if run and self.engine.reviewable(run) else "g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def wheel(self, by: int, width: int) -> None:

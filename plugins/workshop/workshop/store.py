@@ -37,6 +37,7 @@ class Run:
     blocked_at: float = 0.0  # set while a comment on the ticket can unblock it
     landed: str = ""  # what became of the PR
     stage: str = ""  # where the ticket last moved to
+    opened: bool = False  # the PR has left draft
 
     @property
     def current(self) -> dict[str, Any] | None:

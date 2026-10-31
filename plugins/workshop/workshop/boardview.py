@@ -9,6 +9,7 @@ from itertools import zip_longest
 from typing import Any, NamedTuple
 
 from .backlog import COLUMNS
+from .review import section
 from .store import Run
 
 Usage = dict[str, float]
@@ -211,7 +212,7 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
 
 
 def facts(pr: dict[str, Any]) -> str:
-    checks = {"SUCCESS": "CI green", "FAILURE": "CI failing", "ERROR": "CI failing", "PENDING": "CI running"}.get(pr["checks"], "")
+    checks = {"": "no CI", "SUCCESS": "CI green", "FAILURE": "CI failing", "ERROR": "CI failing", "PENDING": "CI running"}.get(pr["checks"], "")
     threads = f"{pr['threads']} thread(s)" if pr["threads"] else ""
     first = f"reviewed by {', '.join(pr['beaten'])}" if pr["beaten"] else ""
     return "  ".join(part for part in (first, threads, checks) if part)
@@ -256,21 +257,6 @@ def pull(pr: dict[str, Any], width: int = 120) -> list[Line]:
         lines.append(Line([Span(f"  {mark} ", colour), Span(f"{who}: {state.lower().replace('_', ' ')}")]))
     lines += [plain(f"  … {who}: asked", "dim") for who in pr["waiting_on"]]
     return lines if pr["reviews"] or pr["waiting_on"] else [*lines, plain("  None yet", "dim")]
-
-
-def section(text: str, heading: str) -> list[str]:
-    """The lines under a report's heading, subheadings included."""
-    found: list[str] = []
-    depth = 0
-    for line in text.splitlines():
-        level = len(line) - len(line.lstrip("#"))
-        if level and not depth and line.lstrip("#").strip().lower() == heading:
-            depth = level
-        elif level and depth and level <= depth:
-            depth = 0
-        elif depth and line.strip() and not line.startswith("VERDICT:"):
-            found.append(line)
-    return found
 
 
 def body(text: str) -> list[str]:
@@ -342,20 +328,23 @@ def document(path: str, text: str, width: int) -> list[Line]:
     return lines
 
 
-def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), buttons: tuple[tuple[str, int], ...] = (), earlier: bool = False) -> list[Line]:
+def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), buttons: tuple[tuple[str, int], ...] = (), earlier: bool = False, handover: str = "") -> list[Line]:
     spent = [e for e in events if e["type"] == "spent"]
     prices = [e["usd"] for e in spent]
     total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
-    lines = [*wrapped(f"{name(run)}  {title}", width, "bold"), Line([Span(f" {run.landed or run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
+    lines = wrapped(f"{name(run)}  {title}", width, "bold")
+    lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
+    lines += [Line([Span(f" {run.landed or run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
     if run.status in ("parked", "waiting"):
         lines += [plain(), *needs_you(run, stopped[1], width)]
-        if buttons:
-            lines += [plain(), Line([Span("  "), *(part for label, key in buttons for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" ")))])]
-        lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
     elif run.reason:
         lines += wrapped(run.reason, width, "dim")
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
-    lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
+    if handover:
+        lines += [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))]
+    if buttons:
+        lines += [plain(), Line([Span("  "), *(part for label, key in buttons for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" ")))])]
+    lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
     owned = {path for step in run.pipeline["steps"] for path in (files_of(step, reports)[0], *(p for _, p in files_of(step, reports)[1]))}
     others = [Line([Span("  "), Span(cell(path.rsplit("/", 1)[-1], 14), "mine"), Span(FILE_NOTES.get(path.rsplit("/", 1)[-1], ""), "dim")], path=path) for path in reports if path not in owned]
     return [*lines, plain(), rule("Steps", width), *timeline(run, events, reports, width, stopped, earlier), plain(), rule("Ticket and notes", width), *others, *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]

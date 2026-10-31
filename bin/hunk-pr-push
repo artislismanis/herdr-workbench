@@ -23,7 +23,7 @@ head="$(jq -r .headRefOid <<<"$pr")"
 me="$(gh api user --jq .login)"
 
 # GitHub pins comments to the commit, so any other state misplaces them.
-[ -z "$(git status --porcelain)" ] || die "uncommitted changes; commit and push first."
+[ -z "$(git status --porcelain --untracked-files=no)" ] || die "uncommitted changes; commit and push first."
 [ "$(git rev-parse HEAD)" = "$head" ] || die "HEAD isn't the PR's pushed head; push or pull first."
 
 # GitHub allows one pending review per person.

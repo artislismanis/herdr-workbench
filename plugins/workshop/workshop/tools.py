@@ -38,6 +38,11 @@ class Tools:
         made = run_json("herdr", "workspace", "create", "--cwd", str(path), "--label", label, "--no-focus")
         return made["result"]["root_pane"]["pane_id"]
 
+    def linked(self, repo: Path, path: Path, label: str) -> str:
+        # Linked, so herdr groups it under the repo's workspace, opening that if it has to. It must start from the main checkout.
+        made = run_json("herdr", "worktree", "open", "--cwd", str(repo), "--path", str(path), "--label", label, "--no-focus")
+        return made["result"]["root_pane"]["pane_id"]
+
     def copy(self, text: str) -> None:
         # Its own output, not a pipe: wl-copy stays behind holding the clipboard, and a pipe would wait for it.
         try:
@@ -91,17 +96,17 @@ class Tools:
 
     def open_review(self, pane: str, work: Path, base: str) -> list[dict[str, Any]]:
         """Opens hunk beside the agent, or reuses a review already open, and returns its files."""
-        if not self._review_open(work):
+        if not self.review_open(work):
             run("herdr", "pane", "run", self.split(pane, work), f"hunk diff origin/{base}")
             for _ in range(REVIEW_WAIT):
-                if self._review_open(work):
+                if self.review_open(work):
                     break
                 time.sleep(0.5)
             else:
                 raise ToolError("hunk didn't open a review.")
         return run_json("hunk", "session", "review", "--repo", str(work), "--json")["review"]["files"]
 
-    def _review_open(self, work: Path) -> bool:
+    def review_open(self, work: Path) -> bool:
         return subprocess.run(["hunk", "session", "get", "--repo", str(work)], capture_output=True).returncode == 0
 
     def replace_notes(self, work: Path, notes: list[dict[str, Any]]) -> None:
@@ -146,12 +151,18 @@ class Tools:
     def ahead(self, work: Path, base: str) -> int:
         return int(run("git", "rev-list", "--count", f"origin/{base}..HEAD", cwd=work).strip())
 
+    def unpushed(self, work: Path, branch: str) -> int:
+        return int(run("git", "rev-list", "--count", f"origin/{branch}..HEAD", cwd=work).strip())
+
     def push(self, work: Path, branch: str) -> None:
         run("git", "push", "-u", "origin", branch, cwd=work)
 
     def find_pr(self, work: Path, branch: str) -> str:
         found = run_json("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url", cwd=work)
         return found[0]["url"] if found else ""
+
+    def mark_ready(self, work: Path, pr: str) -> None:
+        run("gh", "pr", "ready", pr, cwd=work)
 
     def create_pr(self, work: Path, branch: str, base: str, title: str, body: str) -> str:
         made = run("gh", "pr", "create", "--draft", "--base", base, "--head", branch, "--title", title, "--body", body, cwd=work)
