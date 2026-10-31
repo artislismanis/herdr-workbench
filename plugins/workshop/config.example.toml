@@ -35,3 +35,10 @@ intents = "~/intents/my-notes"   # *.md here are queued; done ones move to done/
 base_url = "https://example.atlassian.net"
 email = "you@example.com"
 token = ""                   # or set JIRA_TOKEN
+
+# The Jira status for each stage. A stage left out doesn't move the ticket. GitHub uses labels instead.
+# [jira.moves]
+# working = "In Progress"
+# blocked = "Blocked"
+# review = "In Review"
+# done = "Done"

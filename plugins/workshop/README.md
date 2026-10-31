@@ -35,6 +35,7 @@ A `waiting` run stopped as planned, at a gate or with a question. A `parked` run
 
 - A ticket runs only if you were the last person to change it, because ticket text steers the agent. Use `--override`, or add the `<label>-override` label yourself, to run one anyway.
 - Gates are answered only from this command line, so nothing in a ticket can approve one.
+- A blocked run takes guidance only from a comment you wrote, and nobody else edited. Other people's comments reach the agent as background, never as instructions. Everything workshop posts starts with `[workshop]`, so it can't count as your comment.
 - Agents never commit or push. Workshop does, and it only opens draft PRs.
 
 ## Pipelines
@@ -51,6 +52,12 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 ## Limits
 
 `[throttle]` paces work against Claude's limits, using `~/.local/state/claude-usage.json`, which the status line saves. See `config.example.toml`. Running steps always finish. Without the file, or with an old one, tickets run one at a time.
+
+## Tickets
+
+The ticket follows the run through `working`, `blocked`, `review` and `done`: `ai-<stage>` labels on GitHub, and the statuses in `[jira.moves]` on Jira. A move that fails is logged and never stops a run. Workshop comments when it starts, when it stops and when the draft PR is ready.
+
+When a run stops on a question or a problem, the ticket moves to `blocked`. Comment on it with what's missing, and the next `tick` hands that to the agent and carries on. That needs the schedule on, or a manual `workshop tick`. A merged PR moves the ticket to `done`, and on GitHub closes the issue.
 
 ## Run files
 
