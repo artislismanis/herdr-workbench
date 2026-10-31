@@ -320,7 +320,7 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
             prices = [e["usd"] for e in spent]
             notes += [f"{sum(e['minutes'] for e in spent):.1f} min", "unpriced" if None in prices else f"${sum(prices):.2f}"]
         latest, older = files_of(step, reports)
-        row = [Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(notes), max(min(28, width - 52), 6)), "dim")]  # the report beats the numbers on a narrow panel
+        row = [Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 16), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(notes), max(min(28, width - 53), 5)), "dim")]  # the report beats the numbers on a narrow panel
         if latest:
             row += [Span("▸ " if current else "  ", "yellow"), Span(latest.rsplit("/", 1)[-1], "mine")]
         if older and not earlier:
