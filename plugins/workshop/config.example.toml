@@ -1,6 +1,9 @@
 # Copy to ~/.config/workshop/config.toml and chmod 600. Never commit a real one.
 
 # max_active = 2             # runs at once
+#
+# A ticket runs only if you were the last person to change it. To run one anyway, add the
+# label <label>-override yourself, or use: workshop start <repo> <key> --override
 
 # One table per repo. `source` is github, jira or markdown.
 [repos.my-app]

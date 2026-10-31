@@ -26,13 +26,16 @@ class Engine:
     def __init__(self, tools: Tools, store: Store, source_for: Callable[[Run], Source], clock: Callable[[], float] = time.time) -> None:
         self.tools, self.store, self.source_for, self.clock = tools, store, source_for, clock
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source) -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False) -> Run:
         if not self.tools.identity_ok(repo_path):
             raise Park("Set git user.name and user.email first: workshop commits for the agents.")
+        reason = "" if override else source.guard(key)
+        if reason:
+            raise Park(f"{key}: {reason}")
         source.claim(key)
         run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline)
         self.store.save(run)
-        self.store.event(run, "claimed")
+        self.store.event(run, "claimed", override=override)
         return self.advance(run)
 
     def advance(self, run: Run) -> Run:
