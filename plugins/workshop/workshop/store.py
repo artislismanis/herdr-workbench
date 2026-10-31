@@ -17,7 +17,7 @@ class Run:
     key: str
     repo_path: str
     base: str
-    pipeline: dict[str, Any]  # copied in, so editing the YAML can't change a run in flight
+    pipeline: dict[str, Any]  # copied in, so editing the file can't change a run in flight
     step: int = 0
     phase: str = ""  # "" before a step starts, "prompted" while an agent works on it
     status: str = "running"  # running, parked, done
