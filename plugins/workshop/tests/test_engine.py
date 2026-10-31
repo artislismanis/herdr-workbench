@@ -18,6 +18,7 @@ from workshop.tools import Tools  # noqa: E402
 class FakeSource:
     def __init__(self):
         self.claimed, self.reports, self.finished, self.moves, self.said = [], [], [], [], []
+        self.is_closed = False
         self.guard_reason = ""
 
     def get(self, key):
@@ -40,6 +41,9 @@ class FakeSource:
 
     def comments(self, key, since):
         return self.said
+
+    def closed(self, key):
+        return self.is_closed
 
 
 class FakeThrottle:
@@ -190,6 +194,98 @@ class HappyPath(Case):
     def test_an_agent_still_working_leaves_the_run_where_it_is(self):
         run = self.engine.advance(self.start())
         self.assertEqual((run.status, run.current["id"]), ("running", "plan"))
+
+
+class Concluding(Case):
+    def parked_after_rounds(self):
+        run = self.to_verify()
+        for attempt in (1, 2):
+            run = self.finish_agent(run, f"ws-de-1-verify-{attempt}", "verify", "VERDICT: CHANGES_NEEDED\n")
+            run = self.finish_agent(run, "ws-de-1", "build")
+        run = self.finish_agent(run, "ws-de-1-verify-3", "verify", "VERDICT: CHANGES_NEEDED\n")
+        self.assertEqual((run.status, run.current["id"]), ("parked", "verify"))
+        return run
+
+    def test_retry_with_guidance_gets_fresh_rounds_and_the_note_is_kept(self):
+        run = self.engine.retry(self.parked_after_rounds(), "Use v2")
+        self.assertEqual(run.status, "running")
+        self.assertNotIn("verify", run.loops)
+        self.assertIn("A: Use v2", (self.kept() / "answers.md").read_text(encoding="utf-8"))
+        self.assertIn("[ai] Retrying verify. Use v2", self.source.reports)
+        run = self.finish_agent(run, "ws-de-1-verify-4", "verify", "VERDICT: CHANGES_NEEDED\n")
+        self.assertEqual((run.status, run.current["id"]), ("running", "build"))
+
+    def test_retry_without_a_note_runs_the_step_again(self):
+        run = self.engine.retry(self.parked_after_rounds())
+        self.assertEqual((run.status, run.phase), ("running", "prompted"))
+
+    def test_pass_moves_on_past_a_reviewer(self):
+        run = self.engine.accept(self.parked_after_rounds(), "Fine by me")
+        self.assertEqual(run.status, "done")
+        self.assertIn("[ai] Passed verify by hand. Fine by me", self.source.reports)
+
+    def test_pass_refuses_a_gate(self):
+        run = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
+        run = self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+        with self.assertRaisesRegex(KeyError, "no stopped agent step"):
+            self.engine.accept(run)
+
+    def test_drop_ends_the_run_and_keeps_it_on_record(self):
+        run = self.engine.drop(self.parked_after_rounds(), "Not needed")
+        self.assertEqual((run.status, run.landed, run.reason, run.blocked_at, self.source.moves[-1]), ("done", "dropped", "Not needed", 0.0, "dropped"))
+        self.assertIn("[ai] Dropped. Not needed", self.source.reports)
+
+    def test_a_running_run_cant_be_concluded(self):
+        run = self.start()
+        for action in (self.engine.retry, self.engine.accept, self.engine.drop):
+            with self.assertRaisesRegex(KeyError, "isn't stopped"):
+                action(run)
+
+    def test_my_ticket_comment_can_drop_and_pass(self):
+        run = self.parked_after_rounds()
+        self.source.said = [Comment(run.blocked_at + 1, True, "me", "/ai drop No longer needed")]
+        self.assertEqual(self.engine.unblock(run).landed, "dropped")
+
+    def test_someone_elses_command_does_nothing(self):
+        run = self.parked_after_rounds()
+        self.source.said = [Comment(run.blocked_at + 1, False, "them", "/ai drop now")]
+        self.assertEqual(self.engine.unblock(run).status, "parked")
+
+    def test_closing_the_ticket_drops_a_stopped_run(self):
+        run = self.parked_after_rounds()
+        self.source.is_closed = True
+        self.assertEqual(self.engine.unblock(run).landed, "dropped")
+
+    def test_a_terminal_comment_is_a_real_comment_and_acts_now(self):
+        run = self.engine.comment(self.parked_after_rounds(), "Use v2")
+        self.assertIn("Use v2", self.source.reports)
+        self.assertEqual(run.status, "running")
+
+    def test_a_terminal_comment_takes_commands(self):
+        run = self.engine.comment(self.parked_after_rounds(), "/ai drop Done with this")
+        self.assertEqual((run.landed, run.reason), ("dropped", "Done with this"))
+
+    def test_a_command_needs_no_note(self):
+        self.assertEqual(self.engine.comment(self.parked_after_rounds(), "/ai drop").landed, "dropped")
+
+    def gate(self):
+        run = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
+        return self.finish_agent(run, "ws-de-1", "plan", "VERDICT: READY\n")
+
+    def test_a_comment_cant_move_a_gate_and_posts_nothing(self):
+        run = self.gate()
+        before = len(self.source.reports)
+        for text in ("Looks fine", "/ai retry", "/ai pass"):
+            with self.assertRaises(KeyError):
+                self.engine.comment(run, text)
+        self.assertEqual((run.status, len(self.source.reports)), ("waiting", before))
+
+    def test_a_gate_can_be_dropped(self):
+        self.assertEqual(self.engine.drop(self.gate()).landed, "dropped")
+
+    def test_the_command_follows_the_prefix(self):
+        engine = Engine(self.tools, self.engine.store, lambda run: self.source, self.throttle, lambda: self.now, "[bot]")
+        self.assertEqual(engine.command, "/bot")
 
 
 class Restart(Case):
@@ -718,7 +814,7 @@ class Explain(Case):
         run = self.finish_agent(self.start(), "ws-de-1", "plan", "VERDICT: BLOCKED\n")
         text = self.engine.explain(run)
         self.assertIn("Why:", text)
-        self.assertIn("workshop resume DE-1", text)
+        self.assertIn("workshop retry, pass or drop DE-1", text)
 
 
 if __name__ == "__main__":
