@@ -5,6 +5,7 @@
 load helpers
 
 setup() {
+  stub_systemctl
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME" "$BATS_TEST_TMPDIR/bin"
   HCONFIG="$HOME/.config/herdr/config.toml"
