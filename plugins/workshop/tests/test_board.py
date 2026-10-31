@@ -247,10 +247,25 @@ class Drill(unittest.TestCase):
         rows = [line.path for line in lines if line.path]
         self.assertEqual(rows, ["/f/verify.md", "/f/verify-2.md", "/f/verify-1.md"])
 
-    def test_files_that_belong_to_no_step_sit_apart(self):
-        lines = self.stopped_view()
-        where = texts(lines)
-        self.assertGreater(next(i for i, t in enumerate(where) if "brief.md" in t), next(i for i, t in enumerate(where) if t.startswith("○ pr")))
+    def test_the_ticket_leads_the_steps_and_notes_sit_under_the_last_agent(self):
+        where = texts(self.stopped_view_with_notes())
+        ticket = next(i for i, t in enumerate(where) if "brief.md" in t)
+        note = next(i for i, t in enumerate(where) if "notes.json" in t)
+        self.assertTrue(where[ticket].lstrip("● ").startswith("ticket"))
+        self.assertLess(ticket, next(i for i, t in enumerate(where) if t.startswith("◐ verify")))
+        self.assertGreater(note, next(i for i, t in enumerate(where) if t.startswith("◐ verify")))
+        self.assertFalse(any("Ticket and notes" in t for t in where))
+
+    def stopped_view_with_notes(self):
+        return drill(run(status="parked", step=1), [], "T", "", "/f", 90, ("/f/verify.md", "/f/notes.json", "/f/brief.md"), ("verify.md", self.report))
+
+    def test_a_ticket_stage_heads_the_ticket_and_counts_in_the_strip(self):
+        staged = run(status="done", step=3)
+        staged.pipeline = {**PIPELINE, "ticket_stage": "Intake"}
+        where = texts(drill(staged, [], "T", "", "/f", 90, ("/f/brief.md",)))
+        self.assertTrue(any(t.startswith(" Intake   done") for t in where))
+        self.assertEqual([s.text for s in pipe(staged) if s.text in ("●", "◐", "○")].count("●"), len(PIPELINE["steps"]) + 1)
+
 
     def test_unpriced_cost_is_labelled(self):
         self.assertIn("unpriced", joined(drill(run(), [event("spent", step="plan", minutes=1.0, usd=None)], "", "", "/f", 80)))

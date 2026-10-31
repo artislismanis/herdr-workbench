@@ -1,6 +1,7 @@
 # Like ticket, but a person approves the tasks before anything is built:
 # workshop approve <key>, or workshop reject <key> "what to change".
 name = "gated"
+ticket_stage = "Plan and Design"
 
 [[steps]]
 id = "tasks"
