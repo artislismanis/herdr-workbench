@@ -65,7 +65,7 @@ When a run stops on a question or a problem, the ticket moves to `blocked`. Comm
 
 `prefix+shift+b` opens the board in a `workshop` workspace, or goes back to it if it's open. Quitting closes that workspace. Opening it costs no tokens or API calls: it reads run files, the event log and the backlog snapshot, and shows how old the snapshot is.
 
-Deliveries lists runs by who they wait on, with recent events below. Enter opens one run's steps, with rounds, verdicts, cost, the log and what to run next. Backlog counts open tickets by stage. `g` goes to a run's workspace, and `r` refreshes the backlog, which makes API calls but uses no tokens. The board is read-only: approve, reject and answer stay on the command line.
+Deliveries lists runs by who they wait on, with recent events below. Enter opens one run's steps, with rounds, verdicts, cost, the log and what to run next. Backlog counts open tickets by stage. PRs lists yours and others' by whose move it is: `●` in cyan is yours, `○` in magenta someone else's, and yellow means someone else reviewed a PR you're asked to review. Enter shows its reviews. `g` goes to a run's workspace, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. The board is read-only: approve, reject and answer stay on the command line.
 
 ## Backlog
 
