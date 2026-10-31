@@ -106,6 +106,9 @@ def main(argv: list[str]) -> int:
         return 2
     if command == "advance" and not config_path().exists():
         return 0  # herdr fires this for everyone who has the plugin, configured or not
+    if not config_path().exists():
+        print(f"workshop: no config at {config_path()}. Copy config.example.toml there.", file=sys.stderr)
+        return 1
     cfg = config()
     root = state_root()
     root.mkdir(parents=True, exist_ok=True)

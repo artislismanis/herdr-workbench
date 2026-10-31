@@ -150,6 +150,15 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   ! echo "$output" | grep -q "✓ linked"
 }
 
+@test "workshop without a config says so, and advance stays quiet" {
+  install
+  run --separate-stderr "$HOME/.local/bin/workshop" doctor
+  [ "$status" -eq 1 ]
+  echo "$stderr" | grep -q "no config at"
+  run "$HOME/.local/bin/workshop" advance
+  [ "$status" -eq 0 ]
+}
+
 @test "--check fails when workshop isn't linked to this repo, and install repoints it" {
   install
   sed -i "s|\[local:.*|[local:/old/checkout]|" "$HOME/.plugin"
