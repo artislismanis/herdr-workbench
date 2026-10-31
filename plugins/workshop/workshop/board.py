@@ -96,8 +96,8 @@ class Board:
             if not self.open:
                 return False
             self.open, self.offset = None, 0
-        elif key == TAB_KEY and not self.open:
-            self.tab, self.offset = (self.tab + 1) % len(TABS), 0
+        elif key in (TAB_KEY, curses.KEY_BTAB) and not self.open:
+            self.tab, self.offset = (self.tab + (1 if key == TAB_KEY else -1)) % len(TABS), 0
         elif key == ord("r"):
             self.refresh()
         elif key == ord("g"):
