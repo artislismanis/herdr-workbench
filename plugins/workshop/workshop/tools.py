@@ -18,6 +18,7 @@ BOARD = "workshop"  # the board's workspace
 BOARD_TAB = "Dashboard"
 REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
+USAGE_TIMEOUT = 30
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
 
 
@@ -144,6 +145,13 @@ class Tools:
     def stage(self, work: Path) -> None:
         excludes = [f":(exclude,glob)**/{g}/**" for g in GENERATED]
         run("git", "add", "-A", "--", ".", *excludes, cwd=work)
+
+    def claude_usage(self) -> str:
+        """Live limits, for every machine on the account. It costs no tokens, and reads stdin unless told not to."""
+        try:
+            return subprocess.run(["claude", "-p", "/usage", "--no-session-persistence"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=USAGE_TIMEOUT).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
 
     def start_command(self, command: str, work: Path, output: Path, finished: Path) -> int:
         """Runs a repo's own command in the background, because it can outlast a tick. The exit code lands in finished."""
