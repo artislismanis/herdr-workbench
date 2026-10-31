@@ -236,22 +236,26 @@ class Keys(unittest.TestCase):
         self.assertTrue(self.board.press(ord("q")))
         self.assertFalse(self.board.press(ord("q")))
 
-    def test_tab_switches_and_nothing_on_backlog_opens(self):
-        self.board.press(ord("\t"))
+    def test_it_opens_on_delivery_with_tabs_in_workflow_order(self):
+        self.assertEqual(self.board.tab, 1)
+        self.assertLess(self.board.header().text.index("Backlog"), self.board.header().text.index("Delivery"))
+        self.assertLess(self.board.header().text.index("Delivery"), self.board.header().text.index("Review"))
+
+    def test_shift_tab_goes_to_backlog_where_nothing_opens(self):
+        self.board.press(curses.KEY_BTAB)
         self.board.press(10)
-        self.assertIsNone(self.board.open)
+        self.assertEqual((self.board.tab, self.board.open), (0, None))
 
     def test_shift_tab_goes_back_and_wraps_round(self):
         self.board.press(curses.KEY_BTAB)
-        self.assertEqual(self.board.tab, 2)
+        self.assertEqual(self.board.tab, 0)
         self.board.press(curses.KEY_BTAB)
-        self.assertEqual(self.board.tab, 1)
+        self.assertEqual(self.board.tab, 2)
 
     def test_a_pr_opens_and_g_finds_its_run(self):
         self.store.save(run("1", pane="w1:p1", pr="u"))
         self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 200.0, "error": "", "items": [pr()]}})
         self.board.reload()
-        self.board.press(ord("\t"))
         self.board.press(ord("\t"))
         self.assertIn("PRs 5m old", self.board.header().text)
         self.board.press(10)
@@ -289,7 +293,7 @@ class Keys(unittest.TestCase):
         self.store.save(run("1", "parked"))
         self.board.seen = None
         self.board.reload()
-        self.assertIn(" Deliveries 1 ", self.board.header().text)
+        self.assertIn(" Delivery 1 ", self.board.header().text)
 
     def test_r_polls_once_at_a_time(self):
         with mock.patch("workshop.board.poll") as polled, mock.patch("workshop.board.threading.Thread") as thread:
