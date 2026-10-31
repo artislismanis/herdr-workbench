@@ -4,6 +4,7 @@
 load helpers
 
 setup() {
+  stub_systemctl
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME"
   CONFIG="$HOME/.config/worktrunk/config.toml"
