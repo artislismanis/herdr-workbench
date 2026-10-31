@@ -83,7 +83,7 @@ class FakeTools:
         self.work.mkdir(exist_ok=True)
         return self.work
 
-    def workspace(self, path, label):
+    def linked(self, repo, path, label):
         return "p1"
 
     def split(self, pane, path):

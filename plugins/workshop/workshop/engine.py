@@ -347,7 +347,7 @@ class Engine:
             (self.store.files(run) / "brief.md").write_text(f"# {ticket.key}: {ticket.title}\n\n{ticket.body}\n", encoding="utf-8")
             self.store.event(run, "worktree", path=run.worktree)
         if not run.pane:
-            run.pane = self.tools.workspace(Path(run.worktree), run.key)
+            run.pane = self.tools.linked(Path(run.repo_path), Path(run.worktree), run.key)
         if not run.agent:
             run.agent = f"ws-{slug(run.key)}"
 

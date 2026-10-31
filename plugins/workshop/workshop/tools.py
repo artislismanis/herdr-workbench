@@ -35,8 +35,12 @@ class Tools:
         return Path(run_json("wt", "switch", *args, "--no-cd", "--yes", "--format=json", cwd=repo)["path"])
 
     def workspace(self, path: Path, label: str) -> str:
-        # A linked worktree, so herdr groups it under its repo's workspace, opening that if it has to.
-        made = run_json("herdr", "worktree", "open", "--cwd", str(path), "--path", str(path), "--label", label, "--no-focus")
+        made = run_json("herdr", "workspace", "create", "--cwd", str(path), "--label", label, "--no-focus")
+        return made["result"]["root_pane"]["pane_id"]
+
+    def linked(self, repo: Path, path: Path, label: str) -> str:
+        # Linked, so herdr groups it under the repo's workspace, opening that if it has to. It must start from the main checkout.
+        made = run_json("herdr", "worktree", "open", "--cwd", str(repo), "--path", str(path), "--label", label, "--no-focus")
         return made["result"]["root_pane"]["pane_id"]
 
     def copy(self, text: str) -> None:
