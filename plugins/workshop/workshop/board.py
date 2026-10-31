@@ -14,7 +14,8 @@ from .store import Run
 from .themes import TERMINAL, config_path, nearest, palette
 
 SKIPPED = "skipped.json"
-TABS = ("Deliveries", "Backlog", "PRs")
+TABS = ("Backlog", "Delivery", "Review")  # the order work moves through
+BACKLOG, DELIVERY, REVIEW = range(3)
 TOP = 1  # a gap under herdr's tab bar
 WHEEL = 3
 ESCAPE = 27
@@ -26,7 +27,7 @@ Action = str | tuple[str, str]
 class Board:
     def __init__(self, engine: Engine, cfg: dict[str, Any], clock: Callable[[], float] = time.time) -> None:
         self.engine, self.store, self.cfg, self.clock = engine, engine.store, cfg, clock
-        self.tab, self.offset = 0, 0
+        self.tab, self.offset = DELIVERY, 0
         self.picked: tuple[str, str] | None = None
         self.open: tuple[str, str] | None = None
         self.message, self.refreshing, self.seen = "", False, None
@@ -65,9 +66,9 @@ class Board:
             action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
             events = [e for e in self.events if (e["repo"], e["key"]) == self.open]
             return drill(run, events, self.title(run), action, str(self.store.files(run)), width)
-        if self.tab == 0:
+        if self.tab == DELIVERY:
             return deliveries(self.runs, self.events, self.title, width, self.engine.throttle.snapshot())
-        return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == 1 else pulls(self.snapshot, width)
+        return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls(self.snapshot, width)
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:
         return [line.ref for line in lines if line.ref]
@@ -136,12 +137,12 @@ class Board:
     def counts(self) -> tuple[int, ...]:
         waiting = sum(r.status in ("parked", "waiting") for r in self.runs)
         tickets = sum(not self.store.exists(repo, i["key"]) for repo, r in self.snapshot.get("repos", {}).items() for i in r["items"])
-        return waiting, tickets, sum(p["move"] == "you" for p in self.snapshot.get("prs", {}).get("items", []))
+        return tickets, waiting, sum(p["move"] == "you" for p in self.snapshot.get("prs", {}).get("items", []))
 
     def header(self) -> Line:
         tabs = [part for i, (tab, count) in enumerate(zip(TABS, self.counts(), strict=True)) for part in (Span(f" {tab} {count} ", "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]
-        kind = "PRs" if self.tab == 2 else "backlog"
-        sources = [self.snapshot.get("prs", {})] if self.tab == 2 else self.snapshot.get("repos", {}).values()
+        kind = "PRs" if self.tab == REVIEW else "backlog"
+        sources = [self.snapshot.get("prs", {})] if self.tab == REVIEW else self.snapshot.get("repos", {}).values()
         times = [source.get("polled_at", 0) for source in sources]
         age = f"{kind} {ago(self.clock() - min(times))} old" if times and min(times) else f"{kind} not polled"
         held = self.engine.throttle.hold_new(len([r for r in self.runs if r.status == "running"]))
