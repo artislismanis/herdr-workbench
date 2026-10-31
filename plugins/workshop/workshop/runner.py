@@ -105,7 +105,15 @@ def open_draft_pr(work: Workspace, ticket: Ticket, base: str) -> str:
     return created.strip().splitlines()[-1]
 
 
+def preflight(repo: Path) -> None:
+    """Stop before claiming: a missing identity otherwise fails after the agents' work is done."""
+    for setting in ("user.name", "user.email"):
+        if subprocess.run(["git", "config", setting], cwd=repo, capture_output=True).returncode != 0:
+            raise NeedsYou(f"Set git {setting} before running workshop: it commits for the agents.")
+
+
 def run_ticket(repo: Path, source: Source, key: str, base: str = "main", rounds: int = 2) -> None:
+    preflight(repo)
     source.claim(key)
     try:
         ticket = source.get(key)

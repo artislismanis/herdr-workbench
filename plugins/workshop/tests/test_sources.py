@@ -1,11 +1,14 @@
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.runner import needs_you, slug  # noqa: E402
+from workshop.runner import NeedsYou, needs_you, preflight, slug  # noqa: E402
 from workshop.sources import JiraSource, MarkdownSource  # noqa: E402
 
 
@@ -48,6 +51,16 @@ class Jira(unittest.TestCase):
 
     def test_jql_skips_listed_statuses(self):
         self.assertIn('status not in ("Backlog", "Icebox")', self.source(["Backlog", "Icebox"]).jql())
+
+
+class Preflight(unittest.TestCase):
+    def test_a_missing_git_identity_stops_before_claiming(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = {"HOME": home, "GIT_CONFIG_NOSYSTEM": "1", "XDG_CONFIG_HOME": home}
+            subprocess.run(["git", "init", "-q", home], check=True)
+            with unittest.mock.patch.dict(os.environ, env):
+                with self.assertRaises(NeedsYou):
+                    preflight(Path(home))
 
 
 class Helpers(unittest.TestCase):
