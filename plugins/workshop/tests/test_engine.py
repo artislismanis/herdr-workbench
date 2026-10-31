@@ -481,7 +481,7 @@ class Telling(Case):
 
 class Steps(Case):
     def pipeline(self, **extra):
-        return {"name": "x", "steps": [{"id": "plan", "kind": "agent", "prompt": "plan.txt", **extra}]}
+        return {"name": "x", "steps": [{"id": "plan", "kind": "agent", "prompt": "plan.md", **extra}]}
 
     def start_with(self, pipeline):
         return self.engine.start("repo", "DE-1", self.root, "main", pipeline, self.source)
