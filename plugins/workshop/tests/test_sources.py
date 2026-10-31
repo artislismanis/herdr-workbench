@@ -1,15 +1,12 @@
-import os
-import subprocess
 import sys
 import tempfile
 import unittest
-import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.runner import NeedsYou, needs_you, preflight, slug  # noqa: E402
 from workshop.sources import JiraSource, MarkdownSource  # noqa: E402
+from workshop.tools import slug  # noqa: E402
 
 
 class Markdown(unittest.TestCase):
@@ -53,27 +50,10 @@ class Jira(unittest.TestCase):
         self.assertIn('status not in ("Backlog", "Icebox")', self.source(["Backlog", "Icebox"]).jql())
 
 
-class Preflight(unittest.TestCase):
-    def test_a_missing_git_identity_stops_before_claiming(self):
-        with tempfile.TemporaryDirectory() as home:
-            env = {"HOME": home, "GIT_CONFIG_NOSYSTEM": "1", "XDG_CONFIG_HOME": home}
-            subprocess.run(["git", "init", "-q", home], check=True)
-            with unittest.mock.patch.dict(os.environ, env):
-                with self.assertRaises(NeedsYou):
-                    preflight(Path(home))
-
-
 class Helpers(unittest.TestCase):
     def test_slug_makes_a_valid_agent_name(self):
         self.assertEqual(slug("DE-42"), "de-42")
         self.assertEqual(slug("Add JSON!"), "add-json")
-
-    def test_needs_you_stops_at_the_verdict(self):
-        report = "Fine\n## Needs you\n- pick a name\n\nVERDICT: PASS\n"
-        self.assertEqual(needs_you(report), "Needs you:\n- pick a name")
-
-    def test_an_empty_needs_you_says_nothing(self):
-        self.assertEqual(needs_you("## Needs you\n\nVERDICT: PASS\n"), "")
 
 
 if __name__ == "__main__":

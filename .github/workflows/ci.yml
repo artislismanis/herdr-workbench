@@ -26,4 +26,6 @@ jobs:
         run: bats --print-output-on-failure tests/
 
       - name: workshop
-        run: python3 -m unittest discover -s plugins/workshop/tests
+        run: |
+          sudo apt-get install -y python3-yaml
+          cd plugins/workshop && PYTHONPATH=. /usr/bin/python3 -m unittest discover -s tests

@@ -1,0 +1,23 @@
+# Ticket to self-reviewed draft PR. Copy to ~/.config/workshop/pipelines/ to change it.
+name: ticket
+steps:
+  - id: plan
+    kind: agent
+    prompt: plan.md
+    read_only: true
+    verdict: [READY, BLOCKED]
+    then:
+      BLOCKED: { park: The ticket needs clarifying before it can be built. }
+  - id: build
+    kind: agent
+    prompt: build.md
+  - id: verify
+    kind: agent
+    prompt: verify.md
+    fresh: true
+    read_only: true
+    verdict: [PASS, CHANGES_NEEDED]
+    then:
+      CHANGES_NEEDED: { goto: build, max: 2, prompt: fix.md }
+  - id: pr
+    kind: draft_pr

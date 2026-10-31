@@ -1,12 +1,14 @@
 # Copy to ~/.config/workshop/config.toml and chmod 600. Never commit a real one.
 
+# max_active = 2             # runs at once
+
 # One table per repo. `source` is github, jira or markdown.
 [repos.my-app]
 path = "~/src/my-app"
 source = "github"
 label = "ai"
 # base = "main"
-# rounds = 2                 # times a failed verify goes back to the build agent
+# pipeline = "ticket"        # a file in pipelines/ or ~/.config/workshop/pipelines/
 
 [repos.my-service]
 path = "~/src/my-service"
