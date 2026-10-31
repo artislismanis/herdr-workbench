@@ -153,9 +153,12 @@ class Drill(unittest.TestCase):
         lines = texts(drill(staged, [], "", "", "/f", 80))
         self.assertEqual(lines.count("Build"), 1)
         self.assertLess(lines.index("Build"), lines.index("Test"))
+        self.assertTrue(lines[lines.index("Build") + 1].startswith("  "))
 
     def test_a_pipeline_without_stages_shows_plain_steps(self):
-        self.assertNotIn("Build", texts(drill(run(), [], "", "", "/f", 80)))
+        lines = texts(drill(run(), [], "", "", "/f", 80))
+        self.assertNotIn("Build", lines)
+        self.assertTrue(any(t.startswith("○ ") or t.startswith("◐ ") for t in lines))
 
     def test_a_stopped_run_says_why_and_what_next(self):
         lines = texts(drill(run(status="parked", reason="word " * 40), [], "", "workshop resume 1", "/f", 40))
