@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from .backlog import SNAPSHOT
-from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, pull, pulls
+from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, plain, pull, pulls
 from .engine import STOPS, Engine
 from .store import Run
 from .themes import TERMINAL, config_path, nearest, palette
@@ -19,6 +19,9 @@ TABS = ("Backlog", "Delivery", "Review")  # the order work moves through
 BACKLOG, DELIVERY, REVIEW = range(3)
 TOP = 1  # a gap under herdr's tab bar
 WHEEL = 3
+PAGE = 10
+PANEL_WIDTH = 130  # below this a window can't hold a list and a detail side by side
+LIST_SHARE = 55  # percent of the window for the list
 ESCAPE = 27
 TAB_KEY = ord("\t")
 ENTERS = (10, 13, curses.KEY_ENTER)
@@ -47,6 +50,7 @@ class Board:
         self.picked: tuple[str, str] | None = None
         self.open: tuple[str, str] | None = None
         self.viewing = ""
+        self.side = 0  # how far the panel has scrolled
         self.message, self.refreshing, self.seen = "", False, None
         self.asking: Ask | None = None
         self.typed = ""
@@ -72,28 +76,59 @@ class Board:
         first = brief.read_text(encoding="utf-8").partition("\n")[0] if brief.exists() else ""
         return first.removeprefix("# ").removeprefix(f"{run.key}: ")
 
-    def drilled(self) -> Run | None:
-        return next((r for r in self.runs if (r.repo, r.key) == self.open), None)
-
-    def opened_pr(self) -> dict[str, Any] | None:
-        return next((p for p in self.snapshot.get("prs", {}).get("items", []) if ("#pr", p["url"]) == self.open), None)
-
     def reports(self, run: Run) -> tuple[str, ...]:
         found = [p for p in self.store.files(run).iterdir() if p.suffix in (".md", ".json")]
         return tuple(str(p) for p in sorted(found, key=lambda p: p.stat().st_mtime, reverse=True))
 
-    def lines(self, width: int) -> list[Line]:
-        if self.viewing:
-            try:
-                return document(self.viewing, Path(self.viewing).read_text(encoding="utf-8", errors="replace"), width)
-            except OSError as failed:
-                return document(self.viewing, str(failed), width)
-        if pr := self.opened_pr():
+    def panelled(self, width: int) -> bool:
+        return width >= PANEL_WIDTH and self.tab != BACKLOG and not self.open
+
+    def list_width(self, width: int) -> int:
+        return width * LIST_SHARE // 100
+
+    def viewed(self, width: int) -> list[Line]:
+        try:
+            return document(self.viewing, Path(self.viewing).read_text(encoding="utf-8", errors="replace"), width)
+        except OSError as failed:
+            return document(self.viewing, str(failed), width)
+
+    def stop_report(self, run: Run) -> tuple[str, str]:
+        """What the stopped step wrote, so the reason for stopping needs no second look."""
+        if run.status not in ("parked", "waiting") or run.current is None:
+            return "", ""
+        name = run.current.get("output", f"{run.current['id']}.md")
+        path = self.store.files(run) / name
+        return (name, path.read_text(encoding="utf-8", errors="replace")) if path.exists() else ("", "")
+
+    def detail(self, ref: tuple[str, str] | None, width: int) -> list[Line]:
+        if pr := next((p for p in self.snapshot.get("prs", {}).get("items", []) if ("#pr", p["url"]) == ref), None):
             return pull(pr, width)
-        if run := self.drilled():
-            action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
-            events = [e for e in self.events if (e["repo"], e["key"]) == self.open]
-            return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run))
+        run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
+        if run is None:
+            return []
+        action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
+        events = [e for e in self.events if (e["repo"], e["key"]) == ref]
+        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run))
+
+    def panel(self, width: int) -> list[Line]:
+        """The selected item beside the list, with its actions at the top."""
+        size = width - self.list_width(width) - 3
+        lines = self.lines(width)
+        buttons = [("esc close", ESCAPE)] if self.viewing else []
+        buttons += [(action[1], action[0]) for action in self.actions(lines)]
+        top = [Line([part for label, key in buttons for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))]), plain()] if buttons else []
+        return top + (self.viewed(size) if self.viewing else self.detail(self.selected(lines), size))
+
+    def lines(self, width: int) -> list[Line]:
+        if self.panelled(width):
+            return self.listing(self.list_width(width))
+        if self.viewing:
+            return self.viewed(width)
+        if self.open:
+            return self.detail(self.open, width)
+        return self.listing(width)
+
+    def listing(self, width: int) -> list[Line]:
         if self.tab == DELIVERY:
             return deliveries(self.runs, self.events, self.title, width, self.engine.throttle.snapshot())
         return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls(self.snapshot, width)
@@ -110,6 +145,7 @@ class Board:
         if choices:
             index = choices.index(self.selected(lines)) + by
             self.picked = choices[max(0, min(index, len(choices) - 1))]
+            self.viewing, self.side = "", 0
         else:
             self.offset = max(0, self.offset + by)
 
@@ -123,7 +159,7 @@ class Board:
         lines = self.lines(width)
         self.message = ""
         if action := next((a for a in self.actions(lines) if a[0] == key), None):
-            self.ask(action)
+            self.ask(action, lines)
             return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
@@ -131,14 +167,16 @@ class Board:
             self.move(1, lines)
         elif key in ENTERS:
             self.enter(self.selected(lines))
-        elif key == ESCAPE and self.open:
+        elif key == ESCAPE and (self.open or self.viewing):
             self.back()
         elif key == ord("q"):
-            if not self.open:
+            if not self.open and not self.viewing:
                 return False
             self.back()
         elif key == ord("y"):
-            self.copy(lines)
+            self.copy(self.panel(width) if self.panelled(width) else lines)
+        elif key in (curses.KEY_NPAGE, curses.KEY_PPAGE):
+            self.scroll(PAGE if key == curses.KEY_NPAGE else -PAGE, width)
         elif key in (TAB_KEY, curses.KEY_BTAB) and not self.open:
             self.tab, self.offset = (self.tab + (1 if key == TAB_KEY else -1)) % len(TABS), 0
         elif key == ord("r"):
@@ -149,7 +187,7 @@ class Board:
 
     def enter(self, ref: tuple[str, str] | None) -> None:
         if ref and ref[0] == "#file":
-            self.viewing, self.offset = ref[1], 0
+            self.viewing, self.offset, self.side = ref[1], 0, 0
         elif ref and not self.open:
             self.picked, self.open, self.offset = ref, ref, 0
 
@@ -158,7 +196,13 @@ class Board:
             self.viewing = ""
         else:
             self.open = None
-        self.offset = 0
+        self.offset, self.side = 0, 0
+
+    def scroll(self, by: int, width: int) -> None:
+        if self.panelled(width):
+            self.side = max(0, self.side + by)
+        else:
+            self.offset = max(0, self.offset + by)
 
     def copy(self, lines: list[Line]) -> None:
         """The whole view, since the board holds the mouse and a drag can't select it."""
@@ -178,8 +222,8 @@ class Board:
             return ()
         return GATE if run.current and run.current["kind"] == "gate" else STOPPED
 
-    def ask(self, action: tuple[int, str, str, str, bool]) -> None:
-        run = self.target(self.lines(120))
+    def ask(self, action: tuple[int, str, str, str, bool], lines: list[Line]) -> None:
+        run = self.target(lines)
         if run is not None:
             self.asking, self.typed = Ask(action[2], run.key, f"{run.key}: {action[3]}", action[4]), ""
 
@@ -264,20 +308,25 @@ class Board:
             if y != top or not left <= x < right:
                 continue
             if isinstance(action, tuple):
-                self.enter(action)
+                if self.panelled(width) and action[0] != "#file":
+                    self.picked, self.viewing, self.side = action, "", 0  # the panel shows it, so there's nothing to open
+                else:
+                    self.enter(action)
                 return True
             kind, _, value = action.partition(":")
             if kind == "tab":
-                self.tab, self.open, self.viewing, self.offset = int(value), None, "", 0
+                self.tab, self.open, self.viewing, self.offset, self.side = int(value), None, "", 0, 0
                 return True
             return self.press(int(value), width)
         return True
 
     def mouse(self, x: int, y: int, state: int, width: int) -> bool:
-        if state & curses.BUTTON4_PRESSED:
-            self.wheel(-WHEEL, width)
-        elif state & curses.BUTTON5_PRESSED:
-            self.wheel(WHEEL, width)
+        if state & (curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED):
+            by = -WHEEL if state & curses.BUTTON4_PRESSED else WHEEL
+            if self.panelled(width) and x > self.list_width(width):
+                self.scroll(by, width)
+            else:
+                self.wheel(by, width)
         elif state & curses.BUTTON1_PRESSED:
             return self.click(x, y, width)
         return True
@@ -290,8 +339,8 @@ class Board:
         self.offset = max(0, min(self.offset, len(lines) - height))
         return lines[self.offset : self.offset + height]
 
-    def put(self, screen: curses.window, y: int, line: Line, styles: dict[str, int], width: int, selected: bool = False) -> None:
-        x = 0
+    def put(self, screen: curses.window, y: int, line: Line, styles: dict[str, int], width: int, selected: bool = False, left: int = 0) -> None:
+        x = left
         for span in line.spans:
             text = clean(span.text)
             if x >= width - 1:
@@ -304,7 +353,7 @@ class Board:
         if selected and x < width - 1:
             screen.addnstr(y, x, cell("", width - 1 - x), width - 1 - x, styles["row-"])
         if line.ref:
-            self.regions.append((y, 0, width, line.ref))
+            self.regions.append((y, left, width, line.ref))
 
     def draw(self, screen: curses.window, styles: dict[str, int]) -> None:
         rows, width = screen.getmaxyx()
@@ -313,8 +362,18 @@ class Board:
         self.regions = []
         screen.erase()
         self.put(screen, TOP, self.header(), styles, width)
-        for y, line in enumerate(self.window(lines, rows - TOP - 3), TOP + 2):
-            self.put(screen, y, line, styles, width, bool(line.ref) and line.ref == chosen)
+        height = rows - TOP - 3
+        panelled = self.panelled(width - 1)
+        edge = self.list_width(width - 1) + 1 if panelled else width
+        for y, line in enumerate(self.window(lines, height), TOP + 2):
+            self.put(screen, y, line, styles, edge, bool(line.ref) and line.ref == chosen)
+        if panelled:
+            side = self.panel(width - 1)
+            self.side = max(0, min(self.side, len(side) - height))
+            for y in range(TOP + 2, TOP + 2 + height):
+                screen.addnstr(y, edge, "│", 1, styles["dim"])
+            for y, line in enumerate(side[self.side : self.side + height], TOP + 2):
+                self.put(screen, y, line, styles, width, left=edge + 2)
         self.put(screen, rows - 1, self.footer(width - 1), styles, width)
         screen.refresh()
 
