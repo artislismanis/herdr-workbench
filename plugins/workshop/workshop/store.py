@@ -65,11 +65,21 @@ class Store:
         return self.path(repo, key).exists()
 
     def save(self, run: Run) -> None:
+        self._replace(self.path(run.repo, run.key), asdict(run))
+
+    def write(self, name: str, data: dict[str, Any]) -> None:
+        self._replace(self.root / name, data)
+
+    def read(self, name: str) -> dict[str, Any]:
+        path = self.root / name
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+    def _replace(self, path: Path, data: dict[str, Any]) -> None:
         # Renamed into place, so a crash or a reader never sees half a file.
-        fd, tmp = tempfile.mkstemp(dir=self.root / "runs", suffix=".tmp")
+        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as out:
-            json.dump(asdict(run), out, indent=2)
-        os.replace(tmp, self.path(run.repo, run.key))
+            json.dump(data, out, indent=2)
+        os.replace(tmp, path)
 
     def load(self, repo: str, key: str) -> Run:
         return Run(**json.loads(self.path(repo, key).read_text(encoding="utf-8")))
@@ -91,7 +101,13 @@ class Store:
 
     def history(self) -> list[dict[str, Any]]:
         log = self.root / "events.jsonl"
-        return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+        found = []
+        for line in log.read_text(encoding="utf-8").splitlines() if log.exists() else []:
+            try:
+                found.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue  # a reader can catch a line still being written
+        return found
 
     def events(self, run: Run) -> list[dict[str, Any]]:
         return [e for e in self.history() if e["repo"] == run.repo and e["key"] == run.key]

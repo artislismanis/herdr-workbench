@@ -6,6 +6,12 @@
 # A ticket runs only if you were the last person to change it. To run one anyway, add the
 # label <label>-override yourself, or use: workshop start <repo> <key> --override
 
+# The labels that mark how far a ticket has been prepared, on the board's Backlog tab. These are
+# the defaults. No label is new, and the delivery label means queued.
+# [backlog]
+# planned = "planned"
+# designed = "designed"
+
 # Paces work against Claude's limits, in percent. These are the defaults.
 # [throttle]
 # pause_new_at = 60          # no new tickets above this 5h usage

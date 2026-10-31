@@ -32,6 +32,15 @@ class Comment:
     text: str
 
 
+@dataclass
+class Item:
+    key: str
+    title: str
+    labels: list[str]
+    queued: bool  # tagged for delivery
+    url: str = ""
+
+
 # Where a ticket has got to. Each source shows these its own way.
 STAGES = ("working", "blocked", "review", "approved", "merged")
 
@@ -45,6 +54,7 @@ class Source(Protocol):
     def guard(self, key: str) -> str: ...
     def move(self, key: str, stage: str) -> None: ...
     def comments(self, key: str, since: float) -> list[Comment]: ...
+    def backlog(self) -> list[Item]: ...
 
 
 GITHUB_HISTORY = """
@@ -90,6 +100,11 @@ class GitHubSource:
     def ready(self) -> list[str]:
         issues = run_json("gh", "issue", "list", "--label", self.label, "--json", "number", cwd=self.repo)
         return sorted((str(i["number"]) for i in issues), key=int)
+
+    def backlog(self) -> list[Item]:
+        issues = run_json("gh", "issue", "list", "--state", "open", "--limit", "200", "--json", "number,title,labels,url", cwd=self.repo)
+        items = [Item(str(i["number"]), i["title"], [n["name"] for n in i["labels"]], False, i["url"]) for i in issues]
+        return [Item(i.key, i.title, i.labels, self.label in i.labels, i.url) for i in items if f"{self.label}-claimed" not in i.labels]
 
     def get(self, key: str) -> Ticket:
         i = run_json("gh", "issue", "view", key, "--json", "title,body,url,comments", cwd=self.repo)
@@ -190,6 +205,13 @@ class JiraSource:
         query = urllib.parse.urlencode({"jql": self.jql(), "fields": "key", "maxResults": 20})
         return [i["key"] for i in self._call("GET", f"search/jql?{query}")["issues"]]
 
+    def backlog(self) -> list[Item]:
+        # The repo's label is the scope, so new tickets show before anyone is assigned.
+        jql = f'labels = "{self.repo_name}" AND labels != "{self.label}-claimed" AND statusCategory != Done ORDER BY updated DESC'
+        query = urllib.parse.urlencode({"jql": jql, "fields": "summary,labels", "maxResults": 100})
+        issues = self._call("GET", f"search/jql?{query}")["issues"]
+        return [Item(i["key"], i["fields"]["summary"], i["fields"]["labels"], self.label in i["fields"]["labels"], f"{self.base}/browse/{i['key']}") for i in issues]
+
     def get(self, key: str) -> Ticket:
         f = self._call("GET", f"issue/{key}?fields=summary,description,comment")["fields"]
         comments = [f"{c['author']['displayName']}: {c['body']}" for c in f["comment"]["comments"]]
@@ -281,6 +303,9 @@ class MarkdownSource:
 
     def ready(self) -> list[str]:
         return sorted(p.stem for p in self.folder.glob("*.md"))
+
+    def backlog(self) -> list[Item]:
+        return [Item(key, self.get(key).title, [], True, str(self.folder / f"{key}.md")) for key in self.ready()]
 
     def _claimed(self, key: str) -> Path:
         return self.folder / "claimed" / f"{key}.md"

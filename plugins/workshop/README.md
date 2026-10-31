@@ -27,6 +27,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop list` | Ready tickets |
 | `workshop schedule [<every>\|off]` | Shows, sets or stops the tick timer |
 | `workshop stats` | Tokens, cost, first-pass rate and stops across all runs |
+| `workshop refresh` | Saves the backlog snapshot now, without starting anything |
 | `workshop doctor [--no-launch]` | Finds what would stop a run |
 
 A `waiting` run stopped as planned, at a gate or with a question. A `parked` run stopped because something went wrong. Neither counts towards `max_active`.
@@ -58,6 +59,10 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 The ticket follows the run through `working`, `blocked`, `review`, `approved` and `merged`: `ai-<stage>` labels on GitHub, and the statuses in `[jira.moves]` on Jira. A draft PR stays in `working`, because it's still in self-review, and `review` starts when you mark it ready. Each `tick` follows the PR. Where a board allows only the next column, `route` lists the columns to walk. A move that fails is logged, leaves the ticket where it got to, and never stops a run. Workshop comments when it starts, when it stops and when the draft PR is ready.
 
 When a run stops on a question or a problem, the ticket moves to `blocked`. Comment on it with what's missing, and the next `tick` hands that to the agent and carries on. That needs the schedule on, or a manual `workshop tick`. A merged PR moves the ticket to `merged`, and on GitHub closes the issue.
+
+## Backlog
+
+Each `tick` and `workshop refresh` saves open tickets to `~/.local/state/workshop/board.json`, sorted by label: none is `new`, then `planned`, `designed`, and the delivery label is `queued`. `[backlog]` renames the first two. Claimed tickets leave the list. On Jira the repo's label sets the scope, so a ticket without it doesn't show. A source that fails keeps its last good list and records the error. Polling makes API calls but uses no tokens.
 
 ## Run files
 
