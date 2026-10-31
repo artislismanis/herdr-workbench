@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .pipeline import prompt_text
+from .review import load_notes, place
 from .shell import ToolError
 from .sources import Source
 from .store import Run, Store
@@ -117,6 +118,18 @@ class Engine:
             self._park(run, f"{step['id']} failed: {stop}")
         self.store.save(run)
         return self.advance(run)
+
+    def review(self, run: Run) -> str:
+        """Opens the change in hunk with the reviewer's notes on it."""
+        if not run.pr:
+            raise KeyError(f"{run.key} has no PR to review yet")
+        work = Path(run.worktree)
+        files = self.tools.open_review(run.pane, work, run.base)
+        placed, outside = place(load_notes(work / IGNORED / "notes.json"), files)
+        self.tools.replace_notes(work, placed)
+        self.store.event(run, "review", notes=len(placed), outside=len(outside))
+        lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {work / IGNORED / 'verify.md'}"]
+        return "\n".join(lines + [f"  {n['file']}:{n['line']} {n['note']}" for n in outside])
 
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
@@ -277,7 +290,7 @@ class Engine:
         source.finish(run.key)
         run.status = "done"
         self.store.event(run, "finished", pr=run.pr)
-        self.tools.notify(f"Workshop: {run.key} ready", run.pr)
+        self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} Review it with: workshop review {run.key}")
         self.store.save(run)
 
     def _park(self, run: Run, reason: str) -> None:

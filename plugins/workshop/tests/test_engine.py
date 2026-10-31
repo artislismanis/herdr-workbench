@@ -56,6 +56,7 @@ class FakeTools:
         self.statuses = {}
         self.models = {}
         self.notes = []
+        self.reviews, self.review_notes = [], None
         self.prompts, self.started, self.closed = [], [], []
         self.changed, self.commits, self.pushes = [], [], 0
         self.commit_fails = False
@@ -80,6 +81,13 @@ class FakeTools:
 
     def split(self, pane, path):
         return "p2"
+
+    def open_review(self, pane, work, base):
+        self.reviews.append((pane, base))
+        return [{"path": "a.py", "hunks": [{"newRange": [1, 5]}]}]
+
+    def replace_notes(self, work, notes):
+        self.review_notes = notes
 
     def notify(self, title, body):
         self.notes.append(title)
@@ -432,6 +440,30 @@ class Questions(Case):
     def test_only_a_question_can_be_answered(self):
         with self.assertRaises(KeyError):
             self.engine.answer(self.start(), "v2")
+
+
+class Review(Case):
+    def finished(self):
+        run = self.to_verify()
+        (self.tools.work / ".workshop" / "notes.json").write_text('[{"file": "a.py", "line": 2, "note": "Look"}, {"file": "b.py", "line": 9, "note": "Elsewhere"}]', encoding="utf-8")
+        return self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
+
+    def test_notes_land_in_hunk_and_the_rest_are_listed(self):
+        text = self.engine.review(self.finished())
+        self.assertEqual(self.tools.reviews, [("p1", "main")])
+        self.assertEqual([n["summary"] for n in self.tools.review_notes], ["Look"])
+        self.assertIn("Loaded 1 note(s)", text)
+        self.assertIn("b.py:9 Elsewhere", text)
+
+    def test_missing_notes_still_open_the_review(self):
+        run = self.finished()
+        (self.tools.work / ".workshop" / "notes.json").unlink()
+        self.assertIn("Loaded 0 note(s)", self.engine.review(run))
+        self.assertEqual(self.tools.review_notes, [])
+
+    def test_a_run_without_a_pr_has_nothing_to_review(self):
+        with self.assertRaises(KeyError):
+            self.engine.review(self.start())
 
 
 class Telling(Case):
