@@ -32,8 +32,8 @@ def turn_on(every: str) -> str:
     if not re.fullmatch(r"[1-9][0-9]*(s|m|min|h)", every):
         raise ToolError(f"bad frequency {every}: use a number and s, m, min or h, like 10m")
     dropin().parent.mkdir(parents=True, exist_ok=True)
-    # An empty line clears the shipped value: these settings add up otherwise.
-    dropin().write_text(f"[Timer]\nOnActiveSec=\nOnActiveSec={every}\nOnUnitActiveSec=\nOnUnitActiveSec={every}\n", encoding="utf-8")
+    # One empty line clears every shipped time, so a second would clear this one too.
+    dropin().write_text(f"[Timer]\nOnActiveSec=\nOnActiveSec={every}\nOnUnitActiveSec={every}\n", encoding="utf-8")
     systemctl("daemon-reload")
     systemctl("enable", TIMER)
     systemctl("restart", TIMER)

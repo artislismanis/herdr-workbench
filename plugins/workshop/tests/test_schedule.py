@@ -34,8 +34,7 @@ class Schedule(unittest.TestCase):
     def test_a_frequency_turns_it_on_and_replaces_the_shipped_value(self):
         self.assertIn("every 10m", sched.schedule(["10m"]))
         text = sched.dropin().read_text(encoding="utf-8")
-        self.assertIn("OnUnitActiveSec=\nOnUnitActiveSec=10m\n", text)
-        self.assertIn("OnActiveSec=\nOnActiveSec=10m\n", text)
+        self.assertEqual(text, "[Timer]\nOnActiveSec=\nOnActiveSec=10m\nOnUnitActiveSec=10m\n")
         self.assertEqual(self.calls, [("daemon-reload",), ("enable", sched.TIMER), ("restart", sched.TIMER)])
         self.state = "enabled"
         self.assertEqual(sched.schedule([]), "on, every 10m")
