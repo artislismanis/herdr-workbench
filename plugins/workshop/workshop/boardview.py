@@ -125,23 +125,29 @@ def stage_groups(steps: list[dict[str, Any]]) -> list[list[int]]:
     return [[index for index, _ in group] for _, group in groupby(enumerate(steps), lambda pair: pair[1].get("stage") or pair[0])]
 
 
-def stage_mark(run: Run, indexes: list[int]) -> Span:
-    """Red stopped, amber waiting on a person or had to go round again, green fine."""
+def stage_state(run: Run, indexes: list[int]) -> tuple[str, str, str]:
+    """A stage's mark, colour and word, summed from its steps. Amber waits on a person or had to go round again, and stays amber."""
     steps = run.pipeline["steps"]
     if not completed(run) and run.step < indexes[0]:
-        return Span("○", "dim")
+        return "○", "dim", "not started"
     here = not completed(run) and run.step in indexes
     reworked = any(run.loops.get(steps[index]["id"]) for index in indexes)
-    if here and (run.landed == "dropped" or run.status == "parked"):
-        return Span("◐", "red")
-    style = "yellow" if reworked or (here and run.status == "waiting") else "green"
-    return Span("◐" if here else "●", style)
+    if here and run.landed == "dropped":
+        return "◐", "red", "dropped"
+    if here and run.status == "parked":
+        return "◐", "red", "stopped"
+    if here and run.status == "waiting":
+        return "◐", "yellow", "needs you"
+    if here:
+        return "◐", "yellow" if reworked else "green", "reworking" if reworked else "running"
+    return "●", "yellow" if reworked else "green", "done after rework" if reworked else "done"
 
 
 def pipe(run: Run) -> list[Span]:
     """The run's stages at a glance, each coloured by its steps."""
     groups = stage_groups(run.pipeline["steps"])
-    spans = [part for number, indexes in enumerate(groups) for part in ([Span("─", "dim")] if number else []) + [stage_mark(run, indexes)]]
+    marks = [stage_state(run, indexes)[:2] for indexes in groups]
+    spans = [part for number, mark in enumerate(marks) for part in ([Span("─", "dim")] if number else []) + [Span(*mark)]]
     return [*spans, Span(" " * max(PIPE_WIDTH - 2 * len(groups) + 1, 0))]
 
 
@@ -308,14 +314,24 @@ def findings(report: str, name: str, width: int) -> list[Line]:
     return [*lines, plain(f"│   └ more in {name}" if len(parts) > FINDINGS else "│   └", "dim")]
 
 
+def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[str, Any]]) -> Line:
+    _, style, word = stage_state(run, indexes)
+    ids = {run.pipeline["steps"][index]["id"] for index in indexes}
+    spent = [e for e in events if e["type"] == "spent" and e.get("step") in ids]
+    prices = [e["usd"] for e in spent]
+    total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
+    return Line([Span(f" {stage} ", block(style) if style != "dim" else "bold"), Span(f"  {word}", style), Span(f"   {total}" if total else "", "dim")])
+
+
 def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], width: int, stopped: tuple[str, str] = ("", ""), earlier: bool = False) -> list[Line]:
     lines: list[Line] = []
     steps = run.pipeline["steps"]
     margin = "  " if any(step.get("stage") for step in steps) else ""
     width -= len(margin)
+    groups = {indexes[0]: indexes for indexes in stage_groups(steps)}
     for index, step in enumerate(steps):
-        if step.get("stage") and (index == 0 or steps[index - 1].get("stage") != step["stage"]):
-            lines.append(plain(step["stage"], "bold"))
+        if step.get("stage") and index in groups:
+            lines.append(stage_heading(run, step["stage"], groups[index], events))
         seen = [e for e in events if e.get("step") == step["id"]]
         spent = [e for e in seen if e["type"] == "spent"]
         finished = [e for e in seen if e["type"] == "step" and e.get("state") == "done"]
@@ -339,7 +355,7 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         if current and stopped[0] == files_name(step):
             lines += [Line([Span(margin), *line.spans], path=line.path) for line in findings(stopped[1], stopped[0], width - 6)]
         if index < len(steps) - 1:
-            lines.append(plain(f"{margin}│", "dim"))
+            lines.append(plain() if index + 1 in groups and steps[index + 1].get("stage") else plain(f"{margin}│", "dim"))
     return lines
 
 
