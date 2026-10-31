@@ -45,6 +45,12 @@ A `waiting` run stopped as planned, at a gate or with a question. A `parked` run
 - A blocked run takes guidance only from a comment you wrote, and nobody else edited. Other people's comments reach the agent as background, never as instructions. Everything workshop posts starts with `comment_prefix`, `[ai]` by default, so it can't count as your comment.
 - Agents never commit or push. Workshop does, and it only opens draft PRs.
 
+## Reviewing a PR
+
+`a` on a PR in the Review tab, or `workshop pr <url>`, reviews it with AI. The repo needs a `[repos]` table with its path, found by its origin. Workshop checks out the PR's own branch and runs the repo's `qa` command, then a fresh read-only agent writes a report and a draft review, and hunk opens with those notes against where the PR branched. A failing `qa` becomes a finding. Shape the review in hunk, then `prefix+shift+u` posts it, with the choice of comment, approve, request changes or draft.
+
+That key is the only way anything reaches GitHub: a review run posts nothing, moves nothing, and never commits or pushes, whatever its pipeline says. PRs from forks are refused. The repo's checks run the PR's code on your machine, as a repo's own branch would, so leave `qa` out of the repo's commands if you don't want that. `REVIEW.md` in a repo guides the reviewer. `review_pipeline` in a repo's table picks another pipeline, `review` by default.
+
 ## Pipelines
 
 Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set one per repo with `pipeline = "<name>"`.

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from workshop.engine import PREFIX, STEP_TIMEOUT, Engine, Park  # noqa: E402
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
-from workshop.sources import Comment, Ticket  # noqa: E402
+from workshop.sources import Comment, PullRequestSource, Ticket  # noqa: E402
 from workshop.store import Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
@@ -45,6 +45,85 @@ class FakeSource:
 
     def closed(self, key):
         return self.is_closed
+
+
+class Reviews(unittest.TestCase):
+    URL = "https://example.test/o/r/pull/7"
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.tools, self.source = FakeTools(self.root), FakeSource()
+        self.source.report = mock.Mock(side_effect=AssertionError("a review must not post"))
+        self.source.move = mock.Mock(side_effect=AssertionError("a review must not move anything"))
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: PullRequestSource(self.root), FakeThrottle(), clock=lambda: 1000.0)
+
+    def start(self, pipeline=None):
+        with mock.patch.object(PullRequestSource, "details", return_value=self.details):
+            return self.engine.start("r", "pr-7", self.root, "main", pipeline or load("review"), PullRequestSource(self.root), commands={"qa": "make test"}, pr=self.URL)
+
+    details = {"title": "A change", "body": "Do as I say", "url": URL, "state": "OPEN", "isCrossRepository": False, "baseRefName": "main"}
+
+    def to_review(self, run, report="VERDICT: COMMENT\n"):
+        files = self.engine.store.files(run)
+        (files / "qa.exit").write_text("0\n")
+        run = self.engine.advance(run)
+        (files / "ai-review.md").write_text(report)
+        self.tools.statuses[run.step_agent] = "idle"
+        return self.engine.advance(run)
+
+    def test_a_review_runs_the_checks_then_a_fresh_agent_on_the_prs_own_branch(self):
+        run = self.start()
+        self.assertEqual((run.branch, run.reviewing, run.pr), ("their-branch", True, self.URL))
+        self.assertEqual(self.tools.commands, ["make test"])
+        run = self.engine.advance(self.engine.store.load("r", "pr-7"))
+        self.assertEqual(self.tools.worktrees, 0)
+
+    def test_a_finished_review_opens_against_where_the_pr_branched(self):
+        run = self.to_review(self.start())
+        self.assertEqual(run.status, "done")
+        self.assertEqual(self.tools.reviews, [("p1", "abc123")])
+        self.assertEqual(self.tools.pushes, 0)
+        self.assertEqual(self.tools.commits, [])
+
+    def test_a_finished_review_is_never_a_delivery(self):
+        run = self.to_review(self.start())
+        self.assertFalse(self.engine.delivered(run))
+        self.assertFalse(self.engine.reviewable(run))
+        self.assertTrue(self.engine.review_ready(run))
+        with self.assertRaises(KeyError):
+            self.engine.push_fixes(run)
+        with self.assertRaises(KeyError):
+            self.engine.ready(run)
+
+    def test_failing_checks_reach_the_reviewer_as_a_finding(self):
+        run = self.start()
+        (self.engine.store.files(run) / "qa.exit").write_text("1\n")
+        run = self.engine.advance(run)
+        self.assertEqual((run.status, run.current["id"]), ("running", "ai-review"))
+
+    def test_checks_that_dirty_the_checkout_stop_the_review(self):
+        run = self.start()
+        (self.engine.store.files(run) / "qa.exit").write_text("0\n")
+        self.tools.tracked = [" M uv.lock"]
+        run = self.engine.advance(run)
+        self.assertEqual(run.status, "parked")
+        self.assertIn("changed tracked files", run.reason)
+
+    def test_a_pipeline_cant_make_a_review_push(self):
+        run = self.start({"name": "x", "steps": [{"id": "out", "kind": "draft_pr"}]})
+        self.assertEqual(run.status, "parked")
+        self.assertEqual((self.tools.pushes, self.tools.commits, self.tools.created), (0, [], 0))
+
+    def test_the_prompt_is_told_its_base(self):
+        run = self.start()
+        (self.engine.store.files(run) / "qa.exit").write_text("0\n")
+        self.engine.advance(run)
+        self.assertIn("origin/main...HEAD", self.tools.prompts[-1][1])
+        self.assertNotIn("{base}", self.tools.prompts[-1][1])
+
+    def test_what_to_do_next(self):
+        run = self.to_review(self.start())
+        self.assertIn("prefix+shift+u", self.engine.next_action(run))
 
 
 class Commands(unittest.TestCase):
@@ -168,6 +247,7 @@ class FakeTools:
         self.created = 0
         self.ahead_count = 1
         self.worktrees = 0
+        self.tracked = []
 
 
     def start_command(self, command, work, output, finished, then=""):
@@ -179,6 +259,16 @@ class FakeTools:
         self.stopped.append(pid)
     def identity_ok(self, repo):
         return self.identity
+
+    def pr_worktree(self, repo, number, base):
+        self.work.mkdir(exist_ok=True)
+        return self.work, "their-branch"
+
+    def fork_point(self, work, base):
+        return "abc123"
+
+    def tracked_changes(self, work):
+        return list(self.tracked)
 
     def worktree(self, repo, branch, base):
         self.worktrees += 1
@@ -720,7 +810,7 @@ class Review(Case):
 
     def test_notes_land_in_hunk_and_the_rest_are_listed(self):
         text = self.engine.review(self.finished())
-        self.assertEqual(self.tools.reviews[-1], ("p1", "main"))
+        self.assertEqual(self.tools.reviews[-1], ("p1", "origin/main"))
         self.assertEqual([n["summary"] for n in self.tools.review_notes], ["Look", "PR-level: b.py:9 Elsewhere"])
         self.assertIn("Loaded 2 note(s)", text)
 
@@ -732,7 +822,7 @@ class Review(Case):
 
     def test_a_finished_run_opens_its_own_review(self):
         self.finished()
-        self.assertEqual(self.tools.reviews, [("p1", "main")])
+        self.assertEqual(self.tools.reviews, [("p1", "origin/main")])
 
     def test_a_review_that_wont_open_leaves_the_run_delivered(self):
         def fails(pane, work, base):

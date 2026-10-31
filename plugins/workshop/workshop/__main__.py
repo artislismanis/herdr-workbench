@@ -1,8 +1,9 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | review <key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> | review <key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -17,7 +18,7 @@ from .engine import PREFIX, STOPS, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
 from .shell import ToolError, run, run_json
-from .sources import Source, make_source
+from .sources import PullRequestSource, Source, make_source
 from .stats import stats
 from .store import Run, Store
 from .throttle import Throttle, usage_path
@@ -25,7 +26,7 @@ from .tools import Tools
 
 
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "review": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "review": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 def config_path() -> Path:
@@ -41,7 +42,11 @@ def state_root() -> Path:
 
 
 def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
-    return lambda run: make_source(run.repo, cfg["repos"][run.repo], cfg.get("jira", {}))
+    def find(run: Run) -> Source:
+        repo = cfg["repos"][run.repo]
+        return PullRequestSource(Path(repo["path"]).expanduser()) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
+
+    return find
 
 
 def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bool = False, restart: bool = False) -> Run:
@@ -49,6 +54,27 @@ def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bo
     source = make_source(name, repo, cfg.get("jira", {}))
     path = Path(repo["path"]).expanduser()
     return engine.start(name, key, path, repo.get("base", "main"), load(repo.get("pipeline", "ticket")), source, override, restart, repo.get("commands"))
+
+
+def repo_of(cfg: dict[str, Any], url: str) -> tuple[str, str]:
+    """The configured repo and number of a PR. Matched on origin, because a repo's table can have any name."""
+    found = re.fullmatch(r"https://[^/]+/([^/]+)/([^/]+)/pull/(\d+)/?", url)
+    if found is None:
+        raise KeyError(f"not a PR link: {url}")
+    for name, repo in cfg["repos"].items():
+        path = Path(repo["path"]).expanduser()
+        if path.is_dir() and re.split("[:/]", run("git", "remote", "get-url", "origin", cwd=path).strip().removesuffix(".git"))[-2:] == [found[1], found[2]]:
+            return name, found[3]
+    raise KeyError(f"{found[1]}/{found[2]} needs a [repos] table with its path before workshop can review its PRs")
+
+
+def begin_review(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
+    name, number = repo_of(cfg, url)
+    repo = cfg["repos"][name]
+    path = Path(repo["path"]).expanduser()
+    source = PullRequestSource(path)
+    key = f"pr-{number}"
+    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("review_pipeline", "review")), source, commands=repo.get("commands"), pr=url.rstrip("/"))
 
 
 def advance_all(engine: Engine) -> None:
@@ -248,6 +274,8 @@ def main(argv: list[str]) -> int:
                 print(engine.explain(engine.store.find(argv[1])))
             case "resume":
                 locked(root, lambda: print(engine.explain(engine.resume(engine.store.find(argv[1])))))
+            case "pr":
+                locked(root, lambda: print(engine.explain(begin_review(engine, cfg, argv[1]))))
             case "review":
                 locked(root, lambda: print(engine.review(engine.store.find(argv[1]))))
             case "finish":
