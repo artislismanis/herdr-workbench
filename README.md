@@ -15,6 +15,8 @@ Config and glue for a terminal workbench built on [herdr](https://github.com/her
 | herdr's Claude integration | `herdr integration install claude`: a hook that lets herdr resume Claude sessions after a server restart | Installed if missing or not current |
 | `~/.config/herdr/bin/wt-remove-current` | Removes the focused pane's worktree after a Y/n, and closes its workspace | Refreshed if it drifts |
 | herdr's worktrunk plugin | [herdr-worktrunk](https://github.com/devashish2203/herdr-worktrunk) at the commit in `pins` | Installed if missing or at another commit |
+| herdr's workshop plugin | `plugins/workshop`, linked with `herdr plugin link`, so it moves with this checkout | Linked if missing or linked to another checkout |
+| `~/.local/bin/workshop` | Symlink to the plugin's command: `workshop doctor`, `workshop start` and so on | Repointed if it drifts |
 
 | Key, after herdr's prefix | Does |
 |---|---|

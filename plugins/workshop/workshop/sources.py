@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from .guard import Change, check
 from .shell import run, run_json
 
 
@@ -28,6 +29,37 @@ class Source(Protocol):
     def claim(self, key: str) -> None: ...
     def report(self, key: str, text: str) -> None: ...
     def finish(self, key: str) -> None: ...
+    def guard(self, key: str) -> str: ...
+
+
+GITHUB_HISTORY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      createdAt lastEditedAt
+      author { login __typename }
+      editor { login __typename }
+      blockedBy(first: 20) { nodes { number state } }
+      comments(last: 100) { nodes {
+        createdAt lastEditedAt
+        author { login __typename }
+        editor { login __typename }
+      } }
+      timelineItems(last: 100, itemTypes: [LABELED_EVENT, RENAMED_TITLE_EVENT]) { nodes {
+        __typename
+        ... on LabeledEvent { createdAt label { name } actor { login __typename } }
+        ... on RenamedTitleEvent { createdAt actor { login __typename } }
+      } }
+    }
+  }
+}
+"""
+
+
+def _gh_change(at: str | None, who: dict[str, str] | None) -> list[Change]:
+    if not at or not who:
+        return []
+    return [Change(at, who["login"], who["__typename"] != "Bot")]
 
 
 class GitHubSource:
@@ -57,6 +89,27 @@ class GitHubSource:
 
     def finish(self, key: str) -> None:
         pass
+
+    def guard(self, key: str) -> str:
+        repo = run_json("gh", "repo", "view", "--json", "owner,name", cwd=self.repo)
+        fields = ["-F", f"owner={repo['owner']['login']}", "-F", f"name={repo['name']}", "-F", f"number={key}"]
+        issue = run_json("gh", "api", "graphql", "-f", f"query={GITHUB_HISTORY}", *fields, cwd=self.repo)
+        issue = issue["data"]["repository"]["issue"]
+        me = run("gh", "api", "user", "--jq", ".login", cwd=self.repo).strip()
+        open_blockers = [str(b["number"]) for b in issue["blockedBy"]["nodes"] if b["state"] == "OPEN"]
+        if open_blockers:
+            return f"blocked by #{', #'.join(open_blockers)}."
+        changes = _gh_change(issue["createdAt"], issue["author"]) + _gh_change(issue["lastEditedAt"], issue["editor"])
+        for comment in issue["comments"]["nodes"]:
+            changes += _gh_change(comment["createdAt"], comment["author"])
+            changes += _gh_change(comment["lastEditedAt"], comment["editor"])
+        overrides = []
+        for item in issue["timelineItems"]["nodes"]:
+            if item["__typename"] == "RenamedTitleEvent":
+                changes += _gh_change(item["createdAt"], item["actor"])
+            elif item["label"]["name"] == f"{self.label}-override" and item["actor"]["login"] == me:
+                overrides.append(item["createdAt"])  # someone else's label counts for nothing
+        return check(changes, me, overrides)
 
 
 class JiraSource:
@@ -111,6 +164,45 @@ class JiraSource:
     def finish(self, key: str) -> None:
         pass
 
+    def _history(self, key: str) -> list[dict[str, Any]]:
+        entries, start = [], 0
+        while True:
+            page = self._call("GET", f"issue/{key}/changelog?startAt={start}&maxResults=100")
+            entries += page["values"]
+            start += len(page["values"])
+            if page.get("isLast", True) or not page["values"]:
+                return entries
+
+    def guard(self, key: str) -> str:
+        me = self._call("GET", "myself")["accountId"]
+        f = self._call("GET", f"issue/{key}?fields=creator,created,comment,issuelinks")["fields"]
+        blockers = [
+            link["inwardIssue"]["key"]
+            for link in f.get("issuelinks", [])
+            if link["type"]["inward"] == "is blocked by"
+            and "inwardIssue" in link
+            and link["inwardIssue"]["fields"]["status"]["statusCategory"]["key"] != "done"
+        ]
+        if blockers:
+            return f"blocked by {', '.join(blockers)}."
+
+        def person(user: dict[str, str]) -> tuple[str, bool]:
+            return user["accountId"], user.get("accountType") != "app"  # automation and apps don't count
+
+        changes = [Change(f["created"], *person(f["creator"]))]
+        for comment in f["comment"]["comments"]:
+            changes.append(Change(comment["created"], *person(comment["author"])))
+            changes.append(Change(comment["updated"], *person(comment["updateAuthor"])))
+        overrides = []
+        for entry in self._history(key):
+            for item in entry["items"]:
+                if item["field"] in ("description", "summary"):
+                    changes.append(Change(entry["created"], *person(entry["author"])))
+                elif item["field"] == "labels" and f"{self.label}-override" in (item.get("toString") or "").split():
+                    if entry["author"]["accountId"] == me:  # someone else's label counts for nothing
+                        overrides.append(entry["created"])
+        return check(changes, me, overrides)
+
 
 class MarkdownSource:
     """Intent files in a folder. The first heading is the title."""
@@ -144,6 +236,9 @@ class MarkdownSource:
         done = self.folder / "done"
         done.mkdir(exist_ok=True)
         shutil.move(self._claimed(key), done / f"{key}.md")
+
+    def guard(self, key: str) -> str:
+        return ""  # local files you put there yourself
 
 
 def make_source(name: str, repo: dict[str, Any], jira: dict[str, str]) -> Source:

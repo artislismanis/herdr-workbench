@@ -17,6 +17,7 @@ from workshop.tools import Tools  # noqa: E402
 class FakeSource:
     def __init__(self):
         self.claimed, self.reports, self.finished = [], [], []
+        self.guard_reason = ""
 
     def get(self, key):
         return Ticket(key, "Title", "Body")
@@ -29,6 +30,9 @@ class FakeSource:
 
     def finish(self, key):
         self.finished.append(key)
+
+    def guard(self, key):
+        return self.guard_reason
 
 
 class FakeTools:
@@ -251,6 +255,21 @@ class Parking(Case):
         run = self.finish_agent(run, "ws-de-1-verify-1", "verify", "VERDICT: PASS\n")
         self.assertIn("changed nothing", run.reason)
         self.assertEqual(self.tools.pushes, 0)
+
+
+class Guard(Case):
+    def test_a_colleagues_edit_stops_the_ticket_before_it_is_claimed(self):
+        self.source.guard_reason = "last changed by bob"
+        with self.assertRaisesRegex(Park, "bob"):
+            self.start()
+        self.assertEqual(self.source.claimed, [])
+
+    def test_an_explicit_override_runs_it_and_is_logged(self):
+        self.source.guard_reason = "last changed by bob"
+        self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source, override=True)
+        self.assertEqual(self.source.claimed, ["DE-1"])
+        run = self.engine.store.find("DE-1")
+        self.assertTrue(self.engine.store.events(run)[0]["override"])
 
 
 class Rework(Case):

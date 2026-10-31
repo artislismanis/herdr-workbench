@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Helpers sourced by install.sh. Every write goes through install_file,
-# ensure_top_block or ensure_bottom_block, so --dry-run and --check cover all
-# of them.
+# ensure_symlink, ensure_top_block or ensure_bottom_block, so --dry-run and
+# --check cover all of them.
 
 if [ -t 1 ]; then
   C_DIM=$'\033[2m' C_GRN=$'\033[32m' C_YLW=$'\033[33m' C_RED=$'\033[31m' C_RST=$'\033[0m'
@@ -46,6 +46,24 @@ install_file() {
   tmp="$(mktemp "${TMPDIR:-/tmp}/herdr-workbench.XXXXXX")"
   cp "$src" "$tmp"
   _apply "$tmp" "$dst" "$mode"
+}
+
+# ensure_symlink <target> <dst>: dst is ours; repoint it whenever it drifts.
+ensure_symlink() {
+  local target="$1" dst="$2"
+  if [ "$(readlink "$dst")" = "$target" ]; then
+    skip "$dst up to date"
+    return 0
+  fi
+  case "$MODE" in
+    check)   DRIFT=$((DRIFT + 1)); warn "$dst doesn't link to the repo" ;;
+    dry-run) log "${C_DIM}  would link $dst${C_RST}" ;;
+    install)
+      mkdir -p "$(dirname "$dst")"
+      ln -sfn "$target" "$dst"
+      ok "linked $dst"
+      ;;
+  esac
 }
 
 # ensure_top_block <marker> <src> <dst>: dst is shared with its owner. Keep our

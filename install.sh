@@ -22,6 +22,7 @@ HERDR_PLUGINS="$HOME/.config/herdr/plugins"
 HUNKDIFF_CONFIG="$HERDR_PLUGINS/config/jhochenbaum.hunkdiff/config.toml"
 HUNK_CONFIG="$HOME/.config/hunk/config.toml"
 HUNK_SKILL="$CLAUDE_DIR/skills/hunk-review/SKILL.md"
+WORKSHOP_CLI="$HOME/.local/bin/workshop"
 
 usage() {
   cat <<USAGE
@@ -49,6 +50,8 @@ rmdir --ignore-fail-on-non-empty "$HERDR_BIN" 2>/dev/null || true
 herdr plugin uninstall worktrunk 2>/dev/null || true
 herdr plugin uninstall jhochenbaum.hunkdiff 2>/dev/null || true
 herdr plugin uninstall annotate 2>/dev/null || true
+herdr plugin uninstall workshop 2>/dev/null || true
+rm -f "$WORKSHOP_CLI"
 rm -f "$HUNKDIFF_CONFIG"
 rm -rf "$(dirname "$HUNK_SKILL")"
 # Strips only our block; your own hunk settings below it stay.
@@ -105,8 +108,24 @@ _ensure_plugin() {
   esac
 }
 
+# Linked, so the plugin moves with this checkout. herdr stores the resolved path.
+_ensure_workshop() {
+  local dir
+  dir="$(cd "$REPO_ROOT/plugins/workshop" && pwd -P)"
+  if grep -qF "[local:$dir]" <<<"$(herdr plugin list --plugin workshop)"; then
+    skip "workshop plugin linked"
+  else
+    case "$MODE" in
+      check)   DRIFT=$((DRIFT + 1)); warn "workshop plugin isn't linked to this repo" ;;
+      dry-run) log "${C_DIM}  would link the workshop plugin${C_RST}" ;;
+      install) herdr plugin link "$dir" >/dev/null; ok "linked the workshop plugin" ;;
+    esac
+  fi
+  ensure_symlink "$dir/bin/workshop" "$WORKSHOP_CLI"
+}
+
 if ! command -v herdr >/dev/null 2>&1; then
-  warn "herdr not installed; skipping its config, skill, Claude integration and worktrunk plugin."
+  warn "herdr not installed; skipping its config, skill, Claude integration, plugins and workshop."
 else
   ensure_bottom_block herdr-workbench:herdr "$REPO_ROOT/herdr/config.toml" "$HERDR_CONFIG" _herdr_config_ok
   # The skill bundled with the binary, so it always matches the pinned herdr.
@@ -143,6 +162,7 @@ else
   sed "s|__HOME__|$HOME|" "$REPO_ROOT/herdr/hunkdiff.toml" >"$hunkdiff_config"
   install_file "$hunkdiff_config" "$HUNKDIFF_CONFIG" 644
   rm -f "$hunkdiff_config"
+  _ensure_workshop
 fi
 
 if [ "$MODE" = check ] && [ "$DRIFT" -gt 0 ]; then

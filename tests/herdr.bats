@@ -29,6 +29,9 @@ case "$1 ${2:-}" in
       [ -f "$HOME/.tui-download-fails" ] || { d="$HOME/.config/herdr/plugins/github-installations/annotate-1/2-0/checkout/bin"; mkdir -p "$d"; touch "$d/plannotator-tui.exe"; }
     esac ;;
   "plugin uninstall") rm -f "$HOME/.plugin" ;;
+  "plugin link")
+    echo "- workshop (Workshop) enabled [local:$(cd "$3" && pwd -P)]" >>"$HOME/.plugin"
+    echo "$3" >>"$HOME/.plugin-links" ;;
 esac
 STUB
   cat >"$BATS_TEST_TMPDIR/bin/hunk" <<'STUB'
@@ -137,6 +140,48 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   echo "$stderr" | grep -q "worktrunk plugin isn't at"
 }
 
+@test "workshop is linked once and runs from ~/.local/bin" {
+  install
+  [ "$status" -eq 0 ]
+  grep -qF "[local:$REPO_ROOT/plugins/workshop]" "$HOME/.plugin"
+  "$HOME/.local/bin/workshop" --help 2>&1 | grep -q '^Usage: workshop'
+  install
+  [ "$(wc -l <"$HOME/.plugin-links")" -eq 1 ]
+  ! echo "$output" | grep -q "✓ linked"
+}
+
+@test "workshop without a config says so, and advance stays quiet" {
+  install
+  run --separate-stderr "$HOME/.local/bin/workshop" doctor
+  [ "$status" -eq 1 ]
+  echo "$stderr" | grep -q "no config at"
+  run "$HOME/.local/bin/workshop" advance
+  [ "$status" -eq 0 ]
+}
+
+@test "--check fails when workshop isn't linked to this repo, and install repoints it" {
+  install
+  sed -i "s|\[local:.*|[local:/old/checkout]|" "$HOME/.plugin"
+  install --check
+  [ "$status" -ne 0 ]
+  echo "$stderr" | grep -q "workshop plugin isn't linked"
+  install
+  grep -qF "[local:$REPO_ROOT/plugins/workshop]" "$HOME/.plugin"
+}
+
+@test "--check fails when the workshop command is missing or points elsewhere, and install repoints it" {
+  install
+  rm "$HOME/.local/bin/workshop"
+  install --check
+  [ "$status" -ne 0 ]
+  echo "$stderr" | grep -q "workshop doesn't link to the repo"
+  ln -s /old/checkout/workshop "$HOME/.local/bin/workshop"
+  install --check
+  [ "$status" -ne 0 ]
+  install
+  [ "$(readlink "$HOME/.local/bin/workshop")" = "$REPO_ROOT/plugins/workshop/bin/workshop" ]
+}
+
 @test "--dry-run runs no integration install" {
   install --dry-run
   [ "$status" -eq 0 ]
@@ -144,6 +189,9 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   [ ! -e "$HOME/.claude-integration" ]
   echo "$output" | grep -q "would install devashish2203/herdr-worktrunk"
   [ ! -e "$HOME/.plugin" ]
+  echo "$output" | grep -q "would link the workshop plugin"
+  echo "$output" | grep -q "would link $HOME/.local/bin/workshop"
+  [ ! -L "$HOME/.local/bin/workshop" ]
 }
 
 @test "without herdr the rest still installs" {
@@ -165,6 +213,7 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   [ ! -e "$HOME/.claude-integration" ]
   [ ! -e "$HOME/.config/herdr/bin" ]
   [ ! -e "$HOME/.plugin" ]
+  [ ! -L "$HOME/.local/bin/workshop" ]
   [ ! -e "$HOME/.claude/skills/hunk-review" ]
   [ ! -e "$HOME/.config/herdr/plugins/config/jhochenbaum.hunkdiff/config.toml" ]
   ! grep -q herdr-workbench "$HOME/.config/hunk/config.toml"
