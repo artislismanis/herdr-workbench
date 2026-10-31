@@ -157,6 +157,11 @@ class Drill(unittest.TestCase):
         self.assertIn("A very long title", joined(lines))
         self.assertEqual(joined(lines[:9]).count("title"), 8)
 
+    def test_a_stopped_step_shows_its_report(self):
+        lines = drill(run(status="parked"), [], "", "", "/f", 80, stopped=("verify.md", "## Needs you\nIs this right?"))
+        self.assertIn("verify.md", joined(lines))
+        self.assertIn("Is this right?", joined(lines))
+
     def test_unpriced_cost_is_labelled(self):
         self.assertIn("unpriced", joined(drill(run(), [event("spent", step="plan", minutes=1.0, usd=None)], "", "", "/f", 80)))
 
@@ -203,8 +208,11 @@ class PRs(unittest.TestCase):
 class Screen:
     """Enough of a curses window to draw on."""
 
+    def __init__(self, width=120):
+        self.width = width
+
     def getmaxyx(self):
-        return 30, 150
+        return 30, self.width
 
     def erase(self):
         pass
@@ -230,8 +238,8 @@ class Keys(unittest.TestCase):
         engine.throttle.snapshot.return_value = {"5h": 10}
         self.board = Board(engine, {"repos": {}}, lambda: 500.0)
 
-    def drawn(self):
-        self.board.draw(Screen(), collections.defaultdict(int))
+    def drawn(self, width=120):
+        self.board.draw(Screen(width), collections.defaultdict(int))
 
     def spot(self, wanted):
         return next((left, top) for top, left, _, action in self.board.regions if action == wanted)
@@ -393,7 +401,7 @@ class Keys(unittest.TestCase):
         path = self.reported()
         self.drawn()
         x, y = self.spot(("#file", path))
-        self.board.mouse(x + 3, y, curses.BUTTON1_PRESSED, 149)
+        self.board.mouse(x + 3, y, curses.BUTTON1_PRESSED, 119)
         self.assertEqual(self.board.viewing, path)
 
     def test_y_copies_the_view(self):
@@ -445,37 +453,106 @@ class Mouse(Keys):
         self.board.press(10)
         self.drawn()
         x, y = self.spot("tab:2")
-        self.board.mouse(x + 1, y, curses.BUTTON1_PRESSED, 149)
+        self.board.mouse(x + 1, y, curses.BUTTON1_PRESSED, 119)
         self.assertEqual((self.board.tab, self.board.open), (2, None))
 
     def test_clicking_a_row_opens_it(self):
         self.drawn()
         x, y = self.spot(("r", "2"))
-        self.board.mouse(x + 40, y, curses.BUTTON1_PRESSED, 149)
+        self.board.mouse(x + 40, y, curses.BUTTON1_PRESSED, 119)
         self.assertEqual(self.board.open, ("r", "2"))
 
     def test_a_button_does_what_its_key_does(self):
         self.board.press(10)
         self.drawn()
         x, y = self.spot("key:27")
-        self.board.mouse(x, y, curses.BUTTON1_PRESSED, 149)
+        self.board.mouse(x, y, curses.BUTTON1_PRESSED, 119)
         self.assertIsNone(self.board.open)
 
     def test_the_quit_button_leaves(self):
         self.drawn()
         x, y = self.spot(f"key:{ord('q')}")
-        self.assertFalse(self.board.mouse(x, y, curses.BUTTON1_PRESSED, 149))
+        self.assertFalse(self.board.mouse(x, y, curses.BUTTON1_PRESSED, 119))
 
     def test_clicking_nothing_does_nothing(self):
         self.drawn()
-        self.assertTrue(self.board.mouse(140, 20, curses.BUTTON1_PRESSED, 149))
+        self.assertTrue(self.board.mouse(100, 20, curses.BUTTON1_PRESSED, 119))
         self.assertIsNone(self.board.open)
 
     def test_the_wheel_moves_through_rows(self):
-        self.board.mouse(0, 0, curses.BUTTON5_PRESSED, 149)
+        self.board.mouse(0, 0, curses.BUTTON5_PRESSED, 119)
         self.assertEqual(self.board.selected(self.board.lines(149)), ("r", "2"))
-        self.board.mouse(0, 0, curses.BUTTON4_PRESSED, 149)
+        self.board.mouse(0, 0, curses.BUTTON4_PRESSED, 119)
         self.assertEqual(self.board.selected(self.board.lines(149)), ("r", "1"))
+
+
+class Panel(Mouse):
+    def wide(self):
+        self.drawn(170)
+        return 169
+
+    def test_the_selected_item_shows_beside_the_list(self):
+        self.assertIn("Steps", joined(self.board.panel(self.wide())))
+
+    def test_a_stopped_run_explains_itself_with_no_click(self):
+        self.store.save(run("1", "parked", pane="w1:p1", reason="Stuck"))
+        (self.store.files(run("1")) / "plan.md").write_text("The real reason\n", encoding="utf-8")
+        self.board.seen = None
+        self.board.reload()
+        self.assertIn("The real reason", joined(self.board.panel(self.wide())))
+
+    def test_a_narrow_window_keeps_one_column(self):
+        self.assertFalse(self.board.panelled(120))
+
+    def test_backlog_has_no_panel(self):
+        self.board.press(curses.KEY_BTAB)
+        self.assertFalse(self.board.panelled(169))
+
+    def test_a_click_selects_rather_than_opens(self):
+        width = self.wide()
+        x, y = self.spot(("r", "2"))
+        self.board.mouse(x + 5, y, curses.BUTTON1_PRESSED, width)
+        self.assertEqual((self.board.picked, self.board.open), (("r", "2"), None))
+
+    def test_a_stopped_run_has_its_buttons_in_the_panel(self):
+        self.store.save(run("1", "parked", pane="w1:p1"))
+        self.board.seen = None
+        self.board.reload()
+        width = self.wide()
+        self.assertIn("d drop", self.board.panel(width)[0].text)
+        spots = [region for region in self.board.regions if region[3] == f"key:{ord('d')}" and region[0] < 5]
+        self.board.mouse(spots[0][1], spots[0][0], curses.BUTTON1_PRESSED, width)
+        self.assertEqual(self.board.asking.command, "drop")
+
+    def test_a_report_shows_in_the_panel_and_esc_closes_it(self):
+        path = self.store.files(run("1")) / "plan.md"
+        path.write_text("The plan\n", encoding="utf-8")
+        width = self.wide()
+        x, y = self.spot(("#file", str(path)))
+        self.board.mouse(x, y, curses.BUTTON1_PRESSED, width)
+        self.assertIn("The plan", joined(self.board.panel(width)))
+        self.assertIn("r/1", joined(self.board.lines(width)))
+        self.board.press(27, width)
+        self.assertEqual(self.board.viewing, "")
+
+    def test_tab_leaves_the_report(self):
+        self.board.viewing = "x"
+        self.board.press(ord("\t"), 169)
+        self.assertEqual(self.board.viewing, "")
+
+    def test_moving_on_leaves_the_report(self):
+        self.board.viewing = "x"
+        self.board.press(curses.KEY_DOWN, 169)
+        self.assertEqual(self.board.viewing, "")
+
+    def test_the_wheel_over_the_panel_scrolls_it(self):
+        width = self.wide()
+        self.board.mouse(160, 10, curses.BUTTON5_PRESSED, width)
+        self.assertEqual((self.board.side, self.board.selected(self.board.lines(width))), (3, ("r", "1")))
+
+    def test_y_copies_the_panel(self):
+        self.board.press(ord("y"), 169)
+        self.assertIn("Steps", self.tools.copy.call_args.args[0])
 
 
 class OpenBoard(unittest.TestCase):

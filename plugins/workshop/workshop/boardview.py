@@ -22,6 +22,7 @@ SYMBOLS = {True: "●", False: "○"}  # with colour, so it reads in any theme
 STAGE_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
 REVIEW_MARKS = {"APPROVED": ("✓", "green"), "CHANGES_REQUESTED": ("✗", "red")}
 MAX_LINES = 2000
+STOP_LINES = 30  # of a stopped step's report, in the detail. The whole file is a click away
 RECENT = 10
 LANDED = 5
 BAR = 30
@@ -283,11 +284,12 @@ def document(path: str, text: str, width: int) -> list[Line]:
     return lines
 
 
-def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = ()) -> list[Line]:
+def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", "")) -> list[Line]:
     lines = [*wrapped(f"{name(run)}  {title}", width, "bold"), Line([Span(f" {run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}")])]
     lines += wrapped(run.reason, width, "red" if run.status == "parked" else "yellow")
     lines += wrapped(f"Then: {next_action}" if next_action else "", width)
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
     lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
     shown = [Line([Span("  " + clean(path.rsplit("/", 1)[-1]))], path=path) for path in reports]
-    return [*lines, *wrapped(f"Files: {files}", width, "dim"), *([plain(), rule("Reports", width), *shown] if shown else []), plain(), rule("Steps", width), *timeline(run, events), plain(), rule("Log", width), *recent(events, 12)]
+    why = [plain(), rule(stopped[0], width), *document("", stopped[1], width)[2:2 + STOP_LINES]] if stopped[0] else []
+    return [*lines, *why, *wrapped(f"Files: {files}", width, "dim"), *([plain(), rule("Reports", width), *shown] if shown else []), plain(), rule("Steps", width), *timeline(run, events), plain(), rule("Log", width), *recent(events, 12)]
