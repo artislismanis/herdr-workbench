@@ -138,6 +138,12 @@ class Drill(unittest.TestCase):
         self.assertTrue(all(len(t) <= 40 for t in lines[2:6]))
         self.assertIn("Then: workshop resume 1", lines)
 
+    def test_long_text_wraps_rather_than_cuts(self):
+        lines = drill(run(pr="https://github.com/o/r/pull/" + "1" * 80), [], "A very long title " * 8, "", "/f", 40)
+        self.assertTrue(all(columns(line.text) <= 40 for line in lines[:12]))
+        self.assertIn("A very long title", joined(lines))
+        self.assertEqual(joined(lines[:9]).count("title"), 8)
+
     def test_unpriced_cost_is_labelled(self):
         self.assertIn("unpriced", joined(drill(run(), [event("spent", step="plan", minutes=1.0, usd=None)], "", "", "/f", 80)))
 
@@ -168,6 +174,12 @@ class PRs(unittest.TestCase):
     def test_shows_a_failed_poll_and_a_first_run(self):
         self.assertEqual(pulls({"prs": {"error": "gh failed", "items": []}})[0].style, "red")
         self.assertIn("Press r", pulls({})[0].text)
+
+    def test_the_detail_wraps_a_long_title_and_url(self):
+        lines = pull(pr(url="https://x.test/" + "a" * 80, title="Long words here " * 10), 40)
+        self.assertTrue(all(columns(line.text) <= 40 for line in lines))
+        self.assertEqual(joined(lines).count("words"), 10)
+        self.assertIn("a" * 20, joined(lines))
 
     def test_the_detail_lists_reviews_and_who_is_asked(self):
         lines = texts(pull(pr(reviews={"sam": "CHANGES_REQUESTED"}, waiting_on=["alex"])))

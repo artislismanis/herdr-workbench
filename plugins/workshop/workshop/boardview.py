@@ -59,6 +59,11 @@ def plain(text: str = "", style: str = "") -> Line:
     return Line([Span(text, style)])
 
 
+def wrapped(text: str, width: int, style: str = "") -> list[Line]:
+    """For the detail views: lists stay one line per row, so the full text lives here."""
+    return [plain(part, style) for part in textwrap.wrap(clean(text), max(width, 20), break_on_hyphens=False)]
+
+
 def clean(text: str) -> str:
     """Ticket text comes from other people, so nothing in it reaches the terminal as a control."""
     return "".join(c if c.isprintable() else " " for c in text)
@@ -231,9 +236,8 @@ def pulls(snapshot: dict[str, Any], width: int = 120) -> list[Line]:
 
 def pull(pr: dict[str, Any], width: int = 120) -> list[Line]:
     style = pr_style(pr)
-    lines = [Line([Span(f"{SYMBOLS[pr['mine']]} ", style), Span(clean(f"{pr['repo']}#{pr['number']}  {pr['title']}"), "bold")]), plain(pr["url"], "dim"), Line([Span(f" {pr['state']} ", f"on-{style}"), Span(f"  by {pr['author']}")])]
-    if details := facts(pr):
-        lines.append(plain(details))
+    lines = [*wrapped(f"{SYMBOLS[pr['mine']]} {pr['repo']}#{pr['number']}  {pr['title']}", width, "bold"), *wrapped(pr["url"], width, "dim"), Line([Span(f" {pr['state']} ", f"on-{style}"), Span(f"  by {pr['author']}")])]
+    lines += wrapped(facts(pr), width)
     lines += [plain(), rule("Reviews", width)]
     for who, state in pr["reviews"].items():
         mark, colour = REVIEW_MARKS.get(state, ("•", "dim"))
@@ -265,13 +269,9 @@ def timeline(run: Run, events: list[dict[str, Any]]) -> list[Line]:
 
 
 def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int) -> list[Line]:
-    lines = [Line([Span(clean(f"{name(run)}  {title}"), "bold")]), Line([Span(f" {run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}")])]
-    if run.reason:
-        lines += [plain(text, "red" if run.status == "parked" else "yellow") for text in textwrap.wrap(clean(run.reason), max(width - 2, 20))]
-    if next_action:
-        lines.append(plain(f"Then: {next_action}"))
-    if run.held:
-        lines.append(plain(f"Held: {run.held}", "yellow"))
-    if run.pr:
-        lines.append(plain(f"PR: {run.pr}"))
-    return [*lines, plain(f"Files: {files}", "dim"), plain(), rule("Steps", width), *timeline(run, events), plain(), rule("Log", width), *recent(events, 12)]
+    lines = [*wrapped(f"{name(run)}  {title}", width, "bold"), Line([Span(f" {run.status} ", f"on-{COLOURS[run.status]}"), Span(f"  at {step_id(run)}")])]
+    lines += wrapped(run.reason, width, "red" if run.status == "parked" else "yellow")
+    lines += wrapped(f"Then: {next_action}" if next_action else "", width)
+    lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
+    lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
+    return [*lines, *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Steps", width), *timeline(run, events), plain(), rule("Log", width), *recent(events, 12)]
