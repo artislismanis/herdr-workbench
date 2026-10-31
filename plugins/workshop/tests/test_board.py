@@ -108,7 +108,8 @@ class Backlog(unittest.TestCase):
         self.assertTrue(any("r/2" in line and "Ready" in line for line in lines))
 
     def test_shows_why_a_queued_ticket_was_skipped(self):
-        self.assertIn("skipped: last edited", joined(backlog(self.snapshot, {"r/3": "last edited by them"}, lambda repo, key: False, WIDE)))
+        for width in (WIDE, 60):
+            self.assertIn("skipped: last edited", joined(backlog(self.snapshot, {"r/3": "last edited by them"}, lambda repo, key: False, width)))
 
     def test_shows_a_failed_source(self):
         snapshot = {"repos": {"r": {"polled_at": 1.0, "error": "gh failed", "items": []}}}

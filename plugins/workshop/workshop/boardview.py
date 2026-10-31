@@ -181,7 +181,9 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
     if width < KANBAN_WIDTH:
         for column, items in found.items():
             lines.append(rule(f"{column.title()} {len(items)}", width))
-            lines += [plain(f"  {cell(ticket, 22)} {clean(item['title'])}") for ticket, item in items]
+            for ticket, item in items:
+                why = f"  skipped: {skipped[ticket]}" if ticket in skipped else ""
+                lines.append(plain(f"  {cell(ticket, 22)} {clean(item['title'])}{clean(why)}", "yellow" if why else ""))
         return lines
     size = (width - 3) // len(COLUMNS) - 1
     lines.append(Line([part for column, items in found.items() for part in (Span(" " + cell(f"{column.title()} {len(items)}", size - 1), f"on-{STAGE_COLOURS[column]}"), Span(" "))]))
