@@ -121,6 +121,12 @@ class Outside(Case):
             self.at(now)
             self.assertEqual(self.throttle.working(), working, now)
 
+    def test_days_can_be_set(self):
+        sunday = datetime(2026, 11, 8, 10).timestamp()
+        days = {"work_days": ["sun", "mon"]}
+        self.assertTrue(Throttle(self.path, days, lambda: sunday).working())
+        self.assertFalse(Throttle(self.path, days, lambda: NOW + 86400).working())
+
     def test_hours_can_be_set(self):
         self.assertTrue(Throttle(self.path, {"work_hours": [18, 20]}, lambda: EVENING).working())
 

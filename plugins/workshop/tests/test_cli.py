@@ -139,6 +139,37 @@ class Preparing(unittest.TestCase):
         self.assertEqual(call.args[:2], ("r", "prep-7"))
         self.assertTrue(call.kwargs["preparing"])
 
+    def test_words_are_an_idea_that_becomes_a_ticket_first(self):
+        self.source.create.return_value = "12"
+        with mock.patch.object(cli, "make_source") as tickets:
+            tickets.return_value.create.return_value = "12"
+            call = self.begin("Let people greet a team")
+        tickets.return_value.create.assert_called_once_with("Let people greet a team", "Let people greet a team")
+        self.assertEqual(call.args[:2], ("r", "prep-12"))
+
+    def test_a_long_idea_makes_a_short_title(self):
+        with mock.patch.object(cli, "make_source") as tickets:
+            tickets.return_value.create.return_value = "12"
+            self.begin("Greet a team. It should work for any size of team, and read names from a file if asked.")
+        title, body = tickets.return_value.create.call_args.args
+        self.assertEqual(title, "Greet a team")
+        self.assertIn("read names from a file", body)
+
+    def test_an_idea_can_name_its_repo(self):
+        with mock.patch.object(cli, "make_source") as tickets:
+            tickets.return_value.create.return_value = "12"
+            call = self.begin("b/Greet a team", ("a", "b"))
+        self.assertEqual(call.args[0], "b")
+
+    def test_a_jira_key_is_a_ticket_not_an_idea(self):
+        self.assertEqual(self.begin("AB-12").args[1], "prep-AB-12")
+
+    def test_an_idea_with_a_slash_in_it_stays_whole(self):
+        with mock.patch.object(cli, "make_source") as tickets:
+            tickets.return_value.create.return_value = "12"
+            self.begin("Support and/or in filters")
+        self.assertEqual(tickets.return_value.create.call_args.args[0], "Support and/or in filters")
+
     def test_a_bare_number_means_your_only_repo(self):
         self.assertEqual(self.begin("7").args[0], "r")
 

@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | prepare <[repo/]key> | sweep <repo> <name> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -29,6 +29,8 @@ from .tools import Tools
 
 PATIENCE = 60  # seconds a person's command waits for a tick to finish
 DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see the PR.", "COMMENTED": "Commented, see the PR."}
+TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
+TITLE = 72
 EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 # Each command and how many arguments it needs.
 COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
@@ -118,11 +120,16 @@ def begin_reply(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
 
 
 def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
-    name, _, key = ticket.rpartition("/")
+    """A ticket key, or words, which you've just typed, so they become the ticket being prepared."""
+    first, slash, rest = ticket.partition("/")
+    name, key = (first, rest.strip()) if slash and first in cfg["repos"] else ("", ticket.strip())
     if not name:
         if len(cfg["repos"]) != 1:
             raise KeyError(f"say which repo, as repo/key: {', '.join(cfg['repos'])}")
         name = next(iter(cfg["repos"]))
+    if not TICKET_KEY.fullmatch(key):
+        title = re.split(r"(?<=[.!?])\s|\n", key, maxsplit=1)[0].rstrip(".!?")[:TITLE]
+        key = make_source(name, cfg["repos"][name], cfg.get("jira", {})).create(title, key)
     if engine.store.exists(name, key):
         raise KeyError(f"{key} is already in delivery, so preparing it would change what's being built")
     repo = cfg["repos"][name]

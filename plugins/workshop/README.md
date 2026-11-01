@@ -22,7 +22,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop explain <key>` | One run in detail |
 | `workshop resume <key>` | Tries a parked run's stopped step again |
 | `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff. A run does this itself when its PR is ready |
-| `workshop prepare <[repo/]key>` | Grills you on a ticket, then writes what you agreed to it: see Backlog |
+| `workshop prepare <[repo/]key or idea>` | Grills you on a ticket, then writes what you agreed to it. Words create the ticket first: see Backlog |
 | `workshop sweep <repo> <name>` | Runs a sweep now: see Maintain |
 | `workshop finish` | Ends a review from its workspace, on `prefix+shift+u`: see Board |
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
@@ -112,7 +112,7 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 
 The board's 5h and 7d meters show whether you'd last until the reset at an even pace, not how much is used: 50% used with 15 minutes left is green. Amber is more than 10 points ahead of that pace, and red more than 25, or the limit reached. The cpu and ram meters below them come from `/proc`: ram counts what's available, which includes cache that can be reclaimed, and peaks last as long as the board stays open.
 
-`[throttle]` paces work against Claude's limits, using `~/.local/state/claude-usage.json`. On weekdays from 08:00 to 18:00 local time it keeps part of the 5h window for your own use: no new tickets at 80%, no new agent steps at 90%. Out of those hours, and at weekends, nothing is kept back and the 5h window only has to last to its reset. The week always has to last to its reset. Falling behind either pace is a break, never a cheaper model: no new tickets 5 points ahead of an even pace, no new agent steps 15 points ahead, which clears as time passes. Model choices are yours to tune, from `workshop stats`. The status line saves it, and each tick and board refresh updates it from `claude -p /usage`, which costs no tokens and includes use outside herdr. See `config.example.toml`. Running steps always finish. `/usage` prints text for people, so if it can't be read the saved figures stay. Without the file, or with an old one, tickets run one at a time.
+`[throttle]` paces work against Claude's limits, using `~/.local/state/claude-usage.json`. In working hours, by default weekdays from 08:00 to 18:00 local time, set by `work_days` and `work_hours`, it keeps part of the 5h window for your own use: no new tickets at 80%, no new agent steps at 90%. Out of those hours, and at weekends, nothing is kept back and the 5h window only has to last to its reset. The week always has to last to its reset. Falling behind either pace is a break, never a cheaper model: no new tickets 5 points ahead of an even pace, no new agent steps 15 points ahead, which clears as time passes. Model choices are yours to tune, from `workshop stats`. The status line saves it, and each tick and board refresh updates it from `claude -p /usage`, which costs no tokens and includes use outside herdr. See `config.example.toml`. Running steps always finish. `/usage` prints text for people, so if it can't be read the saved figures stay. Without the file, or with an old one, tickets run one at a time.
 
 ## Tickets
 
@@ -175,7 +175,7 @@ A sweep is a run in its own read-only checkout. It proposes tickets to create, c
 
 Each `tick` and `workshop refresh` saves open tickets to `~/.local/state/workshop/board.json`, sorted by label: none is `new`, then `planned`, `designed`, and the delivery label is `queued`. `[backlog]` renames the first two. Claimed tickets leave the list. On Jira the repo's label sets the scope, so a ticket without it doesn't show. A source that fails keeps its last good list and records the error. Polling makes API calls but uses no tokens.
 
-`p` on the Backlog tab, or `workshop prepare <key>`, starts Prepare, which gets a ticket ready before you queue it. It runs in its own read-only checkout, shows on the Delivery tab, and takes no `max_active` slot.
+`p` on the Backlog tab, or `workshop prepare <key>`, starts Prepare, which gets a ticket ready before you queue it. Give it an idea instead of a ticket key and it creates the ticket from your words first, using the first sentence as the title. With several repos, start with `repo/`. It runs in its own read-only checkout, shows on the Delivery tab, and takes no `max_active` slot.
 
 1. A fresh agent grills you on the requirements, one question at a time, in a pane of the `prep-<key>` workspace. `g` on the board goes there. `your turn` means it's waiting for you, which is normal, so there's no time limit.
 2. When you agree, it writes `requirements.md` and stops at a gate. `a` writes it to the ticket and adds `planned`. `x` sends it back with what to change.
