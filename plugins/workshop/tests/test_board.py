@@ -391,7 +391,9 @@ class PRs(unittest.TestCase):
     def test_a_row_says_whose_it_is(self):
         mine, theirs = self.rows(pr("a", mine=True), pr("b"))
         self.assertIn("yours", mine.text)
-        self.assertIn("by them", theirs.text)
+        self.assertIn("them", theirs.text)
+        self.assertEqual(next(span for span in mine.spans if "yours" in span.text).style, "mine")
+        self.assertEqual(next(span for span in theirs.spans if "them" in span.text).style, "others")
 
     def test_the_detail_keeps_status_author_and_reviewer_apart(self):
         lines = pull(pr(state="you approved", move="others", reviews={"me": "APPROVED"}, me="me"), WIDE)
