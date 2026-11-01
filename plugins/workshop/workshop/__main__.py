@@ -276,6 +276,7 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
 
 def finish(engine: Engine, root: Path) -> int:
     """Ends a review from the workspace it happened in. Anything that isn't a delivered run is a plain PR review."""
+    waited(root, lambda: None)  # a run shows done before its notes reach hunk, and whoever is loading them holds the lock
     path = here()
     if replying := next((r for r in engine.store.all() if r.worktree == path and r.replying and engine.review_ready(r) and not r.replied), None):
         return finish_reply(engine, replying, path, root)
