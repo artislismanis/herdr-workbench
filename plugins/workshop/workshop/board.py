@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
+from .boardview import ASK_AGAIN, RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, live, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .review import decisions
 from .store import Run
@@ -158,7 +158,7 @@ class Board:
 
     def detail(self, ref: tuple[str, str] | None, width: int) -> list[Line]:
         if pr := next((p for p in self.pr_items() if ("#pr", p["url"]) == ref), None):
-            return pull(pr, width, self.pull_context(pr, width), self.linked(pr)[0])
+            return pull(pr, width, self.pull_context(pr, width), self.linked(pr))
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:
             return []
@@ -176,9 +176,9 @@ class Board:
         return [{"repo": name, "sweep": sweep, "cadence": cadence, "every": SWEEP_EVERY.get(cadence, 0), "last": seen.get(f"{name}/{sweep}", {}).get("last", 0)} for name, repo in self.cfg["repos"].items() for sweep, cadence in repo.get("sweeps", {}).items()]
 
     def pr_items(self) -> list[dict[str, Any]]:
-        """A draft from delivery is still your self-review, on Delivery, until you let it go."""
+        """A draft from delivery is still your self-review, on Delivery, until you let it go. Other drafts aren't in review, but a run on a PR shows nowhere else."""
         drafts = {r.pr for r in self.runs if self.engine.reviewable(r)}
-        return [p for p in self.snapshot.get("prs", {}).get("items", []) if p["url"] not in drafts]
+        return [p for p in self.snapshot.get("prs", {}).get("items", []) if p["url"] not in drafts and (p["state"] != "draft" or ((run := self.linked(p)) and run.on_a_pr and live(run)))]
 
     def run_of(self, ref: tuple[str, str] | None) -> Run | None:
         """The run behind a row. On a PR, what's working on it now comes before the delivery that made it."""
@@ -186,7 +186,7 @@ class Board:
         return next((r for r in found if r.on_a_pr and not r.landed), found[0] if found else None)
 
     def advice(self, run: Run | None) -> str:
-        """The agent's bottom line, for the row and the top of the detail."""
+        """The agent's bottom line, for the top of the detail."""
         if run is None or not run.with_you:
             return ""
         said = [line.strip(" -*") for line in self.engine.handover(run).splitlines()]
@@ -194,17 +194,16 @@ class Board:
         notes = next((e["notes"] for e in reversed(self.events) if (e["repo"], e["key"], e["type"]) == (run.repo, run.key, "review")), None)
         return ", ".join(part for part in (f"AI: {word}" if word else "", "" if notes is None else f"{notes} note(s)") if part)
 
-    def linked(self, pr: dict[str, Any]) -> tuple[Run | None, str]:
-        run = self.run_of(("#pr", pr["url"]))
-        return run, self.advice(run)
+    def linked(self, pr: dict[str, Any]) -> Run | None:
+        return self.run_of(("#pr", pr["url"]))
 
     def pull_context(self, pr: dict[str, Any], width: int) -> list[Line]:
-        run, advice = self.linked(pr)
+        run = self.linked(pr)
         if run is None:
             return pull_story(pr, None, "", "", "", [], width)
         events = [e for e in self.events if (e["repo"], e["key"]) == (run.repo, run.key)]
         stopped = self.stop_report(run)
-        return pull_story(pr, run, advice, "" if run.replied else self.engine.handover(run), stopped[1], timeline(run, events, self.reports(run), width, ("", "") if run.current and run.current["kind"] == "gate" else stopped, self.earlier), width, self.engine.replies(run) if run.replying and run.with_you else [])
+        return pull_story(pr, run, self.advice(run), "" if run.replied else self.engine.handover(run), stopped[1], timeline(run, events, self.reports(run), width, ("", "") if run.current and run.current["kind"] == "gate" else stopped, self.earlier), width, self.engine.replies(run) if run.replying and run.with_you else [])
 
     def panel(self, width: int) -> list[Line]:
         """The selected item beside the list. Its actions are on the bottom row, as everywhere."""
@@ -556,7 +555,7 @@ class Board:
 
     def counts(self) -> tuple[int, ...]:
         tickets = sum(not self.store.exists(repo, i["key"]) for repo, r in self.snapshot.get("repos", {}).items() for i in r["items"])
-        return tickets, stopped(self.building()), sum(pull_group(p, self.linked(p)[0]) == "Needs you" for p in self.pr_items()), stopped(r for r in self.runs if r.operating)
+        return tickets, stopped(self.building()), sum(pull_group(p, self.linked(p)) == "Needs you" for p in self.pr_items()), stopped(r for r in self.runs if r.operating)
 
     def header(self) -> Line:
         tabs = [part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]

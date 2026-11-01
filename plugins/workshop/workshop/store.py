@@ -10,7 +10,7 @@ from typing import Any
 
 ACTIVE = ("running", "parked")
 SNAPSHOT = "board.json"  # what was last seen on the backlog and PRs
-NAMES = {"waiting": "decide", "parked": "fix"}  # what you do about it, which is what the screen says
+NAMES = {"running": "working", "waiting": "decide", "parked": "fix"}  # what you do about it, which is what the screen says
 
 
 @dataclass
@@ -75,8 +75,7 @@ class Run:
         if self.deployed == "prod" and self.landed == "merged":
             return "in prod"
         finished = "replied" if self.replied else "your turn" if self.with_you else "posted" if self.on_a_pr else "in review"
-        working = "reviewing" if self.reviewing else "replying" if self.replying else "running"
-        return self.landed or self.deployed or (finished if self.status == "done" else "your turn" if self.your_turn else working if self.status == "running" else NAMES[self.status])
+        return self.landed or self.deployed or (finished if self.status == "done" else "your turn" if self.your_turn else NAMES[self.status])
 
     @property
     def on_a_pr(self) -> bool:
