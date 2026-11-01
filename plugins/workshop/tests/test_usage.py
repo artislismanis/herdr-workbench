@@ -46,6 +46,10 @@ class Totals(unittest.TestCase):
         self.assertEqual(totals(rows, [], now, 1)["cpu"], 10)
         self.assertEqual(totals(rows, [], now, 7)["cpu"], 90)
 
+    def test_a_sample_from_before_a_field_existed_still_reads(self):
+        now = datetime(2026, 11, 2, 10).timestamp()
+        self.assertEqual(totals([{"at": now - 60, "cpu": 1, "ram": 1, "five": 1}], [], now, 1)["agents"], 0)
+
     def test_old_runs_with_no_model_still_count(self):
         now = datetime(2026, 11, 2, 10).timestamp()
         event = {"at": "2026-11-02T09:00:00Z", "usd": 1.0, "step": "tasks"}

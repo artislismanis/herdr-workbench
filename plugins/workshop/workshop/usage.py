@@ -48,7 +48,7 @@ def spent_at(event: dict[str, Any]) -> float:
 
 
 def _peaks(rows: list[dict[str, Any]]) -> dict[str, float]:
-    return {name: max((row[name] for row in rows), default=0) for name in ("cpu", "ram", "five", "agents")}
+    return {name: max((row.get(name, 0) for row in rows), default=0) for name in ("cpu", "ram", "five", "agents")}
 
 
 def _spend(events: list[dict[str, Any]]) -> float:
