@@ -30,6 +30,7 @@ LIST_SHARE = 55  # percent of the window for the list
 ESCAPE = 27
 TAB_KEY = ord("\t")
 AI_REVIEW = ord("a")
+RENEWED = ("re-review", "new commits")
 ENTERS = (10, 13, curses.KEY_ENTER)
 BACKSPACES = (8, 127, curses.KEY_BACKSPACE)
 Action = str | tuple[str, str]
@@ -219,10 +220,13 @@ class Board:
         return next((r for r in self.runs if (r.repo, r.key) == wanted), None)
 
     def unreviewed(self, lines: list[Line]) -> str:
-        """The selected PR, if it can go to an AI review: someone's open PR with no run yet."""
+        """The selected PR, if it can go to an AI review: an open PR with no run yet, or something new since the last one."""
         wanted = self.open or self.selected(lines)
         pr = next((p for p in self.snapshot.get("prs", {}).get("items", []) if ("#pr", p["url"]) == wanted), None)
-        return pr["url"] if pr and pr["move"] != "done" and not any(r.pr == pr["url"] for r in self.runs) else ""
+        if pr is None or pr["move"] == "done":
+            return ""
+        run = next((r for r in self.runs if r.pr == pr["url"]), None)
+        return pr["url"] if run is None or (self.engine.review_ready(run) and pr["state"] in RENEWED) else ""
 
     def actions(self, lines: list[Line]) -> tuple[tuple[int, str, str, str, bool], ...]:
         return self.run_actions(self.target(lines))

@@ -9,7 +9,7 @@ from typing import Any
 
 KINDS = ("agent", "gate", "command", "draft_pr")
 PUBLISH = ("pr", "ticket")
-STEP_KEYS = {"id", "stage", "kind", "prompt", "read_only", "fresh", "verdict", "then", "model", "minutes", "output", "publish", "report"}
+STEP_KEYS = {"id", "stage", "kind", "prompt", "again", "read_only", "fresh", "verdict", "then", "model", "minutes", "output", "publish", "report"}
 GATE_KEYS = {"id", "stage", "kind", "report", "then"}
 COMMAND_KEYS = {"id", "stage", "kind", "minutes", "verdict", "then"}
 COMMAND_VERDICTS = ["PASS", "FAILED"]
@@ -65,6 +65,8 @@ def validate(raw: Any) -> dict[str, Any]:
             if "prompt" not in step:
                 raise PipelineError(f"{where}: an agent step needs a prompt")
             prompt_text(step["prompt"])
+            if "again" in step:
+                prompt_text(step["again"])
             if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
                 raise PipelineError(f"{where}: minutes must be 1 or more")
             if not re.fullmatch(r"[a-z0-9-]+\.[a-z]+", step.get("output", "report.md")):

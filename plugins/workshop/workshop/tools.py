@@ -43,6 +43,16 @@ class Tools:
         path = Path(run_json("wt", "switch", f"pr:{number}", "--no-cd", "--yes", "--format=json", cwd=repo)["path"])
         return path, run("git", "branch", "--show-current", cwd=path).strip()
 
+    def follow_pr(self, work: Path, branch: str, base: str) -> None:
+        run("git", "fetch", "origin", base, branch, cwd=work)
+        run("git", "reset", "--keep", f"origin/{branch}", cwd=work)
+
+    def head(self, work: Path) -> str:
+        return run("git", "rev-parse", "HEAD", cwd=work).strip()
+
+    def contains(self, work: Path, commit: str) -> bool:
+        return subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], cwd=work, capture_output=True).returncode == 0
+
     def fork_point(self, work: Path, base: str) -> str:
         return run("git", "merge-base", f"origin/{base}", "HEAD", cwd=work).strip()
 
@@ -106,8 +116,10 @@ class Tools:
     def close_pane(self, pane: str) -> None:
         subprocess.run(["herdr", "pane", "close", pane], capture_output=True)
 
-    def open_review(self, pane: str, work: Path, against: str) -> list[dict[str, Any]]:
+    def open_review(self, pane: str, work: Path, against: str, reload: bool = False) -> list[dict[str, Any]]:
         """Opens hunk beside the agent, or reuses a review already open, and returns its files."""
+        if reload and self.review_open(work):
+            run("hunk", "session", "reload", "--repo", str(work), "--", "diff", against)
         if not self.review_open(work):
             run("herdr", "pane", "run", self.split(pane, work), f"hunk diff {against}")
             for _ in range(REVIEW_WAIT):
@@ -120,6 +132,10 @@ class Tools:
 
     def review_open(self, work: Path) -> bool:
         return subprocess.run(["hunk", "session", "get", "--repo", str(work)], capture_output=True).returncode == 0
+
+    def load_threads(self, work: Path) -> None:
+        # Best effort, and the same script as a key: without them the review still stands.
+        subprocess.run([f"{Path.home()}/.config/herdr/bin/hunk-pr-notes", "--quiet", str(work)], capture_output=True)
 
     def replace_notes(self, work: Path, notes: list[dict[str, Any]]) -> None:
         # Your own notes stay: clear only takes agent notes without --include-user.

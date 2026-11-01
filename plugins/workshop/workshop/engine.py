@@ -46,11 +46,24 @@ class Engine:
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
             run.worktree, run.branch, run.pane, run.agent = old.worktree, old.branch, old.pane, old.agent
+            if pr:
+                self._catch_up(run, old.reviewed)
         self.store.save(run)
         self.store.event(run, "claimed", override=override, restart=restart)
         self._move(run, "working")
         self._post(run, f"Started, on branch workshop/{slug(key)}.")
         return self.advance(run)
+
+    def _catch_up(self, run: Run, reviewed: str) -> None:
+        """Moves the review checkout to the PR's head. Only what the last review left there, so nothing of yours goes."""
+        work = Path(run.worktree)
+        if self.tools.tracked_changes(work) or self.tools.head(work) != reviewed:
+            raise Park(f"{work} has changed since the last review, so it can't follow the PR. Put it back, or remove it and the run.")
+        self.tools.follow_pr(work, run.branch, run.base)
+        if self.tools.head(work) == reviewed:
+            raise Park(f"{run.key} has no new commits since the last review.")
+        # After a force-push the old commit says nothing about what changed, so it's a full review again.
+        run.reviewed = reviewed if self.tools.contains(work, reviewed) else ""
 
     def advance(self, run: Run) -> Run:
         """Move a run as far as it can go now. Parked and finished runs stay put."""
@@ -271,17 +284,19 @@ class Engine:
         self.store.save(run)
         return self.advance(run)
 
-    def review(self, run: Run) -> str:
+    def review(self, run: Run, fresh: bool = False) -> str:
         """Opens the change in hunk with the reviewer's notes on it."""
         if not run.pr:
             raise KeyError(f"{run.key} has no PR to review yet")
         work, kept = Path(run.worktree), self.store.files(run)
-        if self.tools.review_open(work):  # reloading would drop what's been added since
+        if self.tools.review_open(work) and not fresh:  # reloading would drop what's been added since
             return "Already open in hunk."
         # A PR shows what GitHub shows: against where it branched, not against wherever its base has got to.
-        files = self.tools.open_review(run.pane, work, self.tools.fork_point(work, run.base) if run.reviewing else f"origin/{run.base}")
+        files = self.tools.open_review(run.pane, work, self.tools.fork_point(work, run.base) if run.reviewing else f"origin/{run.base}", fresh)
         placed, outside = place(load_notes(kept / "notes.json"), files)
         self.tools.replace_notes(work, placed)
+        if run.reviewing:
+            self.tools.load_threads(work)
         self.store.event(run, "review", notes=len(placed), outside=len(outside))
         lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {self._last_report(run)}"]
         return "\n".join(lines + [f"  {n['file']}:{n['line']} {n['note']}" for n in outside])
@@ -458,6 +473,8 @@ class Engine:
     def _prompt_agent(self, run: Run, step: dict[str, Any]) -> None:
         work = Path(run.worktree)
         self._keep_earlier(self._report(run, step))
+        if run.reviewing:
+            self._keep_earlier(self.store.files(run) / "notes.json")
         run.baseline = self.tools.changes(work) if step.get("read_only") else []
         if step.get("fresh"):
             # A new agent each time: nothing checks its own work.
@@ -470,7 +487,8 @@ class Engine:
             agent = run.agent
             if self.tools.agent_status(agent) == "gone":
                 self.tools.start_agent(agent, run.pane, self.store.files(run), step.get("model", ""))
-        text = prompt_text(run.next_prompt or step["prompt"]).replace("{run}", str(self.store.files(run))).replace("{base}", run.base)
+        prompt = run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
+        text = prompt_text(prompt).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{pr}", run.pr)
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()
@@ -544,7 +562,10 @@ class Engine:
         self.store.event(run, "finished", pr=run.pr)
         self.store.save(run)
         try:
-            self.review(run)
+            if run.reviewing:
+                run.reviewed = self.tools.head(Path(run.worktree))
+                self.store.save(run)
+            self.review(run, run.reviewing)
             self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there, and prefix+shift+u there {'posts' if run.reviewing else 'finishes'} it.")
         except STOPS as failed:  # the PR is delivered either way, and g tries again
             self.store.event(run, "review_failed", reason=str(failed))

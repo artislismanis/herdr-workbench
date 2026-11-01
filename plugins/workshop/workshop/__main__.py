@@ -74,7 +74,8 @@ def begin_review(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
     path = Path(repo["path"]).expanduser()
     source = PullRequestSource(path)
     key = f"pr-{number}"
-    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("review_pipeline", "review")), source, commands=repo.get("commands"), pr=url.rstrip("/"))
+    again = engine.store.exists(name, key) and engine.review_ready(engine.store.load(name, key))
+    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("review_pipeline", "review")), source, restart=again, commands=repo.get("commands"), pr=url.rstrip("/"))
 
 
 def advance_all(engine: Engine) -> None:

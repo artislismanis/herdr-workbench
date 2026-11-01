@@ -25,6 +25,10 @@ class Validate(unittest.TestCase):
         self.assertEqual([s["id"] for s in steps], ["qa", "ai-review"])
         self.assertNotIn("draft_pr", [s["kind"] for s in steps])
 
+    def test_again_names_a_prompt_that_exists(self):
+        with self.assertRaises(FileNotFoundError):
+            validate({"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "implement.md", "again": "nope.md"}]})
+
     def test_unknown_step_kind(self):
         self.rejects({"name": "x", "steps": [{"id": "a", "kind": "merge"}]}, "kind must be")
 

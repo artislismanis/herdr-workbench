@@ -121,6 +121,53 @@ class Reviews(unittest.TestCase):
         self.assertIn("origin/main...HEAD", self.tools.prompts[-1][1])
         self.assertNotIn("{base}", self.tools.prompts[-1][1])
 
+    def again(self):
+        with mock.patch.object(PullRequestSource, "details", return_value=self.details):
+            return self.engine.start("r", "pr-7", self.root, "main", load("review"), PullRequestSource(self.root), restart=True, commands={"qa": "make test"}, pr=self.URL)
+
+    def test_the_second_round_looks_only_at_what_changed(self):
+        first = self.to_review(self.start())
+        self.assertEqual(first.reviewed, "one")
+        self.assertEqual(self.tools.reloads, [True])
+        run = self.again()
+        self.assertEqual((run.reviewed, run.worktree, self.tools.followed), ("one", first.worktree, 1))
+        (self.engine.store.files(run) / "notes.json").write_text("[]")
+        run = self.to_review(run, "VERDICT: APPROVE\n")
+        self.assertIn("git diff one..HEAD", self.tools.prompts[-1][1])
+        self.assertIn(self.URL, self.tools.prompts[-1][1])
+        self.assertEqual(run.reviewed, "two")
+        self.assertTrue((self.engine.store.files(run) / "ai-review-1.md").exists())
+        self.assertTrue((self.engine.store.files(run) / "notes-1.json").exists())
+
+    def test_a_force_push_means_a_full_review(self):
+        self.to_review(self.start())
+        self.tools.ancestor = False
+        run = self.again()
+        self.assertEqual(run.reviewed, "")
+        self.to_review(run)
+        self.assertIn("origin/main...HEAD", self.tools.prompts[-1][1])
+
+    def test_nothing_new_is_not_reviewed_again(self):
+        self.to_review(self.start())
+        self.tools.heads = ["one", "one"]
+        with self.assertRaisesRegex(Park, "no new commits"):
+            self.again()
+        self.assertEqual(self.engine.store.load("r", "pr-7").status, "done")
+
+    def test_a_changed_checkout_is_left_alone(self):
+        self.to_review(self.start())
+        self.tools.tracked = [" M a.py"]
+        with self.assertRaisesRegex(Park, "changed since"):
+            self.again()
+        self.tools.tracked, self.tools.heads = [], ["mine", "two"]
+        with self.assertRaisesRegex(Park, "changed since"):
+            self.again()
+        self.assertEqual(self.tools.followed, 0)
+
+    def test_threads_load_into_a_review(self):
+        self.to_review(self.start())
+        self.assertEqual(self.tools.threads_loaded, 1)
+
     def test_what_to_do_next(self):
         run = self.to_review(self.start())
         self.assertIn("prefix+shift+u", self.engine.next_action(run))
@@ -248,6 +295,8 @@ class FakeTools:
         self.ahead_count = 1
         self.worktrees = 0
         self.tracked = []
+        self.reloads, self.threads_loaded, self.followed = [], 0, 0
+        self.heads, self.ancestor = ["one", "two"], True
 
 
     def start_command(self, command, work, output, finished, then=""):
@@ -267,6 +316,19 @@ class FakeTools:
     def fork_point(self, work, base):
         return "abc123"
 
+    def load_threads(self, work):
+        self.threads_loaded += 1
+
+    def head(self, work):
+        return self.heads[0]
+
+    def follow_pr(self, work, branch, base):
+        self.followed += 1
+        self.heads.pop(0)
+
+    def contains(self, work, commit):
+        return self.ancestor
+
     def tracked_changes(self, work):
         return list(self.tracked)
 
@@ -281,8 +343,9 @@ class FakeTools:
     def split(self, pane, path):
         return "p2"
 
-    def open_review(self, pane, work, base):
+    def open_review(self, pane, work, base, reload=False):
         self.reviews.append((pane, base))
+        self.reloads.append(reload)
         return [{"path": "a.py", "hunks": [{"newRange": [1, 5]}]}]
 
     def replace_notes(self, work, notes):
@@ -825,7 +888,7 @@ class Review(Case):
         self.assertEqual(self.tools.reviews, [("p1", "origin/main")])
 
     def test_a_review_that_wont_open_leaves_the_run_delivered(self):
-        def fails(pane, work, base):
+        def fails(pane, work, base, reload=False):
             raise ToolError("hunk didn't open a review.")
 
         self.tools.open_review = fails
