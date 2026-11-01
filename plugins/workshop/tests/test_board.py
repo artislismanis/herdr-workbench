@@ -690,6 +690,17 @@ class Keys(unittest.TestCase):
         self.board.press(ord("a"))
         self.tools.workshop.assert_not_called()
 
+    def test_new_commits_offer_another_ai_review(self):
+        self.board.engine.review_ready.return_value = True
+        self.on_pr(state="re-review")
+        url = self.board.picked[1]
+        self.store.save(run("pr-7", status="done", pr=url))
+        self.board.seen = None
+        self.board.reload()
+        self.assertIn("a ai review", self.board.footer().text)
+        self.on_pr(state="waiting for fixes")
+        self.assertNotIn("a ai review", self.board.footer().text)
+
     def test_a_message_clears_by_itself(self):
         now = [500.0]
         self.board.clock = lambda: now[0]

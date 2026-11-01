@@ -41,6 +41,7 @@ class Run:
     moved: str = ""  # where the ticket last moved to
     opened: bool = False  # the PR has left draft
     reviewing: bool = False  # someone's PR under review, not a delivery, so workshop only reads it
+    reviewed: str = ""  # the commit the last review looked at
 
     @property
     def current(self) -> dict[str, Any] | None:
