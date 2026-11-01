@@ -12,15 +12,16 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls, rule, wrapped
+from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls, rule, usage_view, wrapped
 from .engine import STOPS, Engine
 from .review import decisions
 from .store import Run
 from .system import Meter
+from .usage import samples
 
 SKIPPED = "skipped.json"
-TABS = ("Backlog", "Delivery", "Review")  # the order work moves through
-BACKLOG, DELIVERY, REVIEW = range(3)
+TABS = ("Backlog", "Delivery", "Review", "Usage")  # the order work moves through, then how it went
+BACKLOG, DELIVERY, REVIEW, USAGE = range(4)
 TOP = 1  # a gap under herdr's tab bar
 WHEEL = 3
 MESSAGE_SECONDS = 5
@@ -124,7 +125,7 @@ class Board:
         return tuple(str(p) for p in sorted(found, key=lambda p: p.stat().st_mtime, reverse=True))
 
     def panelled(self, width: int) -> bool:
-        return width >= PANEL_WIDTH and self.tab != BACKLOG and not self.open
+        return width >= PANEL_WIDTH and self.tab in (DELIVERY, REVIEW) and not self.open
 
     def list_width(self, width: int) -> int:
         return width * LIST_SHARE // 100
@@ -175,6 +176,8 @@ class Board:
         return self.listing(width)
 
     def listing(self, width: int) -> list[Line]:
+        if self.tab == USAGE:
+            return usage_view(samples(self.store.root), self.events, self.meter.read(), self.clock(), width)
         if self.tab == DELIVERY:
             return deliveries(self.runs, self.events, self.title, width, self.engine.throttle.pace(), self.meter.read())
         return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls(self.snapshot, width)
@@ -473,7 +476,7 @@ class Board:
         return tickets, waiting, sum(p["move"] == "you" for p in self.snapshot.get("prs", {}).get("items", []))
 
     def header(self) -> Line:
-        tabs = [part for i, (tab, count) in enumerate(zip(TABS, self.counts(), strict=True)) for part in (Span(f" {tab} {count} ", "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]
+        tabs = [part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]
         kind = "PRs" if self.tab == REVIEW else "backlog"
         sources = [self.snapshot.get("prs", {})] if self.tab == REVIEW else self.snapshot.get("repos", {}).values()
         times = [source.get("polled_at", 0) for source in sources]

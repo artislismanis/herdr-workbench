@@ -24,6 +24,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff. A run does this itself when its PR is ready |
 | `workshop prepare <[repo/]key or idea>` | Grills you on a ticket, then writes what you agreed to it. Words create the ticket first: see Backlog |
 | `workshop sweep <repo> <name>` | Runs a sweep now: see Maintain |
+| `workshop sample` | Saves one reading for the Usage tab. Its timer does this every 5 minutes |
 | `workshop finish` | Ends a review from its workspace, on `prefix+shift+u`: see Board |
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
 | `workshop answer <key> <text>` | Answers an agent's question |
@@ -109,7 +110,9 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 
 ## Limits
 
-The board's 5h and 7d meters show whether you'd last until the reset at an even pace, not how much is used: 50% used with 15 minutes left is green. Amber is more than 10 points ahead of that pace, and red more than 25, or the limit reached. The cpu and ram meters below them come from `/proc`: ram counts what's available, which includes cache that can be reclaimed, and peaks last as long as the board stays open.
+One line under the board's counts shows the 5h and 7d limits, cpu and ram. It stays quiet until something needs a look. The limits are coloured by whether you'd last until the reset at an even pace, not by how much is used, so 50% used with 15 minutes left stays quiet. Amber is more than 10 points ahead of that pace, and red more than 25, or the limit reached. Ram counts what's available, which includes cache that can be reclaimed.
+
+The Usage tab shows how that went: peaks, agents and spend by hour, and totals for the day, week and month, so you can see whether WSL needs more and what uses your limits. `workshop sample` adds a reading every 5 minutes from its own timer, which is on from install and costs no tokens. Samples last 30 days, in `~/.local/state/workshop/usage.jsonl`.
 
 `[throttle]` paces work against Claude's limits, using `~/.local/state/claude-usage.json`. In working hours, by default weekdays from 08:00 to 18:00 local time, set by `work_days` and `work_hours`, it keeps part of the 5h window for your own use: no new tickets at 80%, no new agent steps at 90%. Out of those hours, and at weekends, nothing is kept back and the 5h window only has to last to its reset. The week always has to last to its reset. Falling behind either pace is a break, never a cheaper model: no new tickets 5 points ahead of an even pace, no new agent steps 15 points ahead, which clears as time passes. Model choices are yours to tune, from `workshop stats`. The status line saves it, and each tick and board refresh updates it from `claude -p /usage`, which costs no tokens and includes use outside herdr. See `config.example.toml`. Running steps always finish. `/usage` prints text for people, so if it can't be read the saved figures stay. Without the file, or with an old one, tickets run one at a time.
 

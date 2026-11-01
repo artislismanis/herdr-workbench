@@ -1,0 +1,9 @@
+[Unit]
+Description=Sample usage for workshop's Usage tab
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

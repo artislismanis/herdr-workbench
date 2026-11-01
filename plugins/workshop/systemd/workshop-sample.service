@@ -1,0 +1,6 @@
+[Unit]
+Description=Workshop: note how busy the machine and the limits are
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/workshop sample

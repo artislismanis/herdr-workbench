@@ -183,7 +183,7 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   [ "$(readlink "$HOME/.local/bin/workshop")" = "$REPO_ROOT/plugins/workshop/bin/workshop" ]
 }
 
-@test "the tick timer is installed and left off" {
+@test "the tick timer is installed and left off, and sampling is on" {
   cat >"$BATS_TEST_TMPDIR/bin/systemctl" <<'STUB'
 #!/bin/sh
 echo "$*" >>"$HOME/.systemctl-calls"
@@ -193,7 +193,9 @@ STUB
   [ "$status" -eq 0 ]
   [ -f "$HOME/.config/systemd/user/workshop-tick.service" ]
   [ -f "$HOME/.config/systemd/user/workshop-tick.timer" ]
-  [ ! -e "$HOME/.systemctl-calls" ]
+  [ -f "$HOME/.config/systemd/user/workshop-sample.timer" ]
+  grep -qx -- '--user enable --now workshop-sample.timer' "$HOME/.systemctl-calls"
+  ! grep -q 'workshop-tick' "$HOME/.systemctl-calls"
   "$REPO_ROOT/install.sh" --rollback | bash
   grep -qx -- '--user disable --now workshop-tick.timer' "$HOME/.systemctl-calls"
   [ ! -e "$HOME/.config/systemd/user/workshop-tick.timer" ]

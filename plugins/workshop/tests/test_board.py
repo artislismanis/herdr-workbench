@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest import mock
 
@@ -11,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, REVIEW, Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
+from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pulls, run_style, stage_groups, stage_state, usage_line, usage_view  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -105,8 +106,8 @@ class Deliveries(unittest.TestCase):
         self.assertIn("It broke", next(line.text for line in lines if line.run and line.run.key == "2"))
         self.assertIn(" 2  needs you", lines[0].text)
 
-    def test_usage_shows_as_meters(self):
-        self.assertIn("5h ████░░░░░░ 40%, 2h left", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[0].text)
+    def test_limits_show_on_one_line(self):
+        self.assertIn("5h 40% 2h", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[1].text)
 
     def test_limits_are_coloured_by_whether_they_last_until_the_reset(self):
         hour, day = 3600, 86400
@@ -120,10 +121,24 @@ class Deliveries(unittest.TestCase):
 
     def test_the_machine_shows_when_it_can_be_read(self):
         found = {"cpu": 40, "cores": 8, "ram": 80, "memory": 31.4, "cpu_peak": 90, "ram_peak": 85}
-        line = deliveries([], [], lambda r: "", WIDE, {}, found)[1]
-        self.assertIn("cpu ████░░░░░░ 40% of 8 cores, peak 90%", line.text)
-        self.assertIn("ram ████████░░ 80% of 31G, peak 85%", line.text)
-        self.assertEqual(line.spans[4].style, "yellow")
+        line = deliveries([], [], lambda r: "", WIDE, {"5h": (58.0, 2880)}, found)[1]
+        self.assertEqual(line.text.split(), ["5h", "58%", "48m", "cpu", "40%", "ram", "80%"])
+
+    def test_all_is_well_is_quiet_and_only_trouble_has_colour(self):
+        line = usage_line({}, {"cpu": 40, "ram": 80})
+        self.assertEqual([s.style for s in line.spans if s.text.strip()], ["dim", "yellow"])
+
+    def test_the_usage_tab_says_when_theres_nothing_yet(self):
+        self.assertIn("No samples yet", joined(usage_view([], [], None, 1000.0)))
+
+    def test_the_usage_tab_shows_machine_limits_work_and_spend_together(self):
+        now = datetime(2026, 11, 2, 10, 30).timestamp()
+        rows = [{"at": now - 600, "cpu": 61.0, "ram": 18.0, "five": 58, "week": 40, "agents": 4}, {"at": now - 300, "cpu": 20.0, "ram": 20.0, "five": 59, "week": 40, "agents": 1}]
+        spent = [event("spent", step="ai-review", usd=1.5, model="claude-sonnet-5-5") | {"at": datetime.fromtimestamp(now - 60, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}]
+        text = joined(usage_view(rows, spent, {"cores": 16, "memory": 47.0}, now))
+        self.assertIn("16 cores", text)
+        self.assertRegex(text, r"10:00\s+61%\s+20%\s+59%\s+4\s+\$1.50")
+        self.assertIn("Most of this week's spend: claude-sonnet-5-5, on ai-review", text)
 
     def test_only_the_latest_landed_runs_stay(self):
         runs = [run(str(n), "done", landed="merged") for n in range(8)]
@@ -522,7 +537,7 @@ class Keys(unittest.TestCase):
         self.board.press(curses.KEY_BTAB)
         self.assertEqual(self.board.tab, 0)
         self.board.press(curses.KEY_BTAB)
-        self.assertEqual(self.board.tab, 2)
+        self.assertEqual(self.board.tab, 3)
 
     def test_a_pr_opens_and_g_finds_its_run(self):
         self.store.save(run("1", pane="w1:p1", pr="u"))

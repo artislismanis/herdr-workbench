@@ -24,7 +24,7 @@ HUNK_CONFIG="$HOME/.config/hunk/config.toml"
 HUNK_SKILL="$CLAUDE_DIR/skills/hunk-review/SKILL.md"
 WORKSHOP_CLI="$HOME/.local/bin/workshop"
 SYSTEMD_USER="$HOME/.config/systemd/user"
-WORKSHOP_UNITS=(workshop-tick.service workshop-tick.timer)
+WORKSHOP_UNITS=(workshop-tick.service workshop-tick.timer workshop-sample.service workshop-sample.timer)
 
 usage() {
   cat <<USAGE
@@ -55,6 +55,7 @@ herdr plugin uninstall annotate 2>/dev/null || true
 herdr plugin uninstall workshop 2>/dev/null || true
 rm -f "$WORKSHOP_CLI"
 systemctl --user disable --now workshop-tick.timer 2>/dev/null || true
+systemctl --user disable --now workshop-sample.timer 2>/dev/null || true
 rm -f$(printf ' "%s"' "${WORKSHOP_UNITS[@]/#/$SYSTEMD_USER/}")
 rm -rf "$SYSTEMD_USER/workshop-tick.timer.d"
 rm -f "$HUNKDIFF_CONFIG"
@@ -127,10 +128,13 @@ _ensure_workshop() {
     esac
   fi
   ensure_symlink "$dir/bin/workshop" "$WORKSHOP_CLI"
-  # Installed, never enabled: turning it on starts tickets unattended.
+  # The tick is installed, never enabled: turning it on starts tickets unattended.
   for unit in "${WORKSHOP_UNITS[@]}"; do
     install_file "$dir/systemd/$unit" "$SYSTEMD_USER/$unit" 644
   done
+  # Sampling only reads, so it can run from the start, and history begins before you need it.
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable --now workshop-sample.timer 2>/dev/null || true
 }
 
 if ! command -v herdr >/dev/null 2>&1; then
