@@ -777,6 +777,17 @@ class Keys(unittest.TestCase):
         self.assertEqual(self.board.counts()[1], 1)
         self.assertEqual([a[2] for a in self.board.run_actions(self.board.runs[-1])], ["drop"])
 
+    def test_a_sweeps_gate_offers_skip(self):
+        gated = {"name": "x", "steps": [{"id": "sweep", "kind": "agent"}, {"id": "decide", "kind": "gate", "report": "sweep", "proposals": True}]}
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))
+        self.board.seen = None
+        self.board.reload()
+        self.assertIn("x skip", self.board.footer().text)
+        self.assertIn("a approve", self.board.footer().text)
+        self.board.press(ord("x"))
+        self.type_in("2 3")
+        self.assertEqual(self.sent(), ("reject", "1", "2 3"))
+
     def test_a_gate_offers_approve_and_reject_not_pass(self):
         gated = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "check", "kind": "gate", "report": "plan"}]}
         self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))

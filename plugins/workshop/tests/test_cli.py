@@ -61,6 +61,64 @@ class Filling(unittest.TestCase):
         self.assertEqual(self.tick(["1", "2"], held=lambda active: "held" if active else ""), ["1"])
 
 
+class SweepBrief(unittest.TestCase):
+    def test_what_you_declined_reaches_the_next_sweeps_brief(self):
+        state = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": state}), mock.patch.object(cli, "make_source") as tickets:
+            tickets.return_value.backlog.return_value = []
+            store = cli.Store(cli.state_root())
+            store.write(cli.SWEEPS, {"r/docs": {"declined": ["Add docs"]}})
+            run = mock.Mock(repo="r", sweeping="docs", preparing=False)
+            source = cli.source_for({"repos": {"r": {"path": "/x"}}})(run)
+            self.assertIn("Add docs", source.get("k").body)
+
+
+class Sweeping(unittest.TestCase):
+    NOW = 100 * 86400.0
+
+    def setUp(self):
+        self.engine = mock.Mock()
+        self.engine.clock.return_value = self.NOW
+        self.engine.store.read.return_value = {}
+        self.engine.store.all.return_value = []
+        self.engine.throttle.hold_new.return_value = ""
+        self.begin = mock.patch.object(cli, "begin_sweep").start()
+        self.addCleanup(mock.patch.stopall)
+
+    def due(self, last=0.0, every="weekly", max_active=2):
+        if last:
+            self.engine.store.read.return_value = {"r/docs": {"last": self.NOW - last * 86400}}
+        cli.start_sweeps(self.engine, {"repos": {"r": {"sweeps": {"docs": every}}}, "max_active": max_active})
+        return self.begin.call_count
+
+    def test_a_new_sweep_is_due(self):
+        self.assertEqual(self.due(), 1)
+
+    def test_weekly_waits_a_week(self):
+        self.assertEqual(self.due(6.9), 0)
+        self.assertEqual(self.due(7), 1)
+
+    def test_monthly_waits_a_month(self):
+        self.assertEqual(self.due(7, "monthly"), 0)
+        self.assertEqual(self.due(30, "monthly"), 1)
+
+    def test_a_sweep_waits_for_a_free_slot(self):
+        self.engine.store.all.return_value = [mock.Mock(status="running", preparing=False, sweeping="", landed="", repo="r")]
+        self.assertEqual(self.due(max_active=1), 0)
+
+    def test_limits_hold_a_sweep_back(self):
+        self.engine.throttle.hold_new.return_value = "held"
+        self.assertEqual(self.due(), 0)
+
+    def test_an_unanswered_sweep_isnt_joined_by_another(self):
+        self.engine.store.all.return_value = [mock.Mock(status="waiting", preparing=False, sweeping="docs", landed="", repo="r")]
+        self.assertEqual(self.due(30), 0)
+
+    def test_an_unknown_cadence_says_so(self):
+        with self.assertRaisesRegex(KeyError, "weekly or monthly"):
+            self.due(every="daily")
+
+
 class Preparing(unittest.TestCase):
     def setUp(self):
         self.engine = mock.Mock()

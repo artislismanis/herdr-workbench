@@ -7,7 +7,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.sources import GitHubSource, JiraSource, MarkdownSource, PrepareSource, PullRequestSource, ReplySource, prepared  # noqa: E402
+from workshop.sources import GitHubSource, Item, JiraSource, MarkdownSource, PrepareSource, PullRequestSource, ReplySource, SweepSource, prepared  # noqa: E402
 from workshop.tools import slug  # noqa: E402
 
 
@@ -70,6 +70,66 @@ class PrepareTickets(unittest.TestCase):
     def test_stages_read_back_through_your_label_names(self):
         self.inner.labels.return_value = ["scoped", "bug"]
         self.assertEqual(self.source.stages("prep-7"), ["planned"])
+
+
+class SweepTickets(unittest.TestCase):
+    def setUp(self):
+        self.inner = mock.Mock()
+        self.inner.backlog.return_value = [Item("1", "Open one", [], False), Item("2", "Queued", ["ai"], True)]
+        self.source = SweepSource(self.inner, "docs", ["Declined idea"])
+
+    def test_the_brief_lists_open_tickets_and_what_was_declined(self):
+        body = self.source.get("sweep-docs-1").body
+        self.assertIn("1: Open one", body)
+        self.assertIn("Declined idea", body)
+
+    def test_queued_tickets_are_out_of_its_reach(self):
+        self.assertEqual(self.source.open_keys(), ["1"])
+        self.assertNotIn("Queued", self.source.get("k").body)
+
+    def test_nothing_reaches_the_tracker_on_its_own(self):
+        self.source.claim("k")
+        self.source.report("k", "x")
+        self.source.move("k", "working")
+        self.source.finish("k")
+        self.assertEqual(self.inner.mock_calls, [])
+
+
+class TicketWrites(unittest.TestCase):
+    def test_github_creates_and_closes(self):
+        source = GitHubSource(Path("/repo"), "ai")
+        with mock.patch("workshop.sources.run", return_value="https://github.com/o/r/issues/12\n") as run:
+            self.assertEqual(source.create("T", "B"), "12")
+            source.close("3", "Done already")
+        self.assertEqual(run.call_args_list[0].args, ("gh", "issue", "create", "--title", "T", "--body", "B"))
+        self.assertEqual(run.call_args_list[1].args, ("gh", "issue", "close", "3", "--reason", "not planned", "--comment", "Done already"))
+
+    def jira(self, **cfg):
+        return JiraSource("r", "ai", [], {"base_url": "https://j.test", "email": "e", "token": "t", **cfg})
+
+    def test_jira_creates_in_its_project_with_the_repo_label(self):
+        source = self.jira(project="AB")
+        with mock.patch.object(source, "_call", return_value={"key": "AB-9"}) as call:
+            self.assertEqual(source.create("T", "B"), "AB-9")
+        fields = call.call_args.args[2]["fields"]
+        self.assertEqual((fields["project"], fields["labels"]), ({"key": "AB"}, ["r"]))
+
+    def test_jira_needs_a_project_to_create(self):
+        with self.assertRaises(KeyError):
+            self.jira().create("T", "B")
+
+    def test_jira_needs_a_status_to_close(self):
+        with self.assertRaisesRegex(ValueError, "dropped"):
+            self.jira().close("A-1", "No")
+
+    def test_a_markdown_ticket_closes_into_a_folder(self):
+        folder = Path(tempfile.mkdtemp())
+        source = MarkdownSource(folder)
+        key = source.create("A new thing", "Body")
+        self.assertEqual(source.ready(), [key])
+        source.close(key, "No")
+        self.assertEqual(source.ready(), [])
+        self.assertTrue((folder / "closed" / f"{key}.md").exists())
 
 
 class TicketEdits(unittest.TestCase):
