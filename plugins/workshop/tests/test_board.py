@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import REVIEW, Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
+from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
@@ -64,6 +64,21 @@ class Text(unittest.TestCase):
         self.assertTrue("".join(s.text for s in pipe(run(status="done", step=3))).startswith("●─●─●"))
 
 
+class PullDetail(unittest.TestCase):
+    def test_threads_and_comments_show_with_what_blocks_in_red(self):
+        lines = pull(pr(discussion=[{"path": "a.py", "line": 6, "resolved": False, "said": [{"who": "sam", "text": "blocking: wrong tax\x1b[2J"}]}, {"path": "b.py", "line": None, "resolved": True, "said": [{"who": "sam", "text": "nit"}]}], comments=[{"who": "alex", "text": "Thanks"}]))
+        text = texts(lines)
+        self.assertIn("  a.py:6", text)
+        self.assertIn("  b.py:outdated  resolved", text)
+        blocking = next(line for line in lines if "wrong tax" in line.text)
+        self.assertEqual(blocking.style, "red")
+        self.assertNotIn("\x1b", blocking.text)
+        self.assertIn("    alex: Thanks", text)
+
+    def test_an_older_snapshot_shows_no_discussion(self):
+        self.assertFalse(any("Threads" in t for t in texts(pull(pr()))))
+
+
 class Deliveries(unittest.TestCase):
     def test_what_needs_you_comes_first(self):
         lines = deliveries([run("1"), run("2", "parked", reason="It broke"), run("3", "waiting", reason="Which API?")], [], lambda r: "Title", WIDE)
@@ -72,7 +87,24 @@ class Deliveries(unittest.TestCase):
         self.assertIn(" 2  needs you", lines[0].text)
 
     def test_usage_shows_as_meters(self):
-        self.assertIn("5h ████░░░░░░ 40%", deliveries([], [], lambda r: "", WIDE, {"5h": 40})[0].text)
+        self.assertIn("5h ████░░░░░░ 40%, 2h left", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[0].text)
+
+    def test_limits_are_coloured_by_whether_they_last_until_the_reset(self):
+        hour, day = 3600, 86400
+        self.assertEqual(limit_style("5h", 50, hour / 4), "green")
+        self.assertEqual(limit_style("7d", 50, 2 * day), "green")
+        self.assertEqual(limit_style("5h", 50, 3.5 * hour), "yellow")
+        self.assertEqual(limit_style("5h", 50, 4 * hour), "red")
+        self.assertEqual(limit_style("7d", 50, 6 * day), "red")
+        self.assertEqual(limit_style("5h", 100, 60), "red")
+        self.assertEqual(limit_style("5h", 0, 0), "green")
+
+    def test_the_machine_shows_when_it_can_be_read(self):
+        found = {"cpu": 40, "cores": 8, "ram": 80, "memory": 31.4, "cpu_peak": 90, "ram_peak": 85}
+        line = deliveries([], [], lambda r: "", WIDE, {}, found)[1]
+        self.assertIn("cpu ████░░░░░░ 40% of 8 cores, peak 90%", line.text)
+        self.assertIn("ram ████████░░ 80% of 31G, peak 85%", line.text)
+        self.assertEqual(line.spans[4].style, "yellow")
 
     def test_only_the_latest_landed_runs_stay(self):
         runs = [run(str(n), "done", landed="merged") for n in range(8)]
@@ -425,7 +457,7 @@ class Keys(unittest.TestCase):
         self.tools = mock.Mock()
         engine = mock.Mock(store=self.store, tools=self.tools, **{"reviewable.return_value": False, "review_ready.return_value": False, "delivered.return_value": False, "handover.return_value": ""})
         engine.throttle.hold_new.return_value = ""
-        engine.throttle.snapshot.return_value = {"5h": 10}
+        engine.throttle.pace.return_value = {"5h": (10, 3600)}
         self.board = Board(engine, {"repos": {}}, lambda: 500.0)
 
     def tap(self, x, y, width):

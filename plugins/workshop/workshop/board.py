@@ -13,6 +13,7 @@ from .backlog import SNAPSHOT
 from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls
 from .engine import STOPS, Engine
 from .store import Run
+from .system import Meter
 
 SKIPPED = "skipped.json"
 TABS = ("Backlog", "Delivery", "Review")  # the order work moves through
@@ -51,6 +52,7 @@ GATE = ((ord("a"), "a approve", "approve", "Approve this gate? Enter confirms", 
 class Board:
     def __init__(self, engine: Engine, cfg: dict[str, Any], clock: Callable[[], float] = time.time) -> None:
         self.engine, self.store, self.cfg, self.clock = engine, engine.store, cfg, clock
+        self.meter = Meter()
         self.tab, self.offset = DELIVERY, 0
         self.picked: tuple[str, str] | None = None
         self.open: tuple[str, str] | None = None
@@ -135,7 +137,7 @@ class Board:
 
     def listing(self, width: int) -> list[Line]:
         if self.tab == DELIVERY:
-            return deliveries(self.runs, self.events, self.title, width, self.engine.throttle.snapshot())
+            return deliveries(self.runs, self.events, self.title, width, self.engine.throttle.pace(), self.meter.read())
         return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls(self.snapshot, width)
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:
