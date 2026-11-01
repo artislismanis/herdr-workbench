@@ -188,7 +188,7 @@ class Board:
             self.send("claim", found.key)
             return True
         if key == PREPARE and self.tab == BACKLOG and not self.open:
-            self.asking, self.typed = Ask("prepare", "", "Prepare which ticket, as number or repo/number", True), ""
+            self.asking, self.typed = Ask("prepare", "", "Ticket number, or an idea to make into a ticket", True), ""
             return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)

@@ -16,8 +16,9 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 WEEK = 7 * 24 * 60 * 60
+DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 STALE_AFTER = 30 * 60
-DEFAULTS = {"pause_new_at": 80, "pause_steps_at": 90, "work_hours": [8, 18], "five_hour_pace_margin": 5, "five_hour_pace_stop": 15, "weekly_pace_margin": 5, "weekly_pace_stop": 15}
+DEFAULTS = {"pause_new_at": 80, "pause_steps_at": 90, "work_hours": [8, 18], "work_days": ["mon", "tue", "wed", "thu", "fri"], "five_hour_pace_margin": 5, "five_hour_pace_stop": 15, "weekly_pace_margin": 5, "weekly_pace_stop": 15}
 WINDOWS = {"session": "five_hour", "week (all models)": "seven_day"}
 LENGTHS = {"5h": 5 * 60 * 60, "7d": WEEK}
 USAGE_LINE = re.compile(r"^Current (session|week \(all models\)): (\d+)% used\b.*?resets (?:(\w{3}) (\d+), )?(\d+)(?::(\d+))?(am|pm) \(([^)]+)\)", re.MULTILINE)
@@ -88,7 +89,7 @@ class Throttle:
     def working(self) -> bool:
         """The hours you want some of the 5h window left for your own use."""
         now, (start, end) = datetime.fromtimestamp(self.clock()), self.limits["work_hours"]
-        return now.weekday() < 5 and start <= now.hour < end
+        return DAYS[now.weekday()] in self.limits["work_days"] and start <= now.hour < end
 
     def _ahead(self, window: str, margin: int) -> str:
         used, left = self.pace()[window]

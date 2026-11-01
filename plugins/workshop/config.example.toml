@@ -39,7 +39,8 @@
 
 # Paces work against Claude's limits, in percent. These are the defaults.
 # [throttle]
-# work_hours = [8, 18]       # weekdays, your local time, when the 5h window is kept for you too
+# work_hours = [8, 18]       # your local time, when the 5h window is kept for you too
+# work_days = ["mon", "tue", "wed", "thu", "fri"]
 # pause_new_at = 80          # in those hours, no new tickets at this 5h usage
 # pause_steps_at = 90        # in those hours, no new agent steps at this 5h usage
 # five_hour_pace_margin = 5  # out of hours, no new tickets this many points ahead of an even 5h pace

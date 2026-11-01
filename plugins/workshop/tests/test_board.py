@@ -762,6 +762,7 @@ class Keys(unittest.TestCase):
         self.board.tab = BACKLOG
         self.assertIn("p prepare", self.board.footer().text)
         self.board.press(ord("p"))
+        self.assertIn("idea", self.board.footer().text)
         self.type_in("7")
         self.assertEqual(self.sent(), ("prepare", "7"))
 
