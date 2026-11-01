@@ -1428,14 +1428,12 @@ class Gates(Case):
         self.assertIn("Use the existing client.", (self.kept() / "feedback.md").read_text(encoding="utf-8"))
         self.assertIn("feedback.md", self.tools.prompts[-1][1])
 
-    def test_rejection_rounds_are_limited(self):
+    def test_a_person_can_send_it_back_as_often_as_they_like(self):
         run = self.run_
-        for _ in range(2):
-            run = self.engine.reject(run, "No.")
+        for _ in range(5):
+            run = self.engine.reject(run, "Not yet")
             run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
-        run = self.engine.reject(run, "No.")
-        self.assertEqual(run.status, "parked")
-        self.assertIn("after 2 rounds", run.reason)
+            self.assertEqual((run.status, run.current["id"]), ("waiting", "approve"))
 
     def test_only_a_gate_can_be_approved(self):
         run = self.engine.approve(self.run_)
