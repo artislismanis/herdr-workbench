@@ -907,6 +907,28 @@ class Keys(unittest.TestCase):
         self.assertIn("Add the flag in main.", text)
         self.assertNotIn("VERDICT", text)
 
+    def test_a_gate_says_what_the_work_is_for(self):
+        found = self.at_gate()
+        (self.store.files(found) / "brief.md").write_text("# 1: A title\n\nPeople can't greet a team.\n", encoding="utf-8")
+        lines = texts(self.board.detail((found.repo, found.key), 100))
+        self.assertLess(next(i for i, t in enumerate(lines) if "can't greet" in t), next(i for i, t in enumerate(lines) if "right tasks" in t))
+
+    def test_a_long_ticket_is_cut_and_says_where_the_rest_is(self):
+        found = self.at_gate()
+        (self.store.files(found) / "brief.md").write_text("# 1: A title\n\n" + "line\n" * 30, encoding="utf-8")
+        text = joined(self.board.detail((found.repo, found.key), 100))
+        self.assertIn("more in brief.md", text)
+        self.assertLess(text.count("│ line"), 10)
+
+    def test_a_sweep_has_no_ticket_to_show(self):
+        found = self.at_gate()
+        found.sweeping = "docs"
+        self.store.save(found)
+        (self.store.files(found) / "brief.md").write_text("# k\n\nOpen tickets:\n- 1: One\n", encoding="utf-8")
+        self.board.seen = None
+        self.board.reload()
+        self.assertNotIn("The ticket", joined(self.board.detail((found.repo, found.key), 100)))
+
     def test_a_gates_report_shows_once(self):
         found = self.at_gate()
         self.assertEqual(joined(self.board.detail((found.repo, found.key), 100)).count("Add the flag in main."), 1)

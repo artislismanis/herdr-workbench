@@ -104,6 +104,10 @@ class Board:
         first = brief.read_text(encoding="utf-8").partition("\n")[0] if brief.exists() else ""
         return first.removeprefix("# ").removeprefix(f"{run.key}: ")
 
+    def brief(self, run: Run) -> str:
+        path = self.store.files(run) / "brief.md"
+        return path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+
     def reports(self, run: Run) -> tuple[str, ...]:
         found = [p for p in self.store.files(run).iterdir() if p.suffix in (".md", ".json")]
         return tuple(str(p) for p in sorted(found, key=lambda p: p.stat().st_mtime, reverse=True))
@@ -139,7 +143,7 @@ class Board:
             return []
         action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
-        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "")
+        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run))
 
     def panel(self, width: int) -> list[Line]:
         """The selected item beside the list. Its actions are on the bottom row, as everywhere."""
