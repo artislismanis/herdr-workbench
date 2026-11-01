@@ -79,7 +79,7 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 |---|---|
 | `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `open-pr` |
 | `gated` | The same, with your approval after `tasks` |
-| `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk with the reviewer left beside it until you post |
+| `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk with the reviewer beside it. Posting removes the workspace and checkout |
 | `reply` | `reply`: an agent answers comments on your own PR |
 | `sweep-deps`, `sweep-docs`, `sweep-backlog`, `sweep-logs` | A read-only agent looks at the repo, then your go on what it proposes |
 | `prepare` | `requirements` and `design`, two fresh agents that grill you, each with your go after it |
