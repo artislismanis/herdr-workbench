@@ -1269,7 +1269,7 @@ class Gates(Case):
     def test_a_gate_waits_and_says_so(self):
         run = self.run_
         self.assertEqual((run.status, run.current["id"]), ("waiting", "approve"))
-        self.assertIn("tasks needs your approval", run.reason)
+        self.assertIn("right tasks to build", run.reason)
         self.assertEqual(self.tools.notes, ["Workshop: DE-1 needs you"])
         self.assertIn("waiting", self.source.reports[-1])
         self.assertIn("a accepts it", self.engine.explain(run))

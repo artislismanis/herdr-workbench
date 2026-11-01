@@ -113,7 +113,7 @@ class Engine:
                 elif step.get("proposals") and not self._proposed(run, step):
                     run.step, run.phase = run.step + 1, ""
                 elif step["kind"] == "gate":
-                    self._wait(run, f"{step['report']} needs your approval. See {self._report(run, run.pipeline['steps'][run.index_of(step['report'])])}.")
+                    self._wait(run, step.get("ask") or f"{step['report']} needs your approval.")
                 else:
                     self._draft_pr(run)
             except Park as stop:
@@ -546,6 +546,8 @@ class Engine:
         lines = [f"{run.key} on {run.repo}: {run.label} at {step}"]
         if run.status in ("parked", "waiting"):
             lines += [f"Why: {run.reason}", f"Then: {self.next_action(run)}"]
+            if run.current and run.current["kind"] == "gate":
+                lines.append(f"Read: {self._report(run, run.pipeline['steps'][run.index_of(run.current['report'])])}")
         elif run.your_turn:
             lines.append(f"Your turn: it's waiting for you in herdr workspace {run.key}.")
         elif run.held:

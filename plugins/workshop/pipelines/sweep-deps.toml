@@ -15,5 +15,6 @@ verdict = ["DONE"]
 id = "decide"
 stage = "Maintain"
 kind = "gate"
+ask = "Do what's proposed below?"
 report = "sweep"
 proposals = true
