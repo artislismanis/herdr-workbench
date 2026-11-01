@@ -949,20 +949,40 @@ class Keys(unittest.TestCase):
         self.board.press(ord("a"))
         card = texts(self.board.note(100))
         self.assertLess(next(i for i, t in enumerate(card) if "right tasks" in t), next(i for i, t in enumerate(card) if "Start building" in t))
-        self.assertIn("Add the flag in main.", joined(self.board.note(100)))
 
-    def test_a_long_report_is_cut_in_the_card(self):
+    DECISION = "## Decision\n\nWhat: Add a flag\nWhy: People asked\nBackground: Nothing parses arguments yet\nBottom line: Use argparse\nAsk: Build it this way?\n\n## Tasks\n\nLong version.\n"
+
+    def test_the_card_is_the_brief_and_nothing_else(self):
+        found = self.at_gate()
+        (self.store.files(found) / "tasks.md").write_text(self.DECISION, encoding="utf-8")
+        self.board.press(ord("a"))
+        text = joined(self.board.note(100))
+        self.assertEqual(self.board.asking.question, "Build it this way?")
+        for line in ("What: Add a flag", "Why: People asked", "Background: Nothing parses", "Bottom line: Use argparse"):
+            self.assertIn(line, text)
+        self.assertNotIn("Long version", text)
+
+    def test_a_brief_line_that_runs_on_is_cut(self):
+        found = self.at_gate()
+        (self.store.files(found) / "tasks.md").write_text("What: " + "word " * 200 + "\nAsk: Go?\n", encoding="utf-8")
+        self.board.press(ord("a"))
+        self.assertLess(joined(self.board.note(100)).count("word"), 45)
+
+    def test_no_brief_means_no_wall_of_text(self):
         found = self.at_gate()
         (self.store.files(found) / "tasks.md").write_text("step\n" * 30, encoding="utf-8")
         self.board.press(ord("a"))
-        self.assertIn("22 more lines above", joined(self.board.note(100)))
+        text = joined(self.board.note(100))
+        self.assertNotIn("step", text)
+        self.assertIn("full report is above", text)
 
-    def test_a_summary_is_what_the_card_shows(self):
-        found = self.at_gate()
-        (self.store.files(found) / "tasks.md").write_text("## Summary\n\nShort version.\n\n## Tasks\n\nLong version.\n", encoding="utf-8")
+    def test_a_question_from_an_agent_can_be_a_brief(self):
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": [{"id": "plan", "kind": "agent"}]}, status="waiting", reason="plan asks: What: Two APIs\nAsk: Which one?"))
+        self.board.seen = None
+        self.board.reload()
         self.board.press(ord("a"))
-        self.assertIn("Short version", joined(self.board.note(100)))
-        self.assertNotIn("Long version", joined(self.board.note(100)))
+        self.assertEqual(self.board.asking.question, "Which one?")
+        self.assertIn("What: Two APIs", joined(self.board.note(100)))
 
     def test_up_and_down_choose_and_typing_chooses_your_own_words(self):
         self.at_gate()
@@ -984,7 +1004,7 @@ class Keys(unittest.TestCase):
     def test_a_proposal_offers_do_skip_or_your_words(self):
         steps = [{"id": "sweep", "kind": "agent"}, {"id": "decide", "kind": "gate", "report": "sweep", "proposals": True, "go": "Do it", "change": "Tell the agent what to do instead"}]
         self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": steps}, status="waiting", step=1, reason="1 of 2: Close 3?"))
-        self.board.engine.proposal.return_value = "Already done."
+        self.board.engine.proposal.return_value = "Why: Already done."
         self.board.engine._proposals.return_value = [{"action": "close", "key": "3", "why": "Already done."}]
         self.board.seen = None
         self.board.reload()
@@ -1001,7 +1021,7 @@ class Keys(unittest.TestCase):
         steps = [{"id": "sweep", "kind": "agent"}, {"id": "decide", "kind": "gate", "report": "sweep", "proposals": True}]
         found = Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": steps}, status="waiting", step=1, reason=reason)
         self.store.save(found)
-        self.board.engine.proposal.return_value = "Why."
+        self.board.engine.proposal.return_value = "Why: It's done."
         self.board.engine._proposals.return_value = [{"action": "close", "key": "3", "why": "Why."}] * 2
         self.board.seen = None
         self.board.reload()
@@ -1052,7 +1072,7 @@ class Keys(unittest.TestCase):
         self.board.press(ord("a"))
         card = self.board.note(80)
         self.assertTrue(card[0].text.startswith("─ 1 "))
-        self.assertEqual(next(line for line in card if "Why." in line.text).style, "")
+        self.assertEqual(next(line for line in card if "It's done" in line.text).style, "")
 
     def test_no_workspace_means_no_g(self):
         self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=PIPELINE, status="waiting", reason="x"))

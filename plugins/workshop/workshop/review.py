@@ -1,8 +1,12 @@
 """Places the fresh reviewer's notes on the diff, for a person to read in hunk."""
 
 import json
+import re
 from pathlib import Path
 from typing import Any
+
+
+BRIEF_LINE = re.compile(r"\b(What|Why|Background|Bottom line|Ask):\*{0,2}\s*(.+)$")
 
 
 def section(text: str, heading: str) -> list[str]:
@@ -17,6 +21,15 @@ def section(text: str, heading: str) -> list[str]:
             depth = 0
         elif depth and line.strip() and not line.startswith("VERDICT:"):
             found.append(line)
+    return found
+
+
+def brief(text: str) -> dict[str, str]:
+    """The lines an agent writes for a person deciding. Lists what it found, so a report without them is plain to see."""
+    found = {}
+    for line in text.splitlines():
+        if match := BRIEF_LINE.search(line.strip()):
+            found.setdefault(match[1], match[2].strip())
     return found
 
 

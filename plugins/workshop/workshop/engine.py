@@ -357,7 +357,8 @@ class Engine:
     def _sign_off(self, run: Run, step: dict[str, Any]) -> None:
         """Your go: only now does what you agreed reach the ticket. A failed write leaves the gate waiting, so nothing is lost."""
         report = self._report(run, run.pipeline["steps"][run.index_of(step["report"])])
-        text = re.sub(r"^VERDICT: [A-Z_]+\s*$", "", report.read_text(encoding="utf-8"), flags=re.MULTILINE)
+        text = re.sub(r"^## Decision\n.*?(?=^#|^VERDICT|\Z)", "", report.read_text(encoding="utf-8"), flags=re.MULTILINE | re.DOTALL)  # it's for you, not the ticket
+        text = re.sub(r"^VERDICT: [A-Z_]+\s*$", "", text, flags=re.MULTILINE)
         source = self.source_for(run)
         source.publish(run.key, step["section"], text, step["label"])
         source.signed(run.key, f"{self.mark}Signed off the {step['section'].lower()}.")
@@ -392,7 +393,8 @@ class Engine:
     def proposal(self, run: Run) -> str:
         """The one being asked about, in full."""
         found = self._proposals(run)[run.sent]
-        return "\n\n".join(filter(None, (found.get("why", ""), found.get("body") or found.get("text", ""))))
+        lines = ((label, found.get(name)) for label, name in (("Why", "why"), ("Background", "background"), ("Bottom line", "bottom_line")))
+        return "\n".join(f"{label}: {text}" for label, text in lines if text)
 
     def _do(self, run: Run, found: dict[str, Any]) -> None:
         """A ticket that's since gained a run or been queued is left alone."""
@@ -764,7 +766,8 @@ class Engine:
             run.checking = self.tools.snapshot(work)
         revising = step.get("proposes") and run.revised
         prompt = "sweep-revise.md" if revising else run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
-        text = (prompt_text(prompt) + (prompt_text("proposals.md") if step.get("proposes") and not revising else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
+        extra = "proposals.md" if step.get("proposes") else "decision.md" if step.get("read_only") else "asking.md"  # what the others write becomes the PR
+        text = (prompt_text(prompt) + (prompt_text(extra) if not revising and not run.on_a_pr else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()
