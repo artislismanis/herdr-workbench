@@ -24,8 +24,8 @@ class Finish(unittest.TestCase):
     def test_a_clean_draft_can_go_ready_or_post(self):
         self.assertEqual(self.actions([], True), ["ready", "comment"])
 
-    def test_fixes_must_be_pushed_before_anything_is_posted(self):
-        self.assertEqual(self.actions([" M a.py"], True), ["push", "ready"])
+    def test_a_draft_goes_ready_and_pushes_in_one_go(self):
+        self.assertEqual(self.actions([" M a.py"], True), ["ready"])
 
     def test_a_pr_already_ready_is_never_marked_again(self):
         self.assertEqual(self.actions([" M a.py"], False), ["push"])

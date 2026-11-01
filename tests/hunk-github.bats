@@ -151,6 +151,13 @@ AGENT_NOTE='{"source": "agent", "author": "claude", "filePath": "f.txt", "newRan
   [ ! -e "$STUB/posted.json" ]
 }
 
+@test "push: one key picks, with no enter" {
+  notes "{\"comments\": [$AGENT_NOTE]}"
+  run bash -c "printf c | '$REPO_ROOT/bin/hunk-pr-push' '$REPO'"
+  [ "$status" -eq 0 ]
+  [ -e "$STUB/posted.json" ]
+}
+
 @test "push: a pending review of yours is refused" {
   echo '[[{"state": "PENDING", "user": {"login": "me"}}]]' >"$STUB/reviews.json"
   notes "{\"comments\": [$AGENT_NOTE]}"

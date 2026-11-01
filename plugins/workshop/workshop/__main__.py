@@ -6,8 +6,10 @@ import os
 import re
 import subprocess
 import sys
+import termios
 import time
 import tomllib
+import tty
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,9 @@ TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
 # Each command and how many arguments it needs.
 COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+
+
+SHOWN_SECONDS = 1  # long enough to see it worked, with nothing to dismiss
 
 
 def config_path() -> Path:
@@ -330,14 +335,35 @@ def here() -> str:
 
 
 def post_review(path: str, *args: str) -> int:
-    return subprocess.run([str(Path.home() / ".config/herdr/bin/hunk-pr-push"), *args, path]).returncode
+    code = subprocess.run([str(Path.home() / ".config/herdr/bin/hunk-pr-push"), *args, path]).returncode
+    if code == 0:
+        time.sleep(SHOWN_SECONDS)
+    return code
 
 
 def finish_choices(changed: list[str], draft: bool) -> list[tuple[str, str, str]]:
     """Only what can happen now: posting needs a clean tree, and a PR is marked ready once."""
-    found = [("p", "push the fixes", "push")] if changed else []
-    found += [("r", "push any fixes and mark the PR ready" if changed else "mark the PR ready", "ready")] if draft else []
+    if draft:
+        found = [("r", "push the fixes and mark the PR ready" if changed else "mark the PR ready", "ready")]
+    else:
+        found = [("p", "push the fixes", "push")] if changed else []
     return found + ([("c", "post the review notes as a PR comment", "comment")] if not changed else [])
+
+
+def pick() -> str:
+    """One key: a popup is a quick go, not a form. Enter alone picks nothing, so it can't send anything."""
+    if not sys.stdin.isatty():
+        try:
+            return input().strip().lower()
+        except EOFError:
+            return ""
+    saved = termios.tcgetattr(0)
+    try:
+        tty.setcbreak(0)
+        return sys.stdin.read(1).strip().lower()
+    finally:
+        termios.tcsetattr(0, termios.TCSADRAIN, saved)
+        print()
 
 
 def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any], root: Path) -> int:
@@ -396,11 +422,8 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
     for reply in replies:
         print(f"\n  On {reply.get('about') or reply['comment'] or 'the PR'}:\n  {reply['reply']}" + ("\n  (and the commit it's fixed in)" if reply.get("fixed") else ""))
     print("\nTo change any of it, tell the agent here, or edit the fixes in the worktree.\n")
-    try:
-        answer = input("[y] push and post, [n] cancel: ").strip().lower()
-    except EOFError:
-        answer = "n"
-    if answer != "y":
+    print("[y] push and post, [n] cancel: ", end="", flush=True)
+    if pick() != "y":
         return 0
     outcome = ["Workshop is busy, so nothing happened. Try again in a moment."]
 
@@ -413,8 +436,10 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
 
     locked(root, act, PATIENCE)
     print(outcome[0])
-    if engine.store.load(run.repo, run.key).replied:
-        step_away(engine, run, root)
+    if not engine.store.load(run.repo, run.key).replied:
+        return 1  # the popup stays, so the reason can be read
+    time.sleep(SHOWN_SECONDS)
+    step_away(engine, run, root)
     return 0
 
 
@@ -437,28 +462,34 @@ def finish(engine: Engine, root: Path, cfg: dict[str, Any]) -> int:
     choices = finish_choices(changed, engine.reviewable(delivered))
     for key, label, _ in choices:
         print(f"[{key}] {label}")
-    try:
-        answer = input("[n] cancel: ").strip().lower()
-    except EOFError:
-        answer = "n"
+    print("[n] cancel: ", end="", flush=True)
+    answer = pick()
     action = next((a for key, _, a in choices if key == answer), "")
     if action == "comment":
         return post_review(path, "--as", "comment")
     if action:
         outcome = ["Workshop is busy, so nothing happened. Try again in a moment."]
+        done = [False]
 
         def act() -> None:
             try:
                 # You may have taken a while to choose, and a tick can have moved it on.
                 now = engine.store.load(delivered.repo, delivered.key)
                 engine.push_fixes(now) if action == "push" else engine.ready(now)
-                outcome[0] = "Pushed." if action == "push" else "Marked ready."
+                outcome[0], done[0] = "Pushed." if action == "push" else "Marked ready.", True
             except STOPS as failed:
                 outcome[0] = str(failed)
 
         locked(root, act)
         print(outcome[0])
-        input("Enter closes this.")
+        if not done[0]:
+            return 1  # the popup stays, so the reason can be read
+        time.sleep(SHOWN_SECONDS)
+        if action == "ready":
+            try:
+                engine.tools.open_board()
+            except STOPS:
+                pass  # you'd only stay where you are
     return 0
 
 

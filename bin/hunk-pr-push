@@ -67,7 +67,8 @@ if [ -z "$as" ]; then
   jq -r '.comments[] | "  \(.path):\(.line)  \(.body | split("\n")[0] | .[0:100])"' <<<"$draft"
   echo
   if [ "$own" = 1 ]; then choices='[c]omment, [d]raft, [n] cancel'; else choices='[c]omment, [a]pprove, [r]equest changes, [d]raft, [n] cancel'; fi
-  read -rp "$choices: " answer || answer=n
+  read -rn1 -p "$choices: " answer || answer=n
+  echo
   case "$answer" in
     c) as=comment ;;
     a) as=approve ;;
