@@ -857,6 +857,15 @@ class Replies(unittest.TestCase):
         self.assertEqual([c.args for c in self.source.reply.call_args_list], [("reply-7", 12, f"{PREFIX} Fixed"), ("reply-7", None, f"{PREFIX} Thanks")])
         self.assertEqual((run.replied, run.label), (True, "replied"))
 
+    def test_sending_asks_for_re_review_as_well(self):
+        self.engine.send_replies(self.finished())
+        self.assertEqual(self.tools.rerequested, [str(self.root) + "#7"])
+
+    def test_replies_stand_if_asking_for_re_review_fails(self):
+        run = self.finished()
+        self.tools.rerequest = mock.Mock(side_effect=ToolError("gh down"))
+        self.assertTrue(self.engine.send_replies(run).replied)
+
     def test_a_fix_names_its_commit_once_there_is_one(self):
         self.tools.heads = ["abcdef0123456", *self.tools.heads]
         self.engine.send_replies(self.finished('[{"comment": 12, "reply": "Done", "fixed": true}, {"comment": 13, "reply": "No need"}]'))
@@ -1026,7 +1035,7 @@ class FakeTools:
         self.reloads, self.threads_loaded, self.followed = [], 0, 0
         self.snapshots = 0
         self.removed, self.closed_workspaces, self.remove_fails = [], [], False
-        self.lost, self.boards = set(), []
+        self.lost, self.boards, self.rerequested = set(), [], []
         self.heads, self.ancestor = ["one", "two"], True
 
 
@@ -1054,6 +1063,9 @@ class FakeTools:
 
     def back_to_board(self, pane):
         self.boards.append(pane)
+
+    def rerequest(self, repo, number):
+        self.rerequested.append(f"{repo}#{number}")
 
     def close_workspace(self, pane):
         self.closed_workspaces.append(pane)

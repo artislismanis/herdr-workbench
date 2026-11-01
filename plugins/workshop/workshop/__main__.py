@@ -419,7 +419,7 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
     for reply in replies:
         print(f"\n  On {reply.get('about') or reply['comment'] or 'the PR'}:\n  {reply['reply']}" + ("\n  (and the commit it's fixed in)" if reply.get("fixed") else ""))
     print("\nTo change any of it, tell the agent here, or edit the fixes in the worktree.\n")
-    print("[y] push and post, [n] cancel: ", end="", flush=True)
+    print("[y] push, post and ask for re-review, [n] cancel: ", end="", flush=True)
     if pick() != "y":
         return 0
     outcome = ["Workshop is busy, so nothing happened. Try again in a moment."]
@@ -427,7 +427,7 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
     def act() -> None:
         try:
             engine.send_replies(engine.store.load(run.repo, run.key))
-            outcome[0] = "Pushed and posted."
+            outcome[0] = "Pushed, posted and asked for re-review."
         except STOPS as failed:
             outcome[0] = str(failed)
 
