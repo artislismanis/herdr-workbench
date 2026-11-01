@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 
-BRIEF_LINE = re.compile(r"\b(What|Why|Background|Bottom line|Ask):\*{0,2}\s*(.+)$")
+BRIEF_LINE = re.compile(r"^(?:[-*\s]*|\S+ asks: )\**(Overview|What|Why|Background|Bottom line|Ask):\*{0,2}\s*(.+)$")
 
 
 def section(text: str, heading: str) -> list[str]:
@@ -24,13 +24,18 @@ def section(text: str, heading: str) -> list[str]:
     return found
 
 
-def brief(text: str) -> dict[str, str]:
-    """The lines an agent writes for a person deciding. Lists what it found, so a report without them is plain to see."""
-    found = {}
-    for line in text.splitlines():
-        if match := BRIEF_LINE.search(line.strip()):
-            found.setdefault(match[1], match[2].strip())
-    return found
+def decisions(text: str) -> tuple[str, list[dict[str, str]]]:
+    """How the asks fit together, and each ask, from the lines an agent writes for a person deciding. A repeated line starts the next one."""
+    overview, found = "", []
+    for line in section(text, "decision") or text.splitlines():
+        if match := BRIEF_LINE.match(line.strip()):
+            if match[1] == "Overview":
+                overview = match[2].strip()
+                continue
+            if not found or match[1] in found[-1]:
+                found.append({})
+            found[-1][match[1]] = match[2].strip()
+    return overview, found
 
 
 def load_notes(path: Path) -> list[dict[str, Any]]:

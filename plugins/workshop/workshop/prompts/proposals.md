@@ -10,4 +10,4 @@ Write `{run}/proposals.json`, a JSON array, `[]` if there's nothing worth a pers
 
 A person decides from `why`, `background` and `bottom_line` alone, one at a time, so each is one plain line under 15 words: why it matters, the one fact they need, and what you recommend.
 
-Write your report to `{run}/sweep.md`: what you looked at, what you found, and what you left alone and why. End it with a last line that is exactly `VERDICT: DONE`.
+Write your report to `{run}/sweep.md`. Start it with one line, `Overview:`, saying what you found overall and how your proposals fit together. Then say what you looked at, what you found, and what you left alone and why. End it with a last line that is exactly `VERDICT: DONE`.

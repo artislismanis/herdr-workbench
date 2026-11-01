@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.review import load_notes, place  # noqa: E402
+from workshop.review import decisions, load_notes, place  # noqa: E402
 
 FILES = [{"path": "a.py", "hunks": [{"newRange": [3, 5]}, {"newRange": [10, 10]}]}]
 
@@ -55,6 +55,24 @@ class Load(unittest.TestCase):
 
     def test_bad_entries_are_dropped(self):
         self.assertEqual(self.load('[{"file": "a.py", "line": 4, "note": "Look"}, {"file": "a.py"}, 3]'), [note()])
+
+
+
+class Decisions(unittest.TestCase):
+    def test_one_decision_and_its_overview(self):
+        self.assertEqual(decisions("## Decision\n\nOverview: O\nWhat: W\nAsk: A\n\n## Rest\n\nWhy: not this\n"), ("O", [{"What": "W", "Ask": "A"}]))
+
+    def test_a_repeated_line_starts_the_next(self):
+        self.assertEqual(len(decisions("What: A\nAsk: B\nWhat: C\nAsk: D\n")[1]), 2)
+
+    def test_prose_in_a_report_isnt_a_brief(self):
+        self.assertEqual(decisions("We asked Why: because\n"), ("", []))
+
+    def test_bold_and_bullets_are_fine(self):
+        self.assertEqual(decisions("- **What:** A\n")[1], [{"What": "A"}])
+
+    def test_a_question_keeps_its_lead_in(self):
+        self.assertEqual(decisions("tasks asks: What: A\nAsk: B\n")[1], [{"What": "A", "Ask": "B"}])
 
 
 if __name__ == "__main__":
