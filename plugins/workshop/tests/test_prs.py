@@ -100,7 +100,7 @@ class TheirPRs(unittest.TestCase):
     def test_after_my_review_it_waits_on_them(self):
         self.assertEqual(move("them", reviews=[review(ME, "CHANGES_REQUESTED")]), ("others", "waiting for fixes"))
         self.assertEqual(move("them", reviews=[review(ME, "CHANGES_REQUESTED", "older")]), ("others", "new commits"))
-        self.assertEqual(move("them", reviews=[review(ME, "APPROVED", "older")]), ("others", "approved"))
+        self.assertEqual(move("them", reviews=[review(ME, "APPROVED", "older")]), ("others", "you approved"))
 
     def test_a_force_push_that_lost_my_commit_is_new_commits(self):
         self.assertEqual(move("them", reviews=[review(ME, "COMMENTED", None)]), ("others", "new commits"))

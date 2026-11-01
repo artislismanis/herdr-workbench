@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_view, wrapped
+from .boardview import RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .review import decisions
 from .store import Run
@@ -72,7 +72,7 @@ DROP = ord("d")
 
 
 def stopped(runs: Iterable[Run]) -> int:
-    return sum(r.status in ("parked", "waiting") or r.your_turn for r in runs)
+    return sum(r.status in ("parked", "waiting") or r.your_turn or r.with_you for r in runs)
 
 
 class Board:
@@ -161,6 +161,9 @@ class Board:
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
         return drill(run, events, self.title(run), "", str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run))
 
+    def band(self, width: int) -> Line:
+        return usage_line(self.engine.throttle.pace(), self.meter.read(), width)
+
     def building(self) -> list[Run]:
         return [r for r in self.runs if not r.on_a_pr and not r.operating]
 
@@ -222,8 +225,8 @@ class Board:
         if self.tab == DELIVERY:
             return deliveries(self.building(), self.events, self.title, width, self.engine.throttle.pace(), self.meter.read())
         if self.tab == OPERATE:
-            return operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), self.clock(), width)
-        return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked)
+            return operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), self.clock(), width, self.band(width))
+        return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked, self.band(width))
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:
         return [line.ref for line in lines if line.ref]

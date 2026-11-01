@@ -388,14 +388,20 @@ class PRs(unittest.TestCase):
         self.assertEqual([line.pr["url"] for line in lines if line.pr], ["b", "a", "c"])
         self.assertIn("Needs you 1", joined(lines))
 
-    def test_mine_and_others_differ_by_symbol_and_colour(self):
+    def test_a_row_says_whose_it_is(self):
         mine, theirs = self.rows(pr("a", mine=True), pr("b"))
-        self.assertEqual((mine.text[2], mine.style), ("●", "mine"))
-        self.assertEqual((theirs.text[2], theirs.style), ("○", "others"))
+        self.assertIn("yours", mine.text)
+        self.assertIn("by them", theirs.text)
+
+    def test_the_detail_keeps_status_author_and_reviewer_apart(self):
+        lines = pull(pr(state="you approved", move="others", reviews={"me": "APPROVED"}, me="me"), WIDE)
+        text = joined(lines)
+        self.assertIn("Author: them", text)
+        self.assertIn(" you approved ", text)
+        self.assertIn("you: approved", text)
 
     def test_someone_getting_there_first_stands_out(self):
         row = self.rows(pr(beaten=["sam"]))[0]
-        self.assertEqual(row.style, "yellow")
         self.assertIn("reviewed by sam", row.text)
 
     def test_shows_a_failed_poll_and_a_first_run(self):
@@ -821,7 +827,7 @@ class Keys(unittest.TestCase):
         self.assertEqual(self.board.viewing, path)
 
     def test_the_status_follows_the_title_and_pr(self):
-        lines = texts(drill(run(status="done", pr="http://p/1"), [], "T", "", "/f", 90, handover="- New flag\nRecommendation: approve"))
+        lines = texts(drill(run(status="done", opened=True, pr="http://p/1"), [], "T", "", "/f", 90, handover="- New flag\nRecommendation: approve"))
         self.assertTrue(lines[1].startswith("PR:"))
         self.assertIn("in review", lines[2])
         self.assertLess(2, next(i for i, t in enumerate(lines) if "Recommendation" in t))
@@ -910,6 +916,13 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.assertEqual(self.board.advice(self.board.run_of(self.board.picked)), "AI: approve")
         self.assertIn(" your turn ", joined(self.board.detail(self.board.picked, WIDE)))
+
+    def test_a_delivered_draft_is_your_turn_until_you_let_it_go(self):
+        draft = run("5", "done", pr="u")
+        self.assertEqual(draft.label, "your turn")
+        self.assertIn("Needs you", joined(deliveries([draft], [], lambda r: "", WIDE)))
+        draft.opened = True
+        self.assertEqual(draft.label, "in review")
 
     def test_a_merge_moves_a_ticket_to_operate(self):
         self.store.save(run("8", status="done", pr="u", deployed="preprod"))

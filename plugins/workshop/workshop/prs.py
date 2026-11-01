@@ -97,7 +97,7 @@ def their_move(pr: dict[str, Any], reviews: dict[str, dict[str, Any]], head: str
     if mine is None:
         return "others", "open"
     if mine["state"] == "APPROVED":
-        return "others", "approved"
+        return "others", "you approved"
     # Without a new request a push may still be work in progress, so it stays with them.
     return "others", "new commits" if reviewed_commit(mine) != head else "waiting for fixes"
 
@@ -123,6 +123,7 @@ def classify(pr: dict[str, Any], me: str, requested: bool = False, merged: bool 
         "title": pr["title"],
         "url": pr["url"],
         "author": author,
+        "me": me,
         "mine": mine,
         "move": move,
         "state": state,

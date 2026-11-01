@@ -82,8 +82,12 @@ class Run:
 
     @property
     def with_you(self) -> bool:
-        """A review or reply is done, and waits in hunk until you send it."""
-        return self.on_a_pr and self.status == "done" and not self.landed and not self.replied and not (self.posted and self.posted == self.reviewed)
+        """Done, and waiting in hunk: a review or reply until you send it, a delivery until your self-review lets it go."""
+        if self.status != "done" or self.landed:
+            return False
+        if self.on_a_pr:
+            return not self.replied and not (self.posted and self.posted == self.reviewed)
+        return bool(self.pr) and not self.opened and not self.deployed
 
     @property
     def operating(self) -> bool:
