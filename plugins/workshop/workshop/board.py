@@ -28,6 +28,9 @@ MESSAGE_SECONDS = 5
 CLICKS = curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED | curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED | curses.REPORT_MOUSE_POSITION
 DRAGS_ON, DRAGS_OFF = "\033[?1002h", "\033[?1002l"
 PASTES_ON, PASTES_OFF = "\033[?2004h", "\033[?2004l"  # marks a paste, so a line break in one isn't enter
+FOCUS_ON, FOCUS_OFF = "\033[?1004h", "\033[?1004l"  # says when you come back to the board
+FOCUS_GAINED, FOCUS_LOST = b"[I", b"[O"
+CATCH_UP_SECONDS = 10  # so flicking between workspaces doesn't poll each time
 PASTE_START, PASTE_END = b"[200~", b"\033[201~"
 PASTE_LIMIT = 100_000
 NOTE_ROWS = 6
@@ -79,6 +82,7 @@ class Board:
     def __init__(self, engine: Engine, cfg: dict[str, Any], clock: Callable[[], float] = time.time) -> None:
         self.engine, self.store, self.cfg, self.clock = engine, engine.store, cfg, clock
         self.meter = Meter()
+        self.caught = 0.0
         self.tab, self.offset = DELIVERY, 0
         self.picked: tuple[str, str] | None = None
         self.open: tuple[str, str] | None = None
@@ -468,6 +472,13 @@ class Board:
         seen = bytearray()
         while len(seen) < len(PASTE_START) and (key := screen.getch()) != curses.ERR:
             seen.append(key & 0xFF)
+        if bytes(seen[:2]) in (FOCUS_GAINED, FOCUS_LOST):
+            screen.timeout(1000)
+            for key in reversed(seen[2:]):
+                curses.ungetch(key)
+            if bytes(seen[:2]) == FOCUS_GAINED:
+                self.catch_up()
+            return curses.ERR
         if bytes(seen) != PASTE_START:
             screen.timeout(1000)
             for key in reversed(seen):
@@ -478,8 +489,23 @@ class Board:
             if (key := screen.getch()) != curses.ERR and 0 <= key < 256:
                 pasted.append(key)
         screen.timeout(1000)
-        self.insert(pasted.removesuffix(PASTE_END).decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n"))
+        if self.asking:
+            self.insert(pasted.removesuffix(PASTE_END).decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n"))
         return curses.ERR
+
+    def catch_up(self) -> None:
+        """Quietly, unlike r: you came back, or did something, and the board shouldn't get in the way of your next key."""
+        if self.clock() - self.caught < CATCH_UP_SECONDS:
+            return
+        self.caught = self.clock()
+
+        def work() -> None:
+            try:
+                self.engine.tools.workshop("refresh")
+            except STOPS:
+                pass  # the header shows how old it is
+
+        threading.Thread(target=work, daemon=True).start()
 
     def send(self, *args: str) -> None:
         """Commands can take a while on GitHub or Jira, so the board keeps drawing."""
@@ -490,6 +516,9 @@ class Board:
         def work() -> None:
             try:
                 self.engine.tools.workshop(*args)
+                if args[0] != "refresh":
+                    self.caught = 0.0
+                    self.catch_up()
             except STOPS as failed:
                 self.say(str(failed))
                 self.failed = True
@@ -734,7 +763,7 @@ class Board:
         styles = self.colours()
         curses.mousemask(CLICKS)
         curses.mouseinterval(0)
-        sys.stdout.write(DRAGS_ON + PASTES_ON)  # curses' own mouse mode reports presses, not movement
+        sys.stdout.write(DRAGS_ON + PASTES_ON + FOCUS_ON)  # curses' own mouse mode reports presses, not movement
         sys.stdout.flush()
         screen.timeout(1000)
         while True:
@@ -743,7 +772,7 @@ class Board:
             screen.timeout(100 if self.follow else 1000)  # the next question shouldn't wait for the redraw
             self.draw(screen, styles)
             key, width = screen.getch(), screen.getmaxyx()[1]
-            if key == ESCAPE and self.asking:
+            if key == ESCAPE:
                 key = self.paste(screen)
             if key == curses.KEY_MOUSE:
                 try:
@@ -763,5 +792,5 @@ def show(engine: Engine, cfg: dict[str, Any]) -> None:
     try:
         curses.wrapper(Board(engine, cfg).loop)
     finally:
-        sys.stdout.write(DRAGS_OFF + PASTES_OFF)
+        sys.stdout.write(DRAGS_OFF + PASTES_OFF + FOCUS_OFF)
         sys.stdout.flush()
