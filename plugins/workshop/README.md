@@ -129,7 +129,7 @@ Delivery, where it opens, shows counts and usage meters, then runs by who they w
 
 A run's detail is built around what to do next. A stopped run starts with Needs you, taken from the `## Needs you` section of the report that stopped it, with its actions underneath. The Workflow section comes next, as a tree under stage headings that carry the stage's colour, status and total, each with its verdict, rounds, cost and latest report, and the stopped step shows its findings in place. `▸` marks the report to read first. Older rounds sit behind `+2 older`, or press `e`: `ai-review.md` is always the latest, and `ai-review-1.md` is the first round, counting up. Enter or a click opens a report, and `esc` goes back.
 
-Colours are the terminal's own, so the board follows its colour scheme. Use herdr's `terminal` theme to match. Anything stopped for you has the same three keys on the bottom row: `a` accepts it and moves on, `x` redoes it, and `d` drops it. A note on `x` steers the next round, and at a gate it's required, because it says what to change. A sweep's `x` skips the numbers you give. Each key runs the matching `workshop` command and leaves a comment on the ticket.
+Colours are the terminal's own, so the board follows its colour scheme. Use herdr's `terminal` theme to match. Anything stopped for you has two keys on the bottom row: `a` answers and `d` drops. The answer box says what Enter does at that stop, and typing says what you want instead, which goes to the agent. A sweep takes the numbers to skip. The box grows as you type and keeps what's above it in view. Arrow keys, home, end, `ctrl+w` and `ctrl+u` edit it, a paste goes in whole, and `esc` keeps a draft for next time. Each answer runs the matching `workshop` command and leaves a comment on the ticket. Passing a failed step is rare enough to stay a command, `workshop pass`.
 
 Each run works in a linked worktree, grouped under its repo's workspace in herdr, which opens if it isn't already. A finished run opens hunk beside its agent, with the reviewer's notes on the diff. A note that can't sit on a changed line waits on the first change as `PR-level:`, and goes in the PR-level comment if you post the review. The detail shows the reviewer's handover: what changed, and a recommendation to approve, or to approve after named checks. The ticket's Draft PR comment carries the same text. Comment in hunk and send those to the agent with `prefix+shift+s` if it needs changes.
 
@@ -137,7 +137,7 @@ Each run works in a linked worktree, grouped under its repo's workspace in herdr
 
 ## Concluding a stopped run
 
-A stopped run always has a way out: `a`, `x` or `d` on the board, or from the terminal or the ticket:
+A stopped run always has a way out: `a` or `d` on the board, or from the terminal or the ticket:
 
 | Terminal | Your own ticket comment | Does |
 |---|---|---|
@@ -168,7 +168,7 @@ Sweeps are scheduled looks at a repo that keep the backlog full and tidy. Set th
 
 Any `sweep-<name>` pipeline works, so a repo can add its own.
 
-A sweep is a run in its own read-only checkout. It proposes tickets to create, close or comment on, and stops at a gate with them numbered, unless there's nothing to say. Nothing changes before your go. `a` does what's left, and `x` skips by number, or `all`. Skipped ones are remembered, so the next sweep won't ask again. Sweeps never add the delivery label, and can't touch a queued ticket or one with a run. On Jira, `[jira]` needs `project` to create and `moves.dropped` to close.
+A sweep is a run in its own read-only checkout. It proposes tickets to create, close or comment on, and stops at a gate with them numbered, unless there's nothing to say. Nothing changes before your go. `a` then enter does what's left, and typing numbers, or `all`, skips those. Skipped ones are remembered, so the next sweep won't ask again. Sweeps never add the delivery label, and can't touch a queued ticket or one with a run. On Jira, `[jira]` needs `project` to create and `moves.dropped` to close.
 
 ## Backlog
 
@@ -177,10 +177,10 @@ Each `tick` and `workshop refresh` saves open tickets to `~/.local/state/worksho
 `p` on the Backlog tab, or `workshop prepare <key>`, starts Prepare, which gets a ticket ready before you queue it. Give it an idea instead of a ticket key and it creates the ticket from your words first, using the first sentence as the title. With several repos, start with `repo/`. It runs in its own read-only checkout, shows on the Delivery tab, and takes no `max_active` slot.
 
 1. A fresh agent grills you on the requirements, one question at a time, in a pane of the `prep-<key>` workspace. `g` on the board goes there. `your turn` means it's waiting for you, which is normal, so there's no time limit.
-2. When you agree, it writes `requirements.md` and stops at a gate. `a` writes it to the ticket and adds `planned`. `x` sends it back with what to change.
-3. Another fresh agent, which knows only what was written, does the same for the design. Your `a` adds `designed`, and the run ends and takes its checkout.
+2. When you agree, it writes `requirements.md` and stops at a gate. Enter on `a` writes it to the ticket and adds `planned`. Typing what to change sends it back.
+3. Another fresh agent, which knows only what was written, does the same for the design. Your go adds `designed`, and the run ends and takes its checkout.
 
-Nothing reaches the ticket before a go. Each go puts its section at the top of the ticket body, above a `## Original ticket` heading that keeps your text, and posts a `Signed off` comment. Delivery treats comments older than that as background. Running it again replaces those sections. A ticket with `planned` starts at the design, and one with `designed` starts over. Queueing stays yours: add the delivery label once you've read it. Jira shows the headings as plain text, as they're Markdown. `prepare_pipeline` on a repo names a different pipeline. A gate's `ask` is the question it puts to you, shown with the report on the board. A step's `interactive = true` needs a `verdict`, which is how the engine knows you've agreed, and a gate's `section` and `label` set what it writes.
+Nothing reaches the ticket before a go. Each go puts its section at the top of the ticket body, above a `## Original ticket` heading that keeps your text, and posts a `Signed off` comment. Delivery treats comments older than that as background. Running it again replaces those sections. A ticket with `planned` starts at the design, and one with `designed` starts over. Queueing stays yours: add the delivery label once you've read it. Jira shows the headings as plain text, as they're Markdown. `prepare_pipeline` on a repo names a different pipeline. A gate's `ask` is the question it puts to you, shown with the report on the board. `go` says what a blank answer does there, and `change` what typing does. A step's `interactive = true` needs a `verdict`, which is how the engine knows you've agreed, and a gate's `section` and `label` set what it writes.
 
 ## PRs
 
