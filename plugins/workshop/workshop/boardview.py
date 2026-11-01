@@ -350,7 +350,7 @@ def author(pr: dict[str, Any]) -> str:
 def pull_row(pr: dict[str, Any], width: int, name_width: int, author_width: int, run: Run | None = None) -> Line:
     label, colour = pull_status(pr, run)
     mark, tone = MARKS[pr["mine"]]
-    room = max(width - name_width - author_width - 20, 20)
+    room = max(width - name_width - author_width - 20, 10)  # the title gives way, so the CI dot stays on a narrow panel
     return Line([Span(" "), Span(mark + " ", tone), Span(cell(label, 10) + " ", colour), Span(cell(pr_name(pr), name_width) + " "), Span(cell(pr["title"], room) + " ", "yellow" if pr["beaten"] else ""), Span(cell(author(pr), author_width) + " ", tone), Span("●", CI_DOTS.get(pr["checks"], "dim"))], pr=pr)
 
 

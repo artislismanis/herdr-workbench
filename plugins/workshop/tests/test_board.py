@@ -404,6 +404,11 @@ class PRs(unittest.TestCase):
         self.assertIn("artislismanis-ai", row.text)
         self.assertEqual(columns(row.text), 82)
 
+    def test_the_title_gives_way_before_the_ci_dot(self):
+        long = pr(repo="herdr-workbench", number=125, author="artislismanis-ai")
+        row = next(line for line in pulls({"prs": {"error": "", "items": [long]}}, 71) if line.pr)
+        self.assertEqual(columns(row.text), 69)
+
     def test_a_status_says_where_a_pr_is(self):
         words = {"review": ("needs review", "awaiting review", "open"), "changes": ("changes requested", "waiting for fixes", "comments to address", "checks failing", "new commits"), "re-review": ("re-review", "re-review requested"), "approved": ("approved", "you approved"), "merged": ("merged",)}
         for word, states in words.items():
