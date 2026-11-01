@@ -18,7 +18,18 @@ The board is where you work. Open it with `prefix+shift+b`. Agents do the work, 
 | Deploy | A merge to `dev` or `preprod` shows as `preprod`. A merge to `main` or `master` shows as `in prod` and closes the ticket | Do any listed release steps, then answer |
 | Maintain | Scheduled sweeps look at dependencies, docs, the backlog and logs | Approve or skip what they propose |
 
-Reviewing someone else's PR is shorter: `a` on the Review tab runs the repo's checks and a fresh AI review into hunk. You shape the notes and post from there with `prefix+shift+u`.
+Delivery owns a ticket until your self-review lets it go with `prefix+shift+u`. From then the PR is managed on the Review tab, and Delivery keeps one line saying `in review`. A merge brings it back to Delivery as `preprod` or `in prod`.
+
+## Reviewing a PR
+
+The Review tab works like Delivery: Needs you, With agents, With people, and Done lately.
+
+1. `a` on someone else's PR runs the repo's checks and a fresh AI review. The row shows `reviewing` with its stages, under With agents.
+2. When it's done, the row moves to Needs you as `your turn`, with the AI's recommendation. Its detail says what to do next, then gives a four line briefing to read before the diff: the intent, what the code delivers against it, the challenges, and the recommendation.
+3. `g` opens hunk with the AI's notes on the diff, and the reviewer beside it. Ask it anything. It changes nothing and posts nothing.
+4. Keep, change or drop the notes, then post with `prefix+shift+u`. What you post is the review. The reviewer closes, and the row shows `posted` until the PR moves on.
+
+New commits offer `a` again, for a review of what's changed.
 
 ## When something needs you
 

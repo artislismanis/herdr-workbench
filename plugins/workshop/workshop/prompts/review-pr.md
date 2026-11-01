@@ -12,9 +12,17 @@ Write your report to `{run}/ai-review.md`:
 
 - The findings, blocking first, with file and line.
 - A `## Needs you` section with anything only a person can decide, or nothing under it.
-- A `## Handover` section: two to four short bullets on what changed and what's worth a look, then a line starting `Recommendation:` that says `approve`, `approve after` and the specific checks a person should do first, `comment`, or `request changes`.
+- A `## Handover` section, the briefing a person reads before they open the diff. It must stand alone: someone who has never seen this PR should know what they're looking at and where to spend their attention. These four lines and nothing else, a sentence or two each, in plain words:
+
+      Intent: what this PR is meant to achieve, and for whom.
+      Delivers: what the code actually does, and where that falls short of the intent or goes beyond it.
+      Challenges: the hardest or riskiest parts, naming the files, which is where a person's time pays off.
+      Recommendation: `approve`, `approve after` and the specific checks a person should do first, `comment`, or `request changes`.
+
 - A last line that is exactly `VERDICT: APPROVE`, `VERDICT: COMMENT` or `VERDICT: REQUEST_CHANGES`.
 
 Also write `{run}/notes.json`, the draft of the review: a JSON array of `{"file": "path", "line": 12, "note": "blocking: text"}`, one per finding, blocking first, using line numbers in the new version of a changed file. Write each note as the comment you'd post, to the author and in plain words. Write `[]` if there's nothing.
 
 `{run}/answers.md`, if it exists, has the reviewer's own guidance: follow it.
+
+When you're done, stay. The reviewer works beside you in hunk and may ask you about this PR, or to look deeper. Answer from the code, and the same rules apply: change nothing, and post nothing.

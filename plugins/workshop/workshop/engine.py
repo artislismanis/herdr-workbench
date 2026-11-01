@@ -194,6 +194,9 @@ class Engine:
 
     def _let_go(self, run: Run) -> None:
         self._ask_file(run).unlink(missing_ok=True)
+        self._let_go_of_step(run)
+
+    def _let_go_of_step(self, run: Run) -> None:
         if run.step_pane:
             self.tools.close_pane(run.step_pane)
         run.step_pane, run.step_agent = "", ""
@@ -504,7 +507,8 @@ class Engine:
         if self.tools.review_open(work) and not fresh:  # reloading would drop what's been added since
             return "Already open in hunk."
         # A PR shows what GitHub shows: against where it branched, not against wherever its base has got to.
-        files = self.tools.open_review(run.pane, work, self.tools.fork_point(work, run.base) if run.on_a_pr else f"origin/{run.base}", fresh)
+        beside = run.step_pane if run.step_pane and self.tools.agent_status(run.step_agent) != "gone" else run.pane
+        files = self.tools.open_review(beside, work, self.tools.fork_point(work, run.base) if run.on_a_pr else f"origin/{run.base}", fresh)
         placed, outside = place(load_notes(kept / "notes.json"), files)
         self.tools.replace_notes(work, placed)
         if run.on_a_pr:
@@ -512,6 +516,13 @@ class Engine:
         self.store.event(run, "review", notes=len(placed), outside=len(outside))
         lines = [f"Loaded {len(placed)} note(s) into hunk. Full report: {self._last_report(run)}"]
         return "\n".join(lines + [f"  {n['file']}:{n['line']} {n['note']}" for n in outside])
+
+    def posted(self, run: Run) -> None:
+        """Your review went out, so it's with the author and the reviewer's job is done."""
+        run.posted = run.reviewed
+        self._let_go_of_step(run)
+        self.store.event(run, "posted")
+        self.store.save(run)
 
     def push_fixes(self, run: Run) -> None:
         """Your go on what review changed. Agents never commit, so this is how fixes reach the PR."""
@@ -755,6 +766,8 @@ class Engine:
         if step.get("fresh"):
             # A new agent each time: nothing checks its own work.
             run.loops[f"{step['id']}#"] = attempt = run.loops.get(f"{step['id']}#", 0) + 1
+            if run.step_pane:  # the reviewer from last time
+                self.tools.close_pane(run.step_pane)
             suffix = f"-{step['id']}-{attempt}"
             run.step_agent = run.agent[: AGENT_NAME - len(suffix)] + suffix
             run.step_pane = self.tools.split(run.pane, work)
@@ -789,10 +802,10 @@ class Engine:
             run.started_at = self.clock()
             self.tools.prompt(run.step_agent or run.agent, f"A person decides from a brief, not your report, and yours has none. Add it to the top of `{self._report(run, step)}`, and keep the rest as it is.{prompt_text('decision.md').replace('{run}', str(self.store.files(run)))}")
             return
-        if run.step_pane:
-            self.tools.close_pane(run.step_pane)
         # Done with this attempt: if it parks below, a resume runs the step afresh.
-        run.step_pane, run.step_agent, run.phase = "", "", ""
+        run.phase = ""
+        if not run.reviewing:  # a reviewer stays beside hunk to answer for its review, until that's posted
+            self._let_go_of_step(run)
         report = self._report(run, step)
         if step.get("read_only") and self.tools.changes(Path(run.worktree)) != run.baseline:
             raise Park(f"{step['id']} is read-only but changed files.")

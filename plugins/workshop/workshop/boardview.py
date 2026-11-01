@@ -21,7 +21,9 @@ ORDER = ("parked", "waiting", "running", "done")
 COLOURS = {"parked": "red", "waiting": "yellow", "running": "green", "done": "others"}
 BAD_EVENTS = ("parked", "check_failed", "move_failed", "report_failed")
 GOOD_EVENTS = ("finished", "approved", "landed")
-MOVES = (("you", "Your move"), ("others", "Waiting on others"), ("done", "Done lately"))
+MOVES = {"you": "Needs you", "others": "With people", "done": "Done lately"}
+REVIEW_GROUPS = ("Needs you", "With agents", "With people", "Done lately")
+RESPOND = ("changes requested", "comments to address", "fixed, re-request")
 PACE_AMBER, PACE_RED = 10, 25  # points ahead of an even pace, so a busy start isn't an alarm
 MACHINE_AMBER, MACHINE_RED = 75, 90
 SYMBOLS = {True: "●", False: "○"}  # with colour, so it reads in any theme
@@ -306,22 +308,58 @@ def pr_style(pr: dict[str, Any]) -> str:
     return "mine" if pr["mine"] else "others"
 
 
-def pull_row(pr: dict[str, Any], width: int) -> Line:
-    style = pr_style(pr)
-    room = max(width - 56, 30)
-    return Line([Span(f"  {SYMBOLS[pr['mine']]} ", style), Span(cell(f"{pr['repo']}#{pr['number']}", 26) + " "), Span(" " + cell(pr["state"], 19), style), Span(" "), Span(cell(pr["title"], room * 3 // 5) + " "), Span(cell(facts(pr), room - room * 3 // 5 - 1), "dim")], pr=pr)
+def live(run: Run | None) -> bool:
+    """A run says where a PR has got to while it's working or waiting on you. After that, GitHub does."""
+    return run is not None and (run.status != "done" or run.with_you)
 
 
-def pulls(snapshot: dict[str, Any], width: int = 120) -> list[Line]:
+def pull_group(pr: dict[str, Any], run: Run | None) -> str:
+    if not live(run):
+        return MOVES[pr["move"]]
+    return "With agents" if run.status == "running" else "Needs you"
+
+
+def pull_row(pr: dict[str, Any], width: int, run: Run | None = None, advice: str = "") -> Line:
+    label, colour = (run.label, "yellow" if run.with_you else COLOURS[run.status]) if live(run) else (pr["state"], pr_style(pr))
+    dots = pipe(run) if run else [Span(" " * PIPE_WIDTH)]
+    room = max(width - 57 - PIPE_WIDTH, 30)
+    return Line([Span(f"  {SYMBOLS[pr['mine']]} ", pr_style(pr)), Span(cell(f"{pr['repo']}#{pr['number']}", 26) + " "), Span(" " + cell(label, 19), colour), Span(" "), *dots, Span(" "), Span(cell(pr["title"], room * 3 // 5) + " "), Span(cell(advice or facts(pr), room - room * 3 // 5 - 1), "dim")], pr=pr)
+
+
+def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
+    """The one thing to do next, so nobody has to work it out from the state."""
+    if run and run.status == "running":
+        return "An agent is on it. This moves to Needs you when it's done."
+    if run and run.status != "done":
+        return ""  # what's stopped it says what it needs
+    if run and run.with_you:
+        ending = "prefix+shift+u there posts what you keep" if run.reviewing else "prefix+shift+u there sends it"
+        return f"{advice}. g opens it in hunk, beside the agent, so you can ask it anything. {ending}.".removeprefix(". ")
+    if pr["mine"] and pr["state"] in RESPOND:
+        return "a has an agent draft the fixes and replies, for you to check."
+    if pr["move"] == "you" and not pr["mine"] and pr["state"] != "draft":
+        return "a starts the AI review: a brief to read first, then notes on the diff to keep or drop, with the reviewer beside you."
+    return ""
+
+
+def pull_story(pr: dict[str, Any], run: Run | None, advice: str, handover: str, stopped: str, workflow: list[Line], width: int) -> list[Line]:
+    """What a person needs to move on a PR, in the order they need it."""
+    lines = [plain(), Line([Span("▌ Next", "yellow")]), *(plain("  " + part.text) for part in wrapped(step, width - 2))] if (step := next_move(pr, run, advice)) else []
+    lines += [plain(), *needs_you(run, stopped, width)] if run and run.status in ("parked", "waiting") else []
+    return lines + briefing(handover, width) + ([plain(), rule("Workflow", width), *workflow] if workflow else [])
+
+
+def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str, Any]], tuple[Run | None, str]] = lambda pr: (None, "")) -> list[Line]:
     found = snapshot.get("prs")
     if not found:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
     lines = [plain(f"Couldn't update: {first_line(found['error'])}", "red")] if found["error"] else []
     lines.append(Line([Span(" ● ", "mine"), Span("yours    "), Span(" ○ ", "others"), Span("someone else's    "), Span(" ▌", "yellow"), Span("someone reviewed first")]))
     lines.append(plain())
-    for move, heading in MOVES:
-        items = [p for p in found["items"] if p["move"] == move]
-        lines += [rule(f"{heading} {len(items)}", width), *(pull_row(p, width) for p in items), plain()]
+    for heading in REVIEW_GROUPS:
+        items = [(p, *linked(p)) for p in found["items"] if pull_group(p, linked(p)[0]) == heading]
+        if items or heading != "With agents":
+            lines += [rule(f"{heading} {len(items)}", width), *(pull_row(p, width, run, advice) for p, run, advice in items), plain()]
     return lines
 
 
@@ -344,11 +382,11 @@ def discussion(pr: dict[str, Any], width: int) -> list[Line]:
     return lines + [line for note in comments for line in said(note["who"], note["text"], width)]
 
 
-def pull(pr: dict[str, Any], width: int = 120) -> list[Line]:
+def pull(pr: dict[str, Any], width: int = 120, story: list[Line] | None = None) -> list[Line]:
     style = pr_style(pr)
     lines = [*wrapped(f"{SYMBOLS[pr['mine']]} {pr['repo']}#{pr['number']}  {pr['title']}", width, "bold"), *wrapped(pr["url"], width, "dim"), Line([Span(f" {pr['state']} ", block(style)), Span(f"  by {pr['author']}")])]
     lines += wrapped(facts(pr), width)
-    lines += [plain(), rule("Reviews", width)]
+    lines += [*(story or []), plain(), rule("Reviews", width)]
     for who, state in pr["reviews"].items():
         mark, colour = REVIEW_MARKS.get(state, ("•", "dim"))
         lines.append(Line([Span(f"  {mark} ", colour), Span(f"{who}: {state.lower().replace('_', ' ')}")]))
@@ -483,6 +521,10 @@ def document(path: str, text: str, width: int) -> list[Line]:
     return lines
 
 
+def briefing(handover: str, width: int) -> list[Line]:
+    return [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))] if handover else []
+
+
 def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), earlier: bool = False, handover: str = "", brief: str = "") -> list[Line]:
     spent = [e for e in events if e["type"] == "spent"]
     prices = [e["usd"] for e in spent]
@@ -498,7 +540,6 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
         lines += wrapped(run.reason, width, "dim")
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
     lines += [line for seen in run.noticed for line in wrapped(f"Since you started: {seen}", width, "yellow")]
-    if handover:
-        lines += [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))]
+    lines += briefing(handover, width)
     lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
     return [*lines, plain(), rule("Workflow", width), *timeline(run, events, reports, width, ("", "") if run.current and run.current["kind"] == "gate" else stopped, earlier), *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]
