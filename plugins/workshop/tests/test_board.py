@@ -1010,6 +1010,27 @@ class Keys(unittest.TestCase):
         self.board.press(ord("a"))
         self.assertEqual(self.board.asking.question, "2 of 2: Add -w?")
 
+    def asked(self, reason):
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": [{"id": "plan", "kind": "agent"}]}, status="waiting", reason=reason))
+        self.board.seen = None
+        self.board.reload()
+        self.board.press(ord("a"))
+
+    def test_an_agents_recommendation_can_be_agreed_with(self):
+        self.asked("plan asks: What: Two APIs\nBottom line: Use v2\nAsk: Which one?")
+        self.assertIn("› Agree", joined(self.board.note(100)))
+        self.assertEqual(self.sent(), ("retry", "1", "Agreed, go with your recommendation"))
+
+    def test_several_questions_go_back_numbered(self):
+        self.asked("plan asks: Overview: Two\nWhat: A\nBottom line: X\nAsk: One?\nWhat: B\nBottom line: Y\nAsk: Two?")
+        self.board.press(10)
+        self.type_in("no")
+        self.assertEqual(self.sent(), ("retry", "1", "Decision 1: Agreed, go with your recommendation\nDecision 2: no"))
+
+    def test_a_question_with_no_recommendation_still_needs_words(self):
+        self.asked("Which one?")
+        self.assertNotIn("Agree", joined(self.board.note(100)))
+
     def test_a_question_from_an_agent_can_be_a_brief(self):
         self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": [{"id": "plan", "kind": "agent"}]}, status="waiting", reason="plan asks: What: Two APIs\nAsk: Which one?"))
         self.board.seen = None

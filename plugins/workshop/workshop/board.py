@@ -314,6 +314,8 @@ class Board:
         if not said:
             overview, said = decisions(report)
         fits = [f"Overview: {overview}"] * bool(overview)
+        if not options and any("Bottom line" in item for item in said):  # a recommendation can be taken with a key, not only typed back
+            options = [("Agree", command, "Agreed, go with your recommendation")]
         if not said:
             return [Ask(run.key, run.reason.splitlines()[0], (*fits, *self.plain_lines(report)), tuple(options), typed, command)]
         if len(said) == 1:
