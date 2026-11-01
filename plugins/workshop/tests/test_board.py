@@ -322,7 +322,7 @@ class Drill(unittest.TestCase):
 
     def test_older_rounds_name_their_round(self):
         lines = drill(run(status="parked", step=1), [], "", "", "/f", 90, ("/f/verify.md", "/f/verify-2.md"), earlier=True)
-        self.assertIn("verify-2.md  round 2", joined(lines))
+        self.assertIn("round 2", next(line.text for line in lines if "verify-2.md" in line.text))
 
     def test_ticket_files_say_what_they_are(self):
         self.assertIn("the ticket", joined(self.stopped_view()))
@@ -437,6 +437,19 @@ class PRs(unittest.TestCase):
         lines = [line.text for line in timeline(draft, [], ("/x/reply.md", "/x/replies.json", "/x/brief.md"), WIDE)]
         self.assertLess(next(i for i, text in enumerate(lines) if "reply.md" in text), next(i for i, text in enumerate(lines) if "replies.json" in text))
         self.assertIn("draft replies", next(text for text in lines if "replies.json" in text))
+
+    def test_a_rounds_files_stay_together_under_its_step(self):
+        draft = run("reply-7", "done")
+        draft.pipeline = {"name": "reply", "steps": [{"id": "reply", "stage": "Review", "kind": "agent", "output": "reply.md"}]}
+        files = ("/x/brief.md", "/x/reply.md", "/x/replies.json", "/x/reply-1.md", "/x/replies-1.json")
+        shut = [line.text for line in timeline(draft, [], files, WIDE)]
+        self.assertIn("+1 older", joined(timeline(draft, [], files, WIDE)))
+        self.assertFalse([text for text in shut if "-1." in text])
+        lines = [line.text for line in timeline(draft, [], files, WIDE, earlier=True)]
+        order = [next(i for i, text in enumerate(lines) if name in text) for name in ("brief.md", "reply.md", "replies.json", "reply-1.md", "replies-1.json")]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("round 1", next(text for text in lines if "reply-1.md" in text))
+        self.assertIn("draft replies", next(text for text in lines if "replies-1.json" in text))
 
     def test_replies_show_before_they_go(self):
         draft = run("reply-7", "done", pr="u", replying=True)

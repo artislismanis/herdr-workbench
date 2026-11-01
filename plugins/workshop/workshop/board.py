@@ -204,7 +204,7 @@ class Board:
             return pull_story(pr, None, "", "", "", [], width)
         events = [e for e in self.events if (e["repo"], e["key"]) == (run.repo, run.key)]
         stopped = self.stop_report(run)
-        return pull_story(pr, run, advice, self.engine.handover(run), stopped[1], timeline(run, events, self.reports(run), width, ("", "") if run.current and run.current["kind"] == "gate" else stopped, self.earlier), width, self.engine.replies(run) if run.replying and run.with_you else [])
+        return pull_story(pr, run, advice, "" if run.replied else self.engine.handover(run), stopped[1], timeline(run, events, self.reports(run), width, ("", "") if run.current and run.current["kind"] == "gate" else stopped, self.earlier), width, self.engine.replies(run) if run.replying and run.with_you else [])
 
     def panel(self, width: int) -> list[Line]:
         """The selected item beside the list. Its actions are on the bottom row, as everywhere."""
