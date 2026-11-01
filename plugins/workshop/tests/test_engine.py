@@ -69,6 +69,16 @@ class FakeTickets(FakeSource):
         return self.labelled
 
 
+class OldRunFiles(unittest.TestCase):
+    def test_a_field_thats_gone_doesnt_stop_a_run_loading(self):
+        store = Store(Path(tempfile.mkdtemp()))
+        run = Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": []})
+        store.save(run)
+        path = store.path("r", "1")
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"skipped": [1]}))
+        self.assertEqual((store.load("r", "1").key, [found.key for found in store.all()]), ("1", ["1"]))
+
+
 class Sweeps(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

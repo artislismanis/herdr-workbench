@@ -3,7 +3,7 @@
 import json
 import os
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -78,6 +78,12 @@ class Run:
         return [s["id"] for s in self.pipeline["steps"]].index(step_id)
 
 
+def run_from(text: str) -> Run:
+    """Run files outlive the code that wrote them, so a field that's gone is ignored rather than a board that won't open."""
+    known = {f.name for f in fields(Run)}
+    return Run(**{name: value for name, value in json.loads(text).items() if name in known})
+
+
 class Store:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -113,10 +119,10 @@ class Store:
         os.replace(tmp, path)
 
     def load(self, repo: str, key: str) -> Run:
-        return Run(**json.loads(self.path(repo, key).read_text(encoding="utf-8")))
+        return run_from(self.path(repo, key).read_text(encoding="utf-8"))
 
     def all(self) -> list[Run]:
-        return [Run(**json.loads(p.read_text(encoding="utf-8"))) for p in sorted((self.root / "runs").glob("*.json"))]
+        return [run_from(p.read_text(encoding="utf-8")) for p in sorted((self.root / "runs").glob("*.json"))]
 
     def find(self, key: str) -> Run:
         found = [r for r in self.all() if r.key == key]
