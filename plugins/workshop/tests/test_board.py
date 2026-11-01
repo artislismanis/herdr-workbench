@@ -140,11 +140,11 @@ class Deliveries(unittest.TestCase):
 
     def test_the_usage_tab_shows_machine_limits_work_and_spend_together(self):
         now = datetime(2026, 11, 2, 10, 30).timestamp()
-        rows = [{"at": now - 600, "cpu": 61.0, "ram": 18.0, "five": 58, "week": 40, "sessions": 4}, {"at": now - 300, "cpu": 20.0, "ram": 20.0, "five": 59, "week": 40, "sessions": 1}]
+        rows = [{"at": now - 600, "cpu": 61.0, "ram": 18.0, "five": 58, "week": 40, "agents": 4}, {"at": now - 300, "cpu": 20.0, "ram": 20.0, "five": 59, "week": 40, "agents": 1}]
         spent = [event("spent", step="ai-review", usd=1.5, model="claude-sonnet-5-5") | {"at": datetime.fromtimestamp(now - 60, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}]
         text = joined(usage_view(rows, spent, {"cores": 16, "memory": 47.0}, now))
         self.assertIn("16 cores", text)
-        self.assertRegex(text, r"10:00\s+61%\s+20%\s+59%\s+4\s+1\s+1\s+\$1.50")
+        self.assertRegex(text, r"10:00\s+61%\s+20%\s+59%\s+4\s+\$1.50")
         self.assertIn("Most of this week's spend: claude-sonnet-5-5, on ai-review", text)
 
     def test_only_the_latest_landed_runs_stay(self):
@@ -886,6 +886,15 @@ class Keys(unittest.TestCase):
         self.assertIn("reviewing", joined(self.board.listing(WIDE)))
         self.board.tab = DELIVERY
         self.assertNotIn("pr-7", joined(self.board.listing(WIDE)))
+
+    def test_the_row_gives_the_recommendation_and_the_detail_says_why(self):
+        self.on_pr()
+        self.store.save(run("pr-7", status="done", pr=self.board.picked[1], reviewing=True))
+        self.board.engine.handover.return_value = "Intent: x\nRecommendation: approve. It only adds a file."
+        self.board.seen = None
+        self.board.reload()
+        self.assertEqual(self.board.advice(self.board.run_of(self.board.picked)), "AI: approve")
+        self.assertIn(" your turn ", joined(self.board.detail(self.board.picked, WIDE)))
 
     def test_a_delivered_draft_stays_on_delivery_until_you_let_it_go(self):
         self.on_pr()

@@ -225,13 +225,13 @@ def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine
     lines = [plain(f"  {machine['cores']} cores, {machine['memory']:.0f}G of memory", "dim"), plain()] if machine else []
     if not rows and not spent:
         return [*lines, plain("  No samples yet. One arrives every 5 minutes.", "dim")]
-    lines += [rule("Last hours", width), plain(f"  {'hour':8}{'cpu peak':>10}{'ram peak':>10}{'5h':>6}{'sessions':>10}{'agents':>8}{'runs':>6}{'spend':>9}", "dim")]
+    lines += [rule("Last 24 hours", width), plain(f"  {'hour':8}{'cpu peak':>10}{'ram peak':>10}{'5h':>6}{'agents':>8}{'spend':>9}", "dim")]
     for row in by_hour(rows, spent, now):
-        lines.append(Line([Span(f"  {row['hour'].strftime('%H:%M'):8}"), Span(f"{row['cpu']:>9.0f}%", calm(machine_style(row["cpu"]))), Span(f"{row['ram']:>9.0f}%", calm(machine_style(row["ram"]))), Span(f"{row['five']:>5.0f}%"), Span(f"{row['sessions']:>10.0f}"), Span(f"{row['agents']:>8.0f}"), Span(f"{row['runs']:>6.0f}"), Span(f"{'$' + format(row['spend'], '.2f'):>9}")]))
-    lines += [plain("  Sessions: Claude open on this machine. Agents: workshop steps working at once. Runs: tickets and reviews worked.", "dim"), plain(), rule("Totals", width)]
+        lines.append(Line([Span(f"  {row['hour'].strftime('%H:%M'):8}"), Span(f"{row['cpu']:>9.0f}%", calm(machine_style(row["cpu"]))), Span(f"{row['ram']:>9.0f}%", calm(machine_style(row["ram"]))), Span(f"{row['five']:>5.0f}%"), Span(f"{row['agents']:>8.0f}"), Span(f"{'$' + format(row['spend'], '.2f'):>9}")]))
+    lines += [plain(), rule("Totals", width)]
     for label, days in (("Today", 1), ("Week", 7), ("Month", KEEP_DAYS)):
         found = totals(rows, spent, now, days)
-        lines.append(plain(f"  {label:8}peak cpu {found['cpu']:.0f}%   ram {found['ram']:.0f}%   {found['sessions']:.0f} sessions   {found['agents']:.0f} agents at once   {found['runs']:.0f} runs   ${found['spend']:.2f}"))
+        lines.append(plain(f"  {label:8}peak cpu {found['cpu']:.0f}%   ram {found['ram']:.0f}%   {found['agents']:.0f} agents at once   ${found['spend']:.2f}"))
     model, step = top(spent, now)
     return lines + ([plain(), plain(f"  Most of this week's spend: {model}, on {step}", "dim")] if model else [])
 
@@ -358,7 +358,7 @@ def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str
     lines.append(plain())
     for heading in REVIEW_GROUPS:
         items = [(p, *linked(p)) for p in found["items"] if pull_group(p, linked(p)[0]) == heading]
-        if items or heading != "With agents":
+        if items:
             lines += [rule(f"{heading} {len(items)}", width), *(pull_row(p, width, run, advice) for p, run, advice in items), plain()]
     return lines
 
@@ -382,9 +382,9 @@ def discussion(pr: dict[str, Any], width: int) -> list[Line]:
     return lines + [line for note in comments for line in said(note["who"], note["text"], width)]
 
 
-def pull(pr: dict[str, Any], width: int = 120, story: list[Line] | None = None) -> list[Line]:
+def pull(pr: dict[str, Any], width: int = 120, story: list[Line] | None = None, run: Run | None = None) -> list[Line]:
     style = pr_style(pr)
-    lines = [*wrapped(f"{SYMBOLS[pr['mine']]} {pr['repo']}#{pr['number']}  {pr['title']}", width, "bold"), *wrapped(pr["url"], width, "dim"), Line([Span(f" {pr['state']} ", block(style)), Span(f"  by {pr['author']}")])]
+    lines = [*wrapped(f"{SYMBOLS[pr['mine']]} {pr['repo']}#{pr['number']}  {pr['title']}", width, "bold"), *wrapped(pr["url"], width, "dim"), Line([Span(f" {run.label if live(run) else pr['state']} ", block(style)), Span(f"  by {pr['author']}")])]
     lines += wrapped(facts(pr), width)
     lines += [*(story or []), plain(), rule("Reviews", width)]
     for who, state in pr["reviews"].items():

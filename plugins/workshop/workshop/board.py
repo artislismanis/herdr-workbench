@@ -150,7 +150,7 @@ class Board:
 
     def detail(self, ref: tuple[str, str] | None, width: int) -> list[Line]:
         if pr := next((p for p in self.pr_items() if ("#pr", p["url"]) == ref), None):
-            return pull(pr, width, self.pull_context(pr, width))
+            return pull(pr, width, self.pull_context(pr, width), self.linked(pr)[0])
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:
             return []
@@ -172,7 +172,7 @@ class Board:
         if run is None or not run.with_you:
             return ""
         said = [line.strip(" -*") for line in self.engine.handover(run).splitlines()]
-        word = next((line.removeprefix("Recommendation:").strip() for line in said if line.startswith("Recommendation:")), "")
+        word = next((line.removeprefix("Recommendation:").split(". ")[0].strip(" .") for line in said if line.startswith("Recommendation:")), "")
         notes = next((e["notes"] for e in reversed(self.events) if (e["repo"], e["key"], e["type"]) == (run.repo, run.key, "review")), None)
         return ", ".join(part for part in (f"AI: {word}" if word else "", "" if notes is None else f"{notes} note(s)") if part)
 
