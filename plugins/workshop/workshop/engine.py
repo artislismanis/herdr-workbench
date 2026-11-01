@@ -21,6 +21,7 @@ STEP_TIMEOUT = 45 * 60
 PREFIX = "[ai]"  # workshop comments as you, so its own comments mustn't count as yours
 AGENT_NAME = 32  # herdr's limit
 STOPS = (ToolError, OSError, KeyError, ValueError, json.JSONDecodeError)
+PROPOSAL_FIELDS = {"create": ("title", "body", "why"), "close": ("key", "why"), "comment": ("key", "text", "why"), "skip": ()}
 SWEEPS = "sweeps.json"  # when each ran, and what you've declined
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 
@@ -105,15 +106,14 @@ class Engine:
                 break
             before = (run.step, run.phase)
             try:
-                self._prepare(run)
+                if step["kind"] != "gate":  # nothing works in the checkout at a gate, and a sweep's has gone
+                    self._prepare(run)
                 if step["kind"] == "agent":
                     self._agent(run, step)
                 elif step["kind"] == "command":
                     self._command(run, step)
-                elif step.get("proposals") and run.sent >= len(self._proposals(run)):
-                    run.step, run.phase = run.step + 1, ""
                 elif step.get("proposals"):
-                    self._wait(run, self._question(run))
+                    self._settle(run, step)
                 elif step["kind"] == "gate":
                     self._wait(run, step.get("ask") or f"{step['report']} needs your approval.")
                 else:
@@ -205,6 +205,14 @@ class Engine:
         self.store.event(run, "retried", note=note)
         self._fresh_rounds(run)
         step = run.current
+        if step is not None and step.get("proposals"):
+            try:
+                self._proposals(run)
+            except STOPS:  # the file is what went wrong, so the agent writes it again
+                run.step = run.index_of(step["report"])
+            run.status, run.reason, run.phase, run.blocked_at = "running", "", "", 0.0
+            self.store.save(run)
+            return self.advance(run)
         if step is not None and step["kind"] == "gate":  # back to the question, with its rounds renewed
             run.status, run.reason, run.blocked_at = "waiting", step.get("ask") or f"{step['report']} needs your approval.", 0.0
             self.store.save(run)
@@ -284,7 +292,7 @@ class Engine:
             self._tidy(run, pr["headRefOid"])
         if place and (steps := self._release_steps(run, pr)):
             (self.store.files(run) / "release.md").write_text("\n".join(["# Release steps", "", *steps, ""]), encoding="utf-8")
-            run.pipeline["steps"].append({"id": "release", "stage": "Deploy", "kind": "gate", "report": "release", "go": "say they're done", "change": "what went wrong"})
+            run.pipeline["steps"].append({"id": "release", "stage": "Deploy", "kind": "gate", "report": "release", "go": "They're done", "change": "Say what went wrong"})
             run.step = len(run.pipeline["steps"]) - 1
             self._wait(run, "It's in prod, and it has release steps to do by hand.")
             self.store.save(run)
@@ -308,6 +316,8 @@ class Engine:
         self.store.save(run)
 
     def _tidy(self, run: Run, landed_head: str = "") -> None:
+        if not run.worktree:
+            return
         """A landed run's checkout goes, unless it holds work: wt refuses uncommitted changes, and a head that isn't the PR's has commits nobody pushed."""
         try:
             if landed_head and self.tools.head(Path(run.worktree)) != landed_head:
@@ -336,8 +346,7 @@ class Engine:
         if "section" in step:
             self._sign_off(run, step)
         if step.get("proposals"):
-            self._do(run, self._proposals(run)[run.sent])
-            return self._next_proposal(run)
+            return self._decided(run, "do")
         self._post(run, "Approved.")
         run.status, run.reason = "running", ""
         run.step, run.phase = run.step + 1, ""
@@ -355,9 +364,16 @@ class Engine:
         self.store.event(run, "signed_off", step=step["id"], section=step["section"])
 
     def _proposals(self, run: Run) -> list[dict[str, Any]]:
+        """Agents write this by hand, so it's checked before anything is asked or done."""
         proposals = json.loads((self.store.files(run) / "proposals.json").read_text(encoding="utf-8"))
-        if not isinstance(proposals, list) or any(p.get("action") not in ("create", "close", "comment") for p in proposals):
-            raise ValueError("proposals.json isn't a list of create, close or comment")
+        if not isinstance(proposals, list):
+            raise ValueError("proposals.json isn't a list")
+        for number, found in enumerate(proposals, 1):
+            needs = PROPOSAL_FIELDS.get(found.get("action")) if isinstance(found, dict) else None
+            if needs is None:
+                raise ValueError(f"proposal {number} isn't create, close, comment or skip")
+            if missing := [name for name in needs if not found.get(name)]:
+                raise ValueError(f"proposal {number} has no {', '.join(missing)}")
         return proposals
 
     def _question(self, run: Run) -> str:
@@ -373,11 +389,13 @@ class Engine:
         return "\n\n".join(filter(None, (found.get("why", ""), found.get("body") or found.get("text", ""))))
 
     def _do(self, run: Run, found: dict[str, Any]) -> None:
-        """Your go. A ticket that's since gained a run or been queued is left alone."""
+        """A ticket that's since gained a run or been queued is left alone."""
         source = self.source_for(run)
         key = found.get("key", "")
         if found["action"] == "create":
             self.store.event(run, "created", ticket=source.create(found["title"], found["body"]))
+        elif found["action"] == "skip":
+            pass
         elif key not in source.open_keys() or self.store.exists(run.repo, key):
             self.store.event(run, "left_alone", ticket=key)
         elif found["action"] == "close":
@@ -385,39 +403,53 @@ class Engine:
         else:
             source.comment(key, self.mark + found["text"])
 
-    def _next_proposal(self, run: Run) -> Run:
-        """Counted as it goes, so a failure doesn't repeat what went through."""
+    def _settle(self, run: Run, step: dict[str, Any]) -> None:
+        """Your answers are collected first. Guidance is a decision, not a draft, so the agent acts on it and nothing is asked again unless it has a real question."""
+        proposals = self._proposals(run)
+        if run.sent < len(proposals):
+            self._tidy(run)  # its agent has finished, so there's nothing in the workspace for you
+            self._wait(run, self._question(run))
+            return
+        if "guide" in run.decided.values() and not run.revised:
+            run.revised = True
+            run.step, run.phase = run.index_of(step["report"]), ""
+            return
+        for number, found in enumerate(proposals, 1):
+            if run.decided.get(str(number)) != "skip" and number not in run.applied:
+                self._do(run, found)
+                run.applied.append(number)  # so a retry after a failure doesn't repeat it
+                self.store.save(run)
+        run.step, run.phase = run.step + 1, ""
+
+    def _decided(self, run: Run, choice: str) -> Run:
+        run.decided[str(run.sent + 1)] = choice
         run.sent += 1
         if run.sent < len(self._proposals(run)):
             run.reason = self._question(run)
             self.store.save(run)
             return run
         run.status, run.reason = "running", ""
-        run.step, run.phase = run.step + 1, ""
         self.store.save(run)
         return self.advance(run)
 
-    def _answer(self, run: Run, step: dict[str, Any], note: str) -> Run:
-        """n says no, and it's remembered so the next sweep doesn't ask again. Anything else is guidance, and the agent reworks that one proposal."""
-        found = self._proposals(run)[run.sent]
+    def _answer(self, run: Run, note: str) -> Run:
+        """n says no, and it's remembered so the next sweep doesn't ask again. Anything else is guidance for the agent."""
         if note.strip().lower() != "n":
             self._note(run, "feedback.md", f"Proposal {run.sent + 1}: {note}")
             self.store.event(run, "guided", proposal=run.sent + 1)
-            run.status, run.reason, run.next_prompt = "running", "", "sweep-revise.md"
-            run.step, run.phase = run.index_of(step["report"]), ""
-            self.store.save(run)
-            return self.advance(run)
+            return self._decided(run, "guide")
+        found = self._proposals(run)[run.sent]
         seen = self.store.read(SWEEPS)
         entry = seen.setdefault(f"{run.repo}/{run.sweeping}", {})
         entry["declined"] = list(dict.fromkeys([*entry.get("declined", []), found.get("title") or found.get("why", "")]))
         self.store.write(SWEEPS, seen)
         self.store.event(run, "skipped", proposal=run.sent + 1)
-        return self._next_proposal(run)
+        return self._decided(run, "skip")
 
     def reject(self, run: Run, note: str) -> Run:
         step = self._at_gate(run)
         if step.get("proposals"):
-            return self._answer(run, step, note)
+            return self._answer(run, note)
         self._post(run, f"Rejected. {note}")
         self._note(run, "feedback.md", note)
         self.store.event(run, "rejected", note=note)
@@ -534,12 +566,15 @@ class Engine:
                 return "\n".join(lines)
         return ""
 
-    def choices(self, run: Run) -> tuple[str, str]:
-        """What a blank answer does, and what words mean, at this stop. No blank answer means only words will do."""
+    def choices(self, run: Run) -> tuple[list[tuple[str, str, str]], str, str]:
+        """What you can say at this stop: options as label, command and words, then what a typed answer means, and its command."""
         step = run.current or {}
         if run.status == "waiting" and step.get("kind") == "gate":
-            return step.get("go", "accept it"), step.get("change", "what to change")
-        return ("", "your answer") if run.status == "waiting" else ("run it again", "what to change first")
+            skip = [("Skip it", "reject", "n")] if step.get("proposals") else []
+            return [(step.get("go", "Accept it"), "approve", ""), *skip], step.get("change", "Say what to change"), "reject"
+        if run.status == "waiting":
+            return [], "Your answer", "retry"
+        return [("Run it again", "retry", "")], "Say what to change first", "retry"
 
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
@@ -552,8 +587,8 @@ class Engine:
             return "Finish with prefix+shift+u in the workspace"
         if self.delivered(run):
             return "With reviewers. Ask for review if nobody's assigned. It lands when the PR merges, and its worktree goes then"
-        go, change = self.choices(run)
-        return f"a answers: {' '.join(filter(None, (f'enter to {go},' if go else '', f'or type {change}' if go else f'type {change}')))}. d drops it"
+        options, typed, _ = self.choices(run)
+        return "a on the board to answer: " + ", ".join([*(label for label, _, _ in options), typed]) + ". d drops it"
 
     def explain(self, run: Run) -> str:
         step = run.current["id"] if run.current else "finished"
@@ -719,8 +754,9 @@ class Engine:
                 self.tools.start_agent(agent, run.pane, self.store.files(run), step.get("model", ""))
         if step.get("again") and not run.on_a_pr:
             run.checking = self.tools.snapshot(work)
-        prompt = run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
-        text = (prompt_text(prompt) + (prompt_text("proposals.md") if step.get("proposes") and not run.next_prompt else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
+        revising = step.get("proposes") and run.revised
+        prompt = "sweep-revise.md" if revising else run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
+        text = (prompt_text(prompt) + (prompt_text("proposals.md") if step.get("proposes") and not revising else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()

@@ -34,12 +34,9 @@ The board shows the reason and the report, so you shouldn't need to open the wor
 
 ## Answering
 
-Anything stopped for you has two keys on the bottom row.
+Press `a` on anything stopped for you. A card opens at the bottom with the question, what you need to answer it, the options, and room to write your own. Up and down choose, or just start typing, and enter confirms. `d` drops the run.
 
-- **`a` answer:** a box opens and says what happens here. Press enter to carry on, or type what you want instead.
-- **`d` drop:** stop working on this.
-
-Carrying on means the obvious next thing: start building, write it to the ticket, do what a sweep listed, or run a failed step again. Whatever you type goes to the agent as what to change. An agent's question needs a typed answer. A sweep asks about its proposals one at a time: enter does that one, `n` skips it and it won't be proposed again, and anything else you type goes to the agent, which reworks it and asks again.
+An agent's question has no options, only your answer. A sweep asks about its proposals one at a time, and nothing happens until you've answered them all. Your own words are guidance: the agent acts on them and everything goes ahead, and you're only asked again if it has a real question. A skipped proposal isn't proposed again.
 
 To treat a failed step as passed without running it again, use `workshop pass <key>`. It's a rare override, so it isn't on the board.
 

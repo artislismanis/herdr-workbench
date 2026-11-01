@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls, rule
+from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls, rule, wrapped
 from .engine import STOPS, Engine
+from .review import section
 from .store import Run
 from .system import Meter
 
@@ -29,6 +30,7 @@ PASTES_ON, PASTES_OFF = "\033[?2004h", "\033[?2004l"  # marks a paste, so a line
 PASTE_START, PASTE_END = b"[200~", b"\033[201~"
 PASTE_LIMIT = 100_000
 NOTE_ROWS = 6
+CARD_CONTEXT = 8
 CURSOR = "▌"
 CTRL_U, CTRL_W = 21, 23
 JITTER = 2  # a press that moves less than this along a row is still a click
@@ -54,13 +56,14 @@ class Keys(Protocol):
 
 
 class Ask(NamedTuple):
-    """Waiting for your words. Enter sends the command for what's there: blank does one thing, words another. No command for blank means words are needed."""
+    """A question with what you need to answer it, the options, and room to say something else. Everything stays together, at the bottom."""
 
     key: str
-    label: str
-    blank: str
-    words: str
-    hints: tuple[str, ...]
+    question: str
+    context: tuple[str, ...]
+    options: tuple[tuple[str, str, str], ...]  # label, command and words
+    typed: str  # what writing your own answer means
+    command: str  # and what it runs
 
 
 ANSWER = ord("a")
@@ -85,6 +88,8 @@ class Board:
         self.asking: Ask | None = None
         self.typed = ""
         self.cursor = 0
+        self.choice = 0  # which option the card has selected. Past the last is your own words
+        self.failed = False  # a failure stays until a key, so it can be read
         self.drafts: dict[tuple[str, str], str] = {}  # what esc left, for when you come back
         self.regions: list[tuple[int, int, int, Action]] = []
         self.reload()
@@ -193,9 +198,9 @@ class Board:
             self.type_key(key)
             return True
         lines = self.lines(width)
-        self.message = ""
+        self.message, self.failed = "", False
         if (run := self.target(lines)) and key in self.run_actions(run):
-            self.begin_note(self.answer(run) if key == ANSWER else Ask(run.key, f"{run.key}: drop this run", "drop", "drop", ("enter drops it", "or type why first")))
+            self.begin_note(self.answer(run) if key == ANSWER else Ask(run.key, f"Drop {run.key}?", (), (("Drop it", "drop", ""),), "Drop it, and say why", "drop"))
             return True
         if key == AI_REVIEW and (pr := self.answerable(lines)):
             self.send("reply", pr)
@@ -210,7 +215,7 @@ class Board:
             self.send("claim", found.key)
             return True
         if key == PREPARE and self.tab == BACKLOG and not self.open:
-            self.begin_note(Ask("", "Prepare", "", "prepare", ("type a ticket number, or an idea to make into a ticket",)))
+            self.begin_note(Ask("", "What should be prepared?", (), (), "A ticket number, or an idea to make into a ticket", "prepare"))
             return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
@@ -294,17 +299,21 @@ class Board:
         return {ANSWER: "a answer", DROP: "d drop"}
 
     def answer(self, run: Run) -> Ask:
-        go, change = self.engine.choices(run)
-        gate = run.status == "waiting" and bool(run.current) and run.current["kind"] == "gate"
-        return Ask(run.key, f"{run.key}: answer", ("approve" if gate else "retry") if go else "", "reject" if gate else "retry", (f"enter to {go}", f"or type {change}") if go else (f"type {change}",))
+        options, typed, command = self.engine.choices(run)
+        report = self.stop_report(run)[1]
+        context = section(report, "summary") or [line for line in report.splitlines() if line.strip() and not line.startswith(("#", "VERDICT:"))]
+        return Ask(run.key, f"{run.key}: {run.reason}", tuple(context), tuple(options), typed, command)
 
     def begin_note(self, asking: Ask) -> None:
-        self.asking, self.typed = asking, self.drafts.get(asking.key + asking.blank + asking.words, "")
+        self.asking, self.typed = asking, self.drafts.get(asking.key + asking.command, "")
         self.cursor = len(self.typed)
+        self.choice = len(asking.options) if self.typed or not asking.options else 0
 
     def insert(self, text: str) -> None:
         self.typed = self.typed[: self.cursor] + text + self.typed[self.cursor :]
         self.cursor += len(text)
+        if self.asking:
+            self.choice = len(self.asking.options)  # writing is choosing to write
 
     def cut(self, start: int, end: int) -> None:
         self.typed = self.typed[:start] + self.typed[end:]
@@ -315,16 +324,18 @@ class Board:
         if asking is None:
             return
         if key == ESCAPE:
-            self.drafts[asking.key + asking.blank + asking.words] = self.typed
+            self.drafts[asking.key + asking.command] = self.typed
             self.asking = None
         elif key in ENTERS:
-            words = self.typed.strip()
-            command = asking.words if words else asking.blank
+            typing = self.choice == len(asking.options)
+            command, words = (asking.command, self.typed.strip()) if typing else asking.options[self.choice][1:]
             # While another command runs, the words stay put for a second enter.
-            if command and not self.refreshing:
+            if (words or not typing) and not self.refreshing:
                 self.asking = None
-                self.drafts.pop(asking.key + asking.blank + asking.words, None)
+                self.drafts.pop(asking.key + asking.command, None)
                 self.send(*filter(None, (command, asking.key, words)))
+        elif key in (curses.KEY_UP, curses.KEY_DOWN):
+            self.choice = max(0, min(self.choice + (1 if key == curses.KEY_DOWN else -1), len(asking.options)))
         elif key in BACKSPACES:
             self.cut(max(self.cursor - 1, 0), self.cursor)
         elif key == curses.KEY_DC:
@@ -374,6 +385,7 @@ class Board:
                 self.engine.tools.workshop(*args)
             except STOPS as failed:
                 self.say(str(failed))
+                self.failed = True
             self.refreshing = False
 
         threading.Thread(target=work, daemon=True).start()
@@ -422,19 +434,30 @@ class Board:
         offers = [("a ai reply", AI_REVIEW)] if self.answerable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
-        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run is None or run.pane) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def note(self, width: int) -> list[Line]:
         """Grows upward as you type, so what you're answering stays in view."""
+        if self.failed and self.message:
+            return [*wrapped(self.message, width, "yellow"), plain(" any key clears this", "dim")]
         if self.asking is None:
             return [self.footer(width)]
-        room = max(width - 2, 20)
-        marked = self.typed[: self.cursor] + CURSOR + self.typed[self.cursor :]
+        asking, room = self.asking, max(width - 4, 20)
+        typing = self.choice == len(asking.options)
+        context = [part.text for line in asking.context for part in wrapped(line, room)]
+        lines = [rule("Answer", width), *wrapped(asking.question, width - 1, "bold")]
+        lines += [plain(f" {text}", "dim") for text in context[:CARD_CONTEXT]]
+        lines += [plain(f" ... {len(context) - CARD_CONTEXT} more lines above", "dim")] * (len(context) > CARD_CONTEXT)
+        lines += [plain()]
+        lines += [plain(f" {'›' if i == self.choice else ' '} {label}", "bold" if i == self.choice else "") for i, (label, _, _) in enumerate(asking.options)]
+        lines += [plain(f" {'›' if typing else ' '} {asking.typed}:", "bold" if typing else "")]
+        marked = self.typed[: self.cursor] + (CURSOR if typing else "") + self.typed[self.cursor :]
         rows = [part for line in marked.split("\n") for part in textwrap.wrap(clean(line), room, drop_whitespace=False, replace_whitespace=False, break_on_hyphens=False) or [""]]
-        here = next(i for i, row in enumerate(rows) if CURSOR in row)
+        here = next((i for i, row in enumerate(rows) if CURSOR in row), 0)
         first = max(0, min(here - NOTE_ROWS + 1, len(rows) - NOTE_ROWS))
-        return [rule(cell(self.asking.label, width - 6).rstrip(), width), *(plain(f" {row}") for row in rows[first : first + NOTE_ROWS]), *(plain(f" {hint}", "dim") for hint in self.asking.hints), plain(" esc keeps a draft", "dim")]
+        lines += [plain(f"   {row}") for row in rows[first : first + NOTE_ROWS]]
+        return [*lines, *wrapped("up and down choose, enter confirms, esc keeps a draft" if asking.options else "enter sends, esc keeps a draft", width - 1, "dim")]
 
     def wheel(self, by: int, width: int) -> None:
         lines = self.lines(width)
@@ -541,7 +564,7 @@ class Board:
         self.right, self.rows = width - 1, rows
         screen.erase()
         self.put(screen, TOP, self.header(), styles, width)
-        foot = self.note(width - 1)
+        foot = self.note(width - 1)[-(rows - TOP - 3) :]
         height = rows - TOP - 2 - len(foot)
         panelled = self.panelled(width - 1)
         edge = self.list_width(width - 1) + 1 if panelled else width

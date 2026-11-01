@@ -117,17 +117,30 @@ class Sweeps(unittest.TestCase):
         self.assertEqual((run.status, run.current["id"]), ("waiting", "decide"))
         self.ticket.create.assert_not_called()
 
+    def test_its_checkout_goes_once_its_agent_is_done(self):
+        run = self.swept([self.CLOSE])
+        self.assertEqual((run.worktree, run.pane, len(self.tools.removed)), ("", "", 1))
+        self.assertEqual(self.engine.approve(run).landed, "swept")
+        self.assertEqual((len(self.tools.removed), self.tools.worktrees), (1, 1))
+
+    def test_guidance_brings_a_checkout_back_for_the_agent(self):
+        run = self.engine.reject(self.swept([self.CLOSE]), "Comment instead")
+        self.assertEqual((run.current["id"], self.tools.worktrees), ("sweep", 2))
+
     def test_it_asks_about_one_at_a_time(self):
         run = self.swept([self.CLOSE, self.CREATE])
         self.assertEqual(run.reason, "1 of 2: Close 1?")
         self.assertIn("Done already", self.engine.proposal(run))
         self.ticket.close.assert_not_called()
 
-    def test_your_go_does_that_one_and_asks_the_next(self):
+    def test_nothing_happens_until_every_answer_is_in(self):
         run = self.engine.approve(self.swept([self.CLOSE, self.COMMENT]))
-        self.ticket.close.assert_called_once_with("1", f"{PREFIX} Done already")
-        self.ticket.report.assert_not_called()
+        self.ticket.close.assert_not_called()
         self.assertEqual((run.status, run.reason), ("waiting", "2 of 2: Comment on 2?"))
+        run = self.engine.approve(run)
+        self.ticket.close.assert_called_once_with("1", f"{PREFIX} Done already")
+        self.ticket.report.assert_called_once_with("2", f"{PREFIX} Which one?")
+        self.assertEqual(run.landed, "swept")
 
     def test_the_last_go_ends_it(self):
         run = self.engine.approve(self.swept([self.CREATE]))
@@ -159,8 +172,10 @@ class Sweeps(unittest.TestCase):
 
     def test_n_skips_it_and_asks_the_next(self):
         run = self.engine.reject(self.swept([self.CREATE, self.CLOSE]), "n")
-        self.ticket.create.assert_not_called()
         self.assertEqual(run.reason, "2 of 2: Close 1?")
+        self.engine.approve(run)
+        self.ticket.create.assert_not_called()
+        self.ticket.close.assert_called_once()
 
     def test_skipped_proposals_are_remembered(self):
         self.engine.reject(self.swept([self.CREATE]), "n")
@@ -169,25 +184,58 @@ class Sweeps(unittest.TestCase):
     def test_skipping_the_last_ends_it(self):
         self.assertEqual(self.engine.reject(self.swept([self.CREATE]), "N").landed, "swept")
 
-    def test_guidance_goes_to_the_agent_and_doesnt_act(self):
-        run = self.engine.reject(self.swept([self.CLOSE, self.COMMENT]), "Keep it open, ask them first")
+    def guided(self):
+        run = self.engine.reject(self.swept([self.CLOSE, self.COMMENT]), "Keep it open and comment instead")
+        return self.engine.approve(run)
+
+    def agent_rewrites(self, run, proposals):
+        files = self.engine.store.files(run)
+        (files / "sweep.md").write_text("Revised.\n\nVERDICT: DONE\n")
+        (files / "proposals.json").write_text(json.dumps(proposals))
+        self.tools.statuses[run.step_agent] = "idle"
+        return self.engine.advance(run)
+
+    def test_guidance_waits_for_every_answer_then_goes_to_the_agent(self):
+        run = self.engine.reject(self.swept([self.CLOSE, self.COMMENT]), "Keep it open")
+        self.assertEqual((run.status, run.reason), ("waiting", "2 of 2: Comment on 2?"))
+        run = self.engine.approve(run)
         self.assertEqual((run.status, run.current["id"]), ("running", "sweep"))
         self.assertIn("Proposal 1: Keep it open", (self.engine.store.files(run) / "feedback.md").read_text())
-        self.assertIn("gave you guidance", self.tools.prompts[-1][1])
+        self.assertIn("answered them", self.tools.prompts[-1][1])
         self.assertNotIn("five at most", self.tools.prompts[-1][1])
         self.ticket.close.assert_not_called()
 
-    def test_after_guidance_it_asks_about_the_same_one_again(self):
-        run = self.engine.approve(self.swept([self.CLOSE, self.COMMENT]))
-        run = self.engine.reject(run, "Ask something sharper")
-        files = self.engine.store.files(run)
-        (files / "sweep.md").write_text("Revised.\n\nVERDICT: DONE\n")
-        (files / "proposals.json").write_text(json.dumps([self.CLOSE, {**self.COMMENT, "text": "Sharper?"}]))
+    def test_what_the_agent_does_with_guidance_goes_ahead_without_asking_again(self):
+        run = self.agent_rewrites(self.guided(), [{"action": "comment", "key": "1", "text": "Duplicate of 2", "why": "Asked"}, self.COMMENT])
+        self.assertEqual((run.status, run.landed), ("done", "swept"))
+        self.ticket.close.assert_not_called()
+        self.assertEqual([c.args for c in self.ticket.report.call_args_list], [("1", f"{PREFIX} Duplicate of 2"), ("2", f"{PREFIX} Which one?")])
+
+    def test_the_agent_can_drop_one_on_your_guidance(self):
+        run = self.agent_rewrites(self.guided(), [{"action": "skip"}, self.COMMENT])
+        self.assertEqual(run.landed, "swept")
+        self.ticket.close.assert_not_called()
+
+    def test_a_real_question_from_the_agent_comes_back_to_you(self):
+        run = self.guided()
+        (self.engine.store.files(run) / "ask.md").write_text("Which ticket do you mean?")
         self.tools.statuses[run.step_agent] = "idle"
         run = self.engine.advance(run)
-        self.assertEqual((run.status, run.reason), ("waiting", "2 of 2: Comment on 2?"))
-        self.assertIn("Sharper?", self.engine.proposal(run))
-        self.ticket.close.assert_called_once()
+        self.assertEqual(run.status, "waiting")
+        self.assertIn("Which ticket", run.reason)
+        self.ticket.close.assert_not_called()
+
+    def test_a_proposal_with_a_field_missing_stops_before_anything_is_done(self):
+        run = self.agent_rewrites(self.guided(), [self.CLOSE, {"action": "comment", "key": "2", "why": "No text"}])
+        self.assertEqual(run.status, "parked")
+        self.assertIn("proposal 2 has no text", run.reason)
+        self.ticket.close.assert_not_called()
+
+    def test_retrying_a_broken_file_asks_the_agent_again(self):
+        run = self.agent_rewrites(self.guided(), [{"action": "comment", "key": "2", "why": "No text"}])
+        run = self.engine.retry(run)
+        self.assertEqual((run.status, run.current["id"]), ("running", "sweep"))
+        self.assertIn("answered them", self.tools.prompts[-1][1])
 
     def test_a_ticket_out_of_reach_isnt_touched(self):
         queued = {**self.CLOSE, "key": "3"}
@@ -202,13 +250,14 @@ class Sweeps(unittest.TestCase):
         self.engine.approve(run)
         self.ticket.close.assert_not_called()
 
-    def test_a_failure_doesnt_lose_your_place(self):
+    def test_a_failure_doesnt_repeat_what_went_through(self):
         run = self.engine.approve(self.swept([self.CREATE, self.CLOSE]))
         self.ticket.close.side_effect = ToolError("gh down")
-        with self.assertRaises(ToolError):
-            self.engine.approve(run)
+        run = self.engine.approve(run)
+        self.assertEqual(run.status, "parked")
         self.ticket.close.side_effect = None
-        self.engine.approve(self.engine.store.load("r", "sweep-docs-1"))
+        run = self.engine.retry(run)
+        self.assertEqual(run.landed, "swept")
         self.ticket.create.assert_called_once()
         self.assertEqual(self.ticket.close.call_count, 2)
 
@@ -283,7 +332,7 @@ class Deploy(unittest.TestCase):
         self.assertEqual((run.status, run.landed, run.deployed, run.current["id"]), ("waiting", "", "prod", "release"))
         self.assertIn("Refresh the data", (self.engine.store.files(run) / "release.md").read_text())
         self.assertNotIn("merged", self.source.moves)
-        self.assertIn("say they're done", self.engine.next_action(run))
+        self.assertIn("They're done", self.engine.next_action(run))
 
     def test_release_steps_in_the_design_count_too(self):
         self.merged("main")
@@ -1308,7 +1357,7 @@ class Gates(Case):
         self.assertIn("right tasks to build", run.reason)
         self.assertEqual(self.tools.notes, ["Workshop: DE-1 needs you"])
         self.assertIn("waiting", self.source.reports[-1])
-        self.assertIn("enter to start building", self.engine.explain(run))
+        self.assertIn("Start building", self.engine.explain(run))
 
     def test_a_waiting_run_doesnt_move_by_itself(self):
         prompts = len(self.tools.prompts)
@@ -1353,7 +1402,7 @@ class Questions(Case):
     def test_a_question_waits_for_a_person(self):
         run = self.asked()
         self.assertEqual((run.status, run.reason), ("waiting", "tasks asks: Which API version?"))
-        self.assertIn("type your answer", self.engine.explain(run))
+        self.assertIn("Your answer", self.engine.explain(run))
 
     def test_a_question_beats_a_report(self):
         run = self.start()
@@ -1690,7 +1739,7 @@ class Explain(Case):
         run = self.finish_agent(self.start(), "ws-de-1", "tasks", "VERDICT: BLOCKED\n")
         text = self.engine.explain(run)
         self.assertIn("Why:", text)
-        self.assertIn("enter to run it again", text)
+        self.assertIn("Run it again", text)
 
 
 if __name__ == "__main__":
