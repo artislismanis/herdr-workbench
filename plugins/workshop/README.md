@@ -138,6 +138,14 @@ A stopped run always has a way out, from the terminal or the ticket:
 
 Terminal actions happen at once. `workshop comment <key> "text"` posts a real comment and acts on it straight away, and takes `/ai` commands too. Comments made on the ticket itself are read on the next `tick` or `workshop refresh`, because nothing tells workshop about them sooner. Everything leaves a comment, so the ticket holds the full history. Guidance from a person gives the step a fresh set of review rounds, and every step can read it. `/ai` follows `comment_prefix`. Only your own unedited comment counts, and gates still need `approve` or `reject` from the terminal.
 
+## Deploy
+
+A branch is an environment: a merge to `main` or `master` is prod, and to `dev` or `preprod` is preprod. `environments` on a repo replaces that list. A merge to any other branch lands the run as before.
+
+A merge to preprod takes the run's worktree, moves the ticket to its `preprod` state, and keeps the ticket open. Each tick then checks whether the PR has reached prod, first by its merge commit, then, for repos that squash on the way, by whether its changes apply in reverse to prod's tree. A merge to prod lands the run and closes the ticket, and the run shows as `in prod`. On Jira, `moves` can name a status for `preprod`.
+
+If the PR or the ticket's design has a `Release steps` heading, the run stops at a `release` gate once it's in prod, with the steps in `release.md`. `workshop approve` says they're done and lands it.
+
 ## Backlog
 
 Each `tick` and `workshop refresh` saves open tickets to `~/.local/state/workshop/board.json`, sorted by label: none is `new`, then `planned`, `designed`, and the delivery label is `queued`. `[backlog]` renames the first two. Claimed tickets leave the list. On Jira the repo's label sets the scope, so a ticket without it doesn't show. A source that fails keeps its last good list and records the error. Polling makes API calls but uses no tokens.

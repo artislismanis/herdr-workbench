@@ -20,6 +20,7 @@ from .tools import Tools, slug
 STEP_TIMEOUT = 45 * 60
 PREFIX = "[ai]"  # workshop comments as you, so its own comments mustn't count as yours
 STOPS = (ToolError, OSError, KeyError, ValueError, json.JSONDecodeError)
+ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 
 
 class Park(Exception):
@@ -32,7 +33,7 @@ class Engine:
         self.mark = prefix + " "
         self.command = "/" + prefix.strip("[]")  # [ai] gives /ai
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0) -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, environments: dict[str, str] | None = None) -> Run:
         if self.store.exists(repo, key) and not restart:
             raise Park(f"{key} already has a run. Use workshop resume {key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
@@ -41,7 +42,7 @@ class Engine:
         if reason:
             raise Park(f"{key}: {reason}")
         source.claim(key)
-        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying, replying=replying, begun=self.clock(), claimed=claimed, preparing=preparing, step=at)
+        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying, replying=replying, begun=self.clock(), claimed=claimed, preparing=preparing, step=at, environments=environments or {})
         if restart and self.store.exists(repo, key):
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
@@ -245,6 +246,9 @@ class Engine:
         try:
             pr = self.tools.pr_state(run.pr)
             run.opened = run.opened or not pr["isDraft"]
+            if pr["state"] == "MERGED" and not run.on_a_pr:
+                self._merged(run, pr)
+                return run
             if pr["state"] != "OPEN":
                 run.landed = pr["state"].lower()
                 self.store.event(run, "landed", state=run.landed)
@@ -257,6 +261,48 @@ class Engine:
         except STOPS as failed:
             self.store.event(run, "check_failed", reason=str(failed))
         return run
+
+    def _merged(self, run: Run, pr: dict[str, Any]) -> None:
+        """A branch is an environment. Only prod ends a run, so a ticket stays open while its work is in preprod."""
+        kinds = run.environments or ENVIRONMENTS
+        place = kinds.get(pr.get("baseRefName", run.base), "")
+        if place == "preprod":
+            if not run.deployed:
+                self._reach(run, "preprod")
+                self._move(run, "preprod")
+                self.store.save(run)
+                self._tidy(run, pr["headRefOid"])
+            if not self.tools.reached(Path(run.repo_path), run.pr, pr["mergeCommit"]["oid"], [branch for branch, kind in kinds.items() if kind == "prod"]):
+                return
+        if place:
+            self._reach(run, "prod")
+        self.store.save(run)
+        if run.worktree:
+            self._tidy(run, pr["headRefOid"])
+        if place and (steps := self._release_steps(run, pr)):
+            (self.store.files(run) / "release.md").write_text("\n".join(["# Release steps", "", *steps, ""]), encoding="utf-8")
+            run.pipeline["steps"].append({"id": "release", "stage": "Deploy", "kind": "gate", "report": "release"})
+            run.step = len(run.pipeline["steps"]) - 1
+            self._wait(run, "It's in prod, and it has release steps to do by hand.")
+            self.store.save(run)
+            return
+        self._landed(run)
+
+    def _reach(self, run: Run, place: str) -> None:
+        run.deployed = place
+        self.store.event(run, "deployed", environment=place)
+        self.tools.notify(f"Workshop: {run.key} reached {place}", run.pr)
+
+    def _release_steps(self, run: Run, pr: dict[str, Any]) -> list[str]:
+        """What the PR and the signed-off design say must be done by hand."""
+        ticket = self.source_for(run).get(run.key).body
+        return list(dict.fromkeys(section(pr.get("body", ""), "release steps") + section(ticket, "release steps")))
+
+    def _landed(self, run: Run) -> None:
+        run.status, run.landed = "done", "merged"
+        self.store.event(run, "landed", state=run.landed)
+        self._move(run, "merged")
+        self.store.save(run)
 
     def _tidy(self, run: Run, landed_head: str = "") -> None:
         """A landed run's checkout goes, unless it holds work: wt refuses uncommitted changes, and a head that isn't the PR's has commits nobody pushed."""
@@ -422,6 +468,10 @@ class Engine:
 
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
+        if run.current and run.current["id"] == "release":
+            return f"Do the release steps, then workshop approve {run.key}"
+        if run.deployed == "preprod":
+            return "In preprod. It lands when it reaches prod"
         if run.preparing and run.current and run.current["kind"] == "gate":
             return f'workshop approve {run.key} writes it to the ticket, workshop reject {run.key} "what to change" sends it back'
         if run.on_a_pr:
@@ -669,6 +719,9 @@ class Engine:
         run.step, run.phase = run.step + 1, ""
 
     def _finish(self, run: Run) -> None:
+        if run.deployed:
+            self._landed(run)
+            return
         if run.preparing:
             run.status, run.landed = "done", "prepared"
             self.store.event(run, "prepared")

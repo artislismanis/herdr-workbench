@@ -68,7 +68,7 @@ def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bo
     repo = cfg["repos"][name]
     source = make_source(name, repo, cfg.get("jira", {}))
     path = Path(repo["path"]).expanduser()
-    return engine.start(name, key, path, repo.get("base", "main"), load(repo.get("pipeline", "ticket")), source, override, restart, repo.get("commands"))
+    return engine.start(name, key, path, repo.get("base", "main"), load(repo.get("pipeline", "ticket")), source, override, restart, repo.get("commands"), environments=repo.get("environments"))
 
 
 def repo_of(cfg: dict[str, Any], url: str) -> tuple[str, str]:
