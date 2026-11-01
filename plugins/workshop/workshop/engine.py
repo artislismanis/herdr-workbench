@@ -893,7 +893,8 @@ class Engine:
     def _wait(self, run: Run, reason: str) -> None:
         run.status, run.reason = "waiting", reason
         self.store.event(run, "waiting", reason=reason)
-        self._tell(run, f"Workshop is waiting: {reason}")
+        asks = [item["Ask"] for item in decisions(reason)[1] if "Ask" in item]  # the brief is for the card, and the ticket keeps the record
+        self._tell(run, "Workshop needs a decision: " + " ".join(asks) if asks else f"Workshop is waiting: {reason}")
 
     def _block(self, run: Run) -> None:
         run.blocked_at = self.clock()

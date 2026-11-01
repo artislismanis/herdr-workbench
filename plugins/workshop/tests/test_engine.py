@@ -101,6 +101,18 @@ class Briefs(unittest.TestCase):
         self.assertNotIn("yours has none", self.tools.prompts[-1][1])
 
 
+class TicketRecord(unittest.TestCase):
+    def test_the_ticket_gets_the_asks_not_the_brief(self):
+        root = Path(tempfile.mkdtemp())
+        tools, source = FakeTools(root), FakeSource()
+        engine = Engine(tools, Store(root / "state"), lambda run: source, FakeThrottle(), clock=lambda: 1000.0)
+        run = engine.start("r", "7", root, "main", load("ticket"), source)
+        (engine.store.files(run) / "ask.md").write_text("Overview: Two calls\nWhat: The name\nWhy: It shows\nAsk: Call it whisper?\nWhat: Short form\nAsk: Add -w?\n")
+        tools.statuses[run.agent] = "idle"
+        engine.advance(run)
+        self.assertEqual(source.reports[-1], f"{PREFIX} Workshop needs a decision: Call it whisper? Add -w?")
+
+
 class OldRunFiles(unittest.TestCase):
     def test_a_field_thats_gone_doesnt_stop_a_run_loading(self):
         store = Store(Path(tempfile.mkdtemp()))
