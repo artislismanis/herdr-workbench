@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
@@ -25,6 +26,7 @@ from .throttle import Throttle, usage_path
 from .tools import Tools
 
 
+PATIENCE = 60  # seconds a person's command waits for a tick to finish
 # Each command and how many arguments it needs.
 COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "claim": 1, "review": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
@@ -180,13 +182,25 @@ def show_doctor(cfg: dict[str, Any], launch: bool) -> int:
     return 0 if all(r.ok for r in results) else 1
 
 
-def locked(root: Path, work: Callable[[], None]) -> None:
+def locked(root: Path, work: Callable[[], None], patience: float = 0) -> bool:
+    deadline = time.monotonic() + patience
     with (root / "lock").open("w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return  # another tick has this; the next one catches up
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    return False  # another tick has this; the next one catches up
+                time.sleep(0.2)
         work()
+        return True
+
+
+def waited(root: Path, work: Callable[[], None]) -> None:
+    """For what a person asks for, which no later tick would pick up."""
+    if not locked(root, work, PATIENCE):
+        raise ToolError("Workshop is busy, so nothing happened. Try again in a moment.")
 
 
 def here() -> str:
@@ -290,7 +304,7 @@ def main(argv: list[str]) -> int:
             case "advance":
                 locked(root, lambda: advance_all(engine))
             case "start":
-                locked(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv, "--restart" in argv))))
+                waited(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv, "--restart" in argv))))
             case "status":
                 show_status(engine)
             case "needs-you":
@@ -298,30 +312,30 @@ def main(argv: list[str]) -> int:
             case "explain":
                 print(engine.explain(engine.store.find(argv[1])))
             case "resume":
-                locked(root, lambda: print(engine.explain(engine.resume(engine.store.find(argv[1])))))
+                waited(root, lambda: print(engine.explain(engine.resume(engine.store.find(argv[1])))))
             case "pr":
                 mode = "claimed" if "--claimed" in argv else "silent" if "--silent" in argv else ""
-                locked(root, lambda: print(engine.explain(begin_review(engine, cfg, argv[1], mode))))
+                waited(root, lambda: print(engine.explain(begin_review(engine, cfg, argv[1], mode))))
             case "claim":
-                locked(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
+                waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
             case "review":
-                locked(root, lambda: print(engine.review(engine.store.find(argv[1]))))
+                waited(root, lambda: print(engine.review(engine.store.find(argv[1]))))
             case "finish":
                 return finish(engine, root)
             case "approve":
-                locked(root, lambda: print(engine.explain(engine.approve(engine.store.find(argv[1])))))
+                waited(root, lambda: print(engine.explain(engine.approve(engine.store.find(argv[1])))))
             case "reject":
-                locked(root, lambda: print(engine.explain(engine.reject(engine.store.find(argv[1]), argv[2]))))
+                waited(root, lambda: print(engine.explain(engine.reject(engine.store.find(argv[1]), argv[2]))))
             case "answer":
-                locked(root, lambda: print(engine.explain(engine.answer(engine.store.find(argv[1]), argv[2]))))
+                waited(root, lambda: print(engine.explain(engine.answer(engine.store.find(argv[1]), argv[2]))))
             case "retry":
-                locked(root, lambda: print(engine.explain(engine.retry(engine.store.find(argv[1]), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.retry(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "pass":
-                locked(root, lambda: print(engine.explain(engine.accept(engine.store.find(argv[1]), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.accept(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "drop":
-                locked(root, lambda: print(engine.explain(engine.drop(engine.store.find(argv[1]), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.drop(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "comment":
-                locked(root, lambda: print(engine.explain(engine.comment(engine.store.find(argv[1]), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.comment(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "list":
                 for name, repo in cfg["repos"].items():
                     print(name, *make_source(name, repo, cfg.get("jira", {})).ready())
