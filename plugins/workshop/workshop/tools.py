@@ -112,7 +112,23 @@ class Tools:
         return cost.spent(work, since, until)
 
     def pr_state(self, url: str) -> dict[str, Any]:
-        return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid")
+        return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid,baseRefName,body,mergeCommit")
+
+    def reached(self, repo: Path, pr: str, commit: str, branches: list[str]) -> bool:
+        """Whether a merged PR is on any of these branches. Promotions can squash, so if its commit isn't there, its changes can be."""
+        changes = run("gh", "pr", "diff", pr, cwd=repo)
+        for branch in branches:
+            if subprocess.run(["git", "fetch", "-q", "origin", branch], cwd=repo, capture_output=True).returncode != 0:
+                continue
+            tip = run("git", "rev-parse", "FETCH_HEAD", cwd=repo).strip()
+            if subprocess.run(["git", "merge-base", "--is-ancestor", commit, tip], cwd=repo, capture_output=True).returncode == 0:
+                return True
+            with tempfile.TemporaryDirectory() as scratch:
+                index = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+                run("git", "read-tree", tip, cwd=repo, env=index)
+                if subprocess.run(["git", "apply", "--cached", "--reverse", "--check"], cwd=repo, input=changes, text=True, capture_output=True, env=index).returncode == 0:
+                    return True
+        return False
 
     def remove_worktree(self, repo: Path, work: Path) -> None:
         # No --force: wt refuses a dirty worktree and keeps an unmerged branch, the same as the key.

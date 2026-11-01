@@ -12,7 +12,7 @@ from workshop.engine import PREFIX, STEP_TIMEOUT, Engine, Park  # noqa: E402
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, PrepareSource, PullRequestSource, Ticket  # noqa: E402
-from workshop.store import Store  # noqa: E402
+from workshop.store import Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
 
@@ -65,6 +65,96 @@ class FakeTickets(FakeSource):
 
     def labels(self, key):
         return self.labelled
+
+
+class Deploy(unittest.TestCase):
+    URL = "https://example.test/o/r/pull/9"
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.tools, self.source = FakeTools(self.root), FakeSource()
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: 1000.0)
+
+    def delivered(self, **fields):
+        run = Run(repo="r", key="7", repo_path=str(self.root), base="dev", pipeline=load("ticket"), status="done", step=5, pr=self.URL, opened=True, worktree=str(self.tools.work), **fields)
+        self.tools.work.mkdir(exist_ok=True)
+        self.engine.store.save(run)
+        return run
+
+    def merged(self, base, body="", commit="abc"):
+        self.tools.pr = {"state": "MERGED", "isDraft": False, "reviewDecision": "APPROVED", "headRefOid": "one", "baseRefName": base, "body": body, "mergeCommit": {"oid": commit}}
+
+    def test_a_merge_to_main_is_prod_and_ends_it(self):
+        self.merged("main")
+        run = self.engine.land(self.delivered())
+        self.assertEqual((run.landed, run.deployed, run.label, self.source.moves[-1]), ("merged", "prod", "in prod", "merged"))
+
+    def test_a_merge_to_preprod_keeps_the_ticket_open(self):
+        for base in ("dev", "preprod"):
+            self.source.moves.clear()
+            self.merged(base)
+            run = self.engine.land(self.delivered())
+            self.assertEqual((run.landed, run.deployed, run.label, self.source.moves), ("", "preprod", "preprod", ["preprod"]))
+
+    def test_preprod_takes_the_worktree_but_keeps_watching(self):
+        self.merged("dev")
+        run = self.engine.land(self.delivered())
+        self.assertEqual((run.worktree, len(self.tools.removed)), ("", 1))
+        self.assertEqual((run.status, run.landed), ("done", ""))
+
+    def test_it_lands_once_it_reaches_prod(self):
+        self.merged("dev")
+        run = self.engine.land(self.delivered())
+        self.tools.reaches = True
+        run = self.engine.land(run)
+        self.assertEqual((run.landed, run.deployed, self.source.moves[-1]), ("merged", "prod", "merged"))
+        self.assertEqual(self.tools.asked_reach[-1][1:], (self.URL, "abc", ["main", "master"]))
+
+    def test_preprod_is_told_once(self):
+        self.merged("dev")
+        run = self.engine.land(self.delivered())
+        self.engine.land(run)
+        self.assertEqual(self.source.moves, ["preprod"])
+
+    def test_a_feature_branch_is_no_environment(self):
+        self.merged("feature/x")
+        run = self.engine.land(self.delivered())
+        self.assertEqual((run.landed, run.deployed), ("merged", ""))
+
+    def test_a_repo_can_name_its_own_branches(self):
+        self.merged("trunk")
+        run = self.engine.land(self.delivered(environments={"trunk": "prod"}))
+        self.assertEqual(run.deployed, "prod")
+
+    def test_a_review_never_deploys(self):
+        self.merged("main")
+        run = self.engine.land(self.delivered(reviewing=True))
+        self.assertEqual((run.landed, run.deployed), ("merged", ""))
+
+    def test_release_steps_on_the_pr_wait_for_you_at_prod(self):
+        self.merged("main", "What changed\n\n## Release steps\n\n- Refresh the data\n\n## Other\n\nx")
+        run = self.engine.land(self.delivered())
+        self.assertEqual((run.status, run.landed, run.deployed, run.current["id"]), ("waiting", "", "prod", "release"))
+        self.assertIn("Refresh the data", (self.engine.store.files(run) / "release.md").read_text())
+        self.assertNotIn("merged", self.source.moves)
+        self.assertIn("release steps", self.engine.next_action(run).lower())
+
+    def test_release_steps_in_the_design_count_too(self):
+        self.merged("main")
+        self.source.get = lambda key: Ticket(key, "T", "## Design\n\n### Release steps\n\n- Run the backfill\n\n## Original ticket\n")
+        run = self.engine.land(self.delivered())
+        self.assertIn("Run the backfill", (self.engine.store.files(run) / "release.md").read_text())
+
+    def test_your_go_on_the_steps_ends_it(self):
+        self.merged("main", "## Release steps\n\n- Refresh the data\n")
+        run = self.engine.approve(self.engine.land(self.delivered()))
+        self.assertEqual((run.status, run.landed, run.label, self.source.moves[-1]), ("done", "merged", "in prod", "merged"))
+        self.assertFalse([r for r in self.source.reports if "Draft PR" in r])
+
+    def test_a_tick_leaves_a_release_gate_alone(self):
+        self.merged("main", "## Release steps\n\n- Refresh the data\n")
+        run = self.engine.land(self.delivered())
+        self.assertEqual(self.engine.advance(run).status, "waiting")
 
 
 class Prepare(unittest.TestCase):
@@ -689,6 +779,12 @@ class FakeTools:
 
     def pr_state(self, url):
         return self.pr
+
+    reaches = False
+
+    def reached(self, repo, pr, commit, branches):
+        self.asked_reach = [*getattr(self, "asked_reach", []), (repo, pr, commit, branches)]
+        return self.reaches
 
     def spent(self, work, since, until):
         return {"turns": 3, "tokens_in": 1000, "tokens_out": 50, "minutes": 1.5, "usd": 0.25}

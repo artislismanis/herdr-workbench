@@ -13,6 +13,6 @@ Grill them until the two of you agree, one question at a time:
 
 If `{run}/feedback.md` exists, this person sent an earlier version back. Read it and the latest `{run}/design-*.md`, and start from what they want changed.
 
-When they say it's right, write `{run}/design.md`, then stop. Nothing is posted yet: they approve it next. Write it for the agent who'll build this alone, using `###` headings and nothing higher. Cover the approach and why, the alternatives dropped, what changes where, how each done statement gets tested, and anything the builder must not do.
+When they say it's right, write `{run}/design.md`, then stop. Nothing is posted yet: they approve it next. Write it for the agent who'll build this alone, using `###` headings and nothing higher. Cover the approach and why, the alternatives dropped, what changes where, how each done statement gets tested, and anything the builder must not do. If something must be done by hand when this ships, list it under `### Release steps`.
 
 Write the file only once they've agreed, in one go, with a last line that is exactly `VERDICT: READY`.

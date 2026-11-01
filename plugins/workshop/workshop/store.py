@@ -52,6 +52,8 @@ class Run:
     preparing: bool = False  # a talk about a ticket, so it delivers nothing and writes only on your go
     your_turn: bool = False  # an interactive step's agent is waiting for you, as planned
     told: str = ""  # the interactive step you've been told about
+    environments: dict[str, str] = field(default_factory=dict)  # the repo's, branch to environment, if it names its own
+    deployed: str = ""  # the furthest environment its PR has reached
 
     @property
     def current(self) -> dict[str, Any] | None:
@@ -61,7 +63,9 @@ class Run:
     @property
     def label(self) -> str:
         """A finished run is still with people until its PR lands."""
-        return self.landed or ("replied" if self.replied else "in review" if self.status == "done" else "your turn" if self.your_turn else self.status)
+        if self.deployed == "prod" and self.landed == "merged":
+            return "in prod"
+        return self.landed or self.deployed or ("replied" if self.replied else "in review" if self.status == "done" else "your turn" if self.your_turn else self.status)
 
     @property
     def on_a_pr(self) -> bool:

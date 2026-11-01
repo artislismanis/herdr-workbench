@@ -43,7 +43,7 @@ class Item:
 
 
 # Where a ticket has got to. Each source shows these its own way.
-TICKET_MOVES = ("working", "blocked", "review", "approved", "merged", "dropped")
+TICKET_MOVES = ("working", "blocked", "review", "approved", "preprod", "merged", "dropped")
 ORIGINAL = "## Original ticket"
 ORIGINAL_LINE = re.compile(rf"^{ORIGINAL}[ \t]*$", re.MULTILINE)
 PREPARED = re.compile(rf"^## ({'|'.join(SECTIONS)})$", re.MULTILINE)
