@@ -7,8 +7,93 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.sources import GitHubSource, JiraSource, MarkdownSource, PullRequestSource, ReplySource  # noqa: E402
+from workshop.sources import GitHubSource, JiraSource, MarkdownSource, PrepareSource, PullRequestSource, ReplySource, prepared  # noqa: E402
 from workshop.tools import slug  # noqa: E402
+
+
+class Prepared(unittest.TestCase):
+    def test_the_first_section_goes_above_the_original(self):
+        self.assertEqual(prepared("Please add it", "Requirements", "Do X"), "## Requirements\n\nDo X\n\n## Original ticket\n\nPlease add it")
+
+    def test_a_later_section_keeps_the_earlier_one(self):
+        body = prepared(prepared("Old", "Requirements", "Do X"), "Design", "Like so")
+        self.assertEqual(body, "## Requirements\n\nDo X\n\n## Design\n\nLike so\n\n## Original ticket\n\nOld")
+
+    def test_a_rerun_replaces_and_keeps_one_original(self):
+        once = prepared("Old", "Requirements", "Do X")
+        twice = prepared(once, "Requirements", "Do Y")
+        self.assertEqual(twice, "## Requirements\n\nDo Y\n\n## Original ticket\n\nOld")
+        self.assertEqual(prepared(twice, "Requirements", "Do Y"), twice)
+
+    def test_the_original_can_use_the_same_headings(self):
+        body = prepared("## Design\n\nmine", "Requirements", "Do X")
+        self.assertEqual(prepared(body, "Design", "Like so"), "## Requirements\n\nDo X\n\n## Design\n\nLike so\n\n## Original ticket\n\n## Design\n\nmine")
+
+    def test_an_empty_ticket_still_has_its_shape(self):
+        self.assertEqual(prepared("", "Requirements", "Do X"), "## Requirements\n\nDo X\n\n## Original ticket\n")
+
+
+class PrepareTickets(unittest.TestCase):
+    def setUp(self):
+        self.inner = mock.Mock()
+        self.inner.body.return_value = "Old"
+        self.source = PrepareSource(self.inner, {"planned": "scoped"})
+
+    def test_it_only_touches_the_ticket_on_a_go(self):
+        self.source.claim("prep-7")
+        self.source.report("prep-7", "hello")
+        self.source.move("prep-7", "working")
+        self.source.finish("prep-7")
+        self.assertEqual(self.inner.mock_calls, [])
+
+    def test_a_go_writes_to_the_real_ticket_with_your_label_names(self):
+        self.source.publish("prep-7", "Requirements", "Do X", "planned")
+        self.inner.rewrite.assert_called_once_with("7", "## Requirements\n\nDo X\n\n## Original ticket\n\nOld")
+        self.inner.tag.assert_called_once_with("7", "scoped")
+
+    def test_jira_keys_keep_their_shape(self):
+        self.source.get("prep-AB-12")
+        self.inner.get.assert_called_once_with("AB-12")
+
+    def test_a_closed_ticket_is_refused(self):
+        self.inner.closed.return_value = True
+        self.assertIn("closed", self.source.guard("prep-7"))
+
+    def test_stages_read_back_through_your_label_names(self):
+        self.inner.labels.return_value = ["scoped", "bug"]
+        self.assertEqual(self.source.stages("prep-7"), ["planned"])
+
+
+class TicketEdits(unittest.TestCase):
+    def test_github_rewrites_and_tags(self):
+        source = GitHubSource(Path("/repo"), "ai")
+        with mock.patch("workshop.sources.run") as run:
+            source.rewrite("3", "New")
+            source.tag("3", "planned")
+        self.assertEqual(run.call_args_list[0].args, ("gh", "issue", "edit", "3", "--body", "New"))
+        self.assertEqual(run.call_args_list[-1].args, ("gh", "issue", "edit", "3", "--add-label", "planned"))
+
+    def test_github_reads_the_body_alone(self):
+        with mock.patch("workshop.sources.run_json", return_value={"body": "Just this", "labels": [{"name": "x"}]}):
+            source = GitHubSource(Path("/repo"), "ai")
+            self.assertEqual((source.body("3"), source.labels("3")), ("Just this", ["x"]))
+
+    def test_jira_rewrites_and_tags(self):
+        source = JiraSource("r", "ai", [], {"base_url": "https://j.test", "email": "e", "token": "t"})
+        with mock.patch.object(source, "_call", return_value={"fields": {"description": None, "labels": ["x"]}}) as call:
+            self.assertEqual((source.body("A-1"), source.labels("A-1")), ("", ["x"]))
+            source.rewrite("A-1", "New")
+            source.tag("A-1", "planned")
+        self.assertEqual(call.call_args_list[-2].args, ("PUT", "issue/A-1", {"fields": {"description": "New"}}))
+        self.assertEqual(call.call_args_list[-1].args, ("PUT", "issue/A-1", {"update": {"labels": [{"add": "planned"}]}}))
+
+    def test_a_markdown_ticket_is_its_file(self):
+        folder = Path(tempfile.mkdtemp())
+        (folder / "a.md").write_text("# A\n\nOld\n")
+        source = MarkdownSource(folder)
+        source.rewrite("a", "New")
+        source.tag("a", "planned")
+        self.assertEqual((source.body("a"), source.labels("a")), ("New", []))
 
 
 class PullRequests(unittest.TestCase):

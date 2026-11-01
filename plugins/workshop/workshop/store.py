@@ -49,6 +49,9 @@ class Run:
     begun: float = 0.0
     claimed: bool = False  # others can see this review is yours
     noticed: list[str] = field(default_factory=list)  # what others did on the PR, once told
+    preparing: bool = False  # a talk about a ticket, so it delivers nothing and writes only on your go
+    your_turn: bool = False  # an interactive step's agent is waiting for you, as planned
+    told: str = ""  # the interactive step you've been told about
 
     @property
     def current(self) -> dict[str, Any] | None:
@@ -58,7 +61,7 @@ class Run:
     @property
     def label(self) -> str:
         """A finished run is still with people until its PR lands."""
-        return self.landed or ("replied" if self.replied else "in review" if self.status == "done" else self.status)
+        return self.landed or ("replied" if self.replied else "in review" if self.status == "done" else "your turn" if self.your_turn else self.status)
 
     @property
     def on_a_pr(self) -> bool:

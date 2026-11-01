@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .guard import Change, check
+from .pipeline import SECTIONS, STAGES
 from .shell import run, run_json
 
 
@@ -43,6 +44,8 @@ class Item:
 
 # Where a ticket has got to. Each source shows these its own way.
 TICKET_MOVES = ("working", "blocked", "review", "approved", "merged", "dropped")
+ORIGINAL = "## Original ticket"
+PREPARED = re.compile(rf"^## ({'|'.join(SECTIONS)})$", re.MULTILINE)
 
 
 class Source(Protocol):
@@ -56,6 +59,24 @@ class Source(Protocol):
     def comments(self, key: str, since: float) -> list[Comment]: ...
     def backlog(self) -> list[Item]: ...
     def closed(self, key: str) -> bool: ...
+
+
+class EditableSource(Source, Protocol):
+    def body(self, key: str) -> str: ...
+    def rewrite(self, key: str, text: str) -> None: ...
+    def tag(self, key: str, label: str) -> None: ...
+    def labels(self, key: str) -> list[str]: ...
+
+
+def prepared(body: str, section: str, text: str) -> str:
+    """A ticket with one section written. What's prepared sits on top, so a rerun replaces it and the original stays once."""
+    top, found, original = body.partition(f"{ORIGINAL}\n")
+    if not found:
+        top, original = "", body
+    parts = PREPARED.split(top)
+    sections = dict(zip(parts[1::2], (part.strip() for part in parts[2::2]), strict=True)) | {section: text.strip()}
+    written = [f"## {name}\n\n{sections[name]}" for name in SECTIONS if name in sections]
+    return "\n\n".join([*written, f"{ORIGINAL}\n\n{original.strip()}"]).strip() + ("\n" if not original.strip() else "")
 
 
 GITHUB_HISTORY = """
@@ -109,6 +130,19 @@ class GitHubSource:
         issues = run_json("gh", "issue", "list", "--state", "open", "--limit", "200", "--json", "number,title,labels,url", cwd=self.repo)
         items = [Item(str(i["number"]), i["title"], [n["name"] for n in i["labels"]], False, i["url"]) for i in issues]
         return [Item(i.key, i.title, i.labels, self.label in i.labels, i.url) for i in items if f"{self.label}-claimed" not in i.labels]
+
+    def body(self, key: str) -> str:
+        return run_json("gh", "issue", "view", key, "--json", "body", cwd=self.repo)["body"]
+
+    def rewrite(self, key: str, text: str) -> None:
+        run("gh", "issue", "edit", key, "--body", text, cwd=self.repo)
+
+    def tag(self, key: str, label: str) -> None:
+        run("gh", "label", "create", label, "--force", cwd=self.repo)
+        run("gh", "issue", "edit", key, "--add-label", label, cwd=self.repo)
+
+    def labels(self, key: str) -> list[str]:
+        return [n["name"] for n in run_json("gh", "issue", "view", key, "--json", "labels", cwd=self.repo)["labels"]]
 
     def get(self, key: str) -> Ticket:
         i = run_json("gh", "issue", "view", key, "--json", "title,body,url,comments", cwd=self.repo)
@@ -219,6 +253,18 @@ class JiraSource:
         issues = self._call("GET", f"search/jql?{query}")["issues"]
         return [Item(i["key"], i["fields"]["summary"], i["fields"]["labels"], self.label in i["fields"]["labels"], f"{self.base}/browse/{i['key']}") for i in issues]
 
+    def body(self, key: str) -> str:
+        return self._call("GET", f"issue/{key}?fields=description")["fields"].get("description") or ""
+
+    def rewrite(self, key: str, text: str) -> None:
+        self._call("PUT", f"issue/{key}", {"fields": {"description": text}})
+
+    def tag(self, key: str, label: str) -> None:
+        self._call("PUT", f"issue/{key}", {"update": {"labels": [{"add": label}]}})
+
+    def labels(self, key: str) -> list[str]:
+        return self._call("GET", f"issue/{key}?fields=labels")["fields"]["labels"]
+
     def get(self, key: str) -> Ticket:
         f = self._call("GET", f"issue/{key}?fields=summary,description,comment")["fields"]
         comments = [f"{c['author']['displayName']}: {c['body']}" for c in f["comment"]["comments"]]
@@ -320,13 +366,26 @@ class MarkdownSource:
     def _claimed(self, key: str) -> Path:
         return self.folder / "claimed" / f"{key}.md"
 
-    def get(self, key: str) -> Ticket:
+    def _file(self, key: str) -> Path:
         path = self._claimed(key)
-        if not path.exists():
-            path = self.folder / f"{key}.md"
-        body = path.read_text(encoding="utf-8")
+        return path if path.exists() else self.folder / f"{key}.md"
+
+    def body(self, key: str) -> str:
+        return self._file(key).read_text(encoding="utf-8")
+
+    def rewrite(self, key: str, text: str) -> None:
+        self._file(key).write_text(text, encoding="utf-8")
+
+    def tag(self, key: str, label: str) -> None:
+        pass  # a folder of files has no labels
+
+    def labels(self, key: str) -> list[str]:
+        return []
+
+    def get(self, key: str) -> Ticket:
+        body = self.body(key)
         heading = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
-        return Ticket(key, heading[1] if heading else key, body, str(path))
+        return Ticket(key, heading[1] if heading else key, body, str(self._file(key)))
 
     def claim(self, key: str) -> None:
         self._claimed(key).parent.mkdir(exist_ok=True)
@@ -469,7 +528,63 @@ class ReplySource(PullRequestSource):
             run("gh", "api", "-X", "POST", f"repos/{{owner}}/{{repo}}/pulls/{number_of(key)}/comments/{comment}/replies", "-f", f"body={text}", cwd=self.repo)
 
 
-def make_source(name: str, repo: dict[str, Any], jira: dict[str, Any]) -> Source:
+class PrepareSource:
+    """A talk about a ticket. It reads the ticket, and changes it only through publish and signed, which your go calls."""
+
+    def __init__(self, ticket: EditableSource, labels: dict[str, str]) -> None:
+        self.ticket, self.names = ticket, labels
+
+    def _key(self, key: str) -> str:
+        return key.removeprefix("prep-")
+
+    def _label(self, stage: str) -> str:
+        return self.names.get(stage, stage)
+
+    def guard(self, key: str) -> str:
+        return "the ticket is closed." if self.ticket.closed(self._key(key)) else ""
+
+    def get(self, key: str) -> Ticket:
+        return self.ticket.get(self._key(key))
+
+    def closed(self, key: str) -> bool:
+        return self.ticket.closed(self._key(key))
+
+    def stages(self, key: str) -> list[str]:
+        """How far the ticket has been signed off, in the plain names pipelines use."""
+        found = self.ticket.labels(self._key(key))
+        return [stage for stage in STAGES if self._label(stage) in found]
+
+    def publish(self, key: str, section: str, text: str, stage: str) -> None:
+        ticket = self._key(key)
+        self.ticket.rewrite(ticket, prepared(self.ticket.body(ticket), section, text))
+        self.ticket.tag(ticket, self._label(stage))
+
+    def signed(self, key: str, text: str) -> None:
+        self.ticket.report(self._key(key), text)
+
+    def ready(self) -> list[str]:
+        return []
+
+    def backlog(self) -> list[Item]:
+        return []
+
+    def comments(self, key: str, since: float) -> list[Comment]:
+        return []
+
+    def claim(self, key: str) -> None:
+        pass
+
+    def report(self, key: str, text: str) -> None:
+        pass
+
+    def finish(self, key: str) -> None:
+        pass
+
+    def move(self, key: str, move: str) -> None:
+        pass
+
+
+def make_source(name: str, repo: dict[str, Any], jira: dict[str, Any]) -> EditableSource:
     path = Path(repo["path"]).expanduser()
     label = repo.get("label", "ai")
     match repo["source"]:
