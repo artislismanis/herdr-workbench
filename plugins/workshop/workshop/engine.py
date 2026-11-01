@@ -380,8 +380,14 @@ class Engine:
         """Asked one at a time, so there's nothing to remember and no list to mark up."""
         proposals = self._proposals(run)
         found = proposals[run.sent]
-        what = {"create": f"Create a ticket: {found.get('title', '')}", "close": f"Close {found.get('key', '')}", "comment": f"Comment on {found.get('key', '')}"}[found["action"]]
+        name = self._ticket_name(run, found.get("key", ""))
+        what = {"create": f"Create a ticket: {found.get('title', '')}", "close": f"Close {name}", "comment": f"Comment on {name}", "skip": "Skip this"}[found["action"]]
         return f"{run.sent + 1} of {len(proposals)}: {what}?"
+
+    def _ticket_name(self, run: Run, key: str) -> str:
+        """A number alone means nothing to decide on, and the brief lists each ticket's title."""
+        found = re.search(rf"^- {re.escape(key)}: (.+)$", (self.store.files(run) / "brief.md").read_text(encoding="utf-8"), re.MULTILINE)
+        return f"{key}, {found[1]}" if found else key
 
     def proposal(self, run: Run) -> str:
         """The one being asked about, in full."""
@@ -570,8 +576,10 @@ class Engine:
         """What you can say at this stop: options as label, command and words, then what a typed answer means, and its command."""
         step = run.current or {}
         if run.status == "waiting" and step.get("kind") == "gate":
-            skip = [("Skip it", "reject", "n")] if step.get("proposals") else []
-            return [(step.get("go", "Accept it"), "approve", ""), *skip], step.get("change", "Say what to change"), "reject"
+            if step.get("proposals"):
+                go = {"create": "Create it", "close": "Close it", "comment": "Post the comment", "skip": "Fine"}[self._proposals(run)[run.sent]["action"]]
+                return [(go, "approve", ""), ("Skip it", "reject", "n")], step.get("change", "Say what to change"), "reject"
+            return [(step.get("go", "Accept it"), "approve", "")], step.get("change", "Say what to change"), "reject"
         if run.status == "waiting":
             return [], "Your answer", "retry"
         return [("Run it again", "retry", "")], "Say what to change first", "retry"
