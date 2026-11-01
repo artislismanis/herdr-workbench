@@ -12,17 +12,17 @@ from .system import Meter
 
 SAMPLES = "usage.jsonl"
 KEEP_DAYS = 30
-HOURS = 12
+HOURS = 24
 DAY = 24 * 60 * 60
 
 
-def sample(root: Path, limits: dict[str, float], sessions: int, meter: Meter, clock: Callable[[], float] = time.time, wait: Callable[[float], None] = time.sleep) -> None:
+def sample(root: Path, limits: dict[str, float], agents: int, meter: Meter, clock: Callable[[], float] = time.time, wait: Callable[[float], None] = time.sleep) -> None:
     """CPU is what changed between two readings, so it needs a moment to pass."""
     meter.read()
     meter.at = 0.0
     wait(1)
     found = meter.read()
-    line = {"at": clock(), "cpu": round(found.get("cpu", 0), 1), "ram": round(found.get("ram", 0), 1), "five": limits.get("5h", 0), "week": limits.get("7d", 0), "sessions": sessions}
+    line = {"at": clock(), "cpu": round(found.get("cpu", 0), 1), "ram": round(found.get("ram", 0), 1), "five": limits.get("5h", 0), "week": limits.get("7d", 0), "agents": agents}
     path = root / SAMPLES
     with path.open("a", encoding="utf-8") as log:
         log.write(json.dumps(line) + "\n")
@@ -48,17 +48,11 @@ def spent_at(event: dict[str, Any]) -> float:
 
 
 def _peaks(rows: list[dict[str, Any]]) -> dict[str, float]:
-    return {name: max((row.get(name, 0) for row in rows), default=0) for name in ("cpu", "ram", "five", "sessions")}
+    return {name: max((row[name] for row in rows), default=0) for name in ("cpu", "ram", "five", "agents")}
 
 
-def at_once(events: list[dict[str, Any]]) -> int:
-    """Counted from the rounds themselves, as a short one falls between samples."""
-    spans = [(spent_at(e) - e.get("minutes", 0) * 60, spent_at(e)) for e in events]
-    return max((max(sum(begun <= start < ended for begun, ended in spans), 1) for start, _ in spans), default=0)
-
-
-def _work(events: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"agents": at_once(events), "runs": len({(e.get("repo"), e.get("key")) for e in events}), "spend": sum(e.get("usd") or 0 for e in events)}
+def _spend(events: list[dict[str, Any]]) -> float:
+    return sum(e.get("usd") or 0 for e in events)
 
 
 def by_hour(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
@@ -74,12 +68,12 @@ def by_hour(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float
     for event in events:
         if (at := spent_at(event)) >= since:
             spending[hour(at)].append(event)
-    return [{"hour": when, **_peaks(grouped[when]), **_work(spending[when])} for when in sorted({*grouped, *spending})]
+    return [{"hour": when, **_peaks(grouped[when]), "spend": _spend(spending[when])} for when in sorted({*grouped, *spending})]
 
 
 def totals(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float, days: float) -> dict[str, Any]:
     since = now - days * DAY if days != 1 else datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-    return {**_peaks([r for r in rows if r["at"] >= since]), **_work([e for e in events if spent_at(e) >= since])}
+    return {**_peaks([r for r in rows if r["at"] >= since]), "spend": _spend([e for e in events if spent_at(e) >= since])}
 
 
 def top(events: list[dict[str, Any]], now: float) -> tuple[str, str]:
