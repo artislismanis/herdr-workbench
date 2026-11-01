@@ -143,9 +143,9 @@ def stage_state(run: Run, indexes: list[int]) -> tuple[str, str, str]:
     if here and run.landed == "dropped":
         return "◐", "red", "dropped"
     if here and run.status == "parked":
-        return "◐", "red", "stopped"
+        return "◐", "red", "fix"
     if here and run.status == "waiting":
-        return "◐", "yellow", "needs you"
+        return "◐", "yellow", "decide"
     if here:
         return "◐", "yellow" if reworked else "green", "reworking" if reworked else "running"
     return "●", "yellow" if reworked else "green", "done after rework" if reworked else "done"

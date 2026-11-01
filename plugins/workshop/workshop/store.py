@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 ACTIVE = ("running", "parked")
+NAMES = {"waiting": "decide", "parked": "fix"}  # what you do about it, which is what the screen says
 
 
 @dataclass
@@ -67,7 +68,7 @@ class Run:
         """A finished run is still with people until its PR lands."""
         if self.deployed == "prod" and self.landed == "merged":
             return "in prod"
-        return self.landed or self.deployed or ("replied" if self.replied else "in review" if self.status == "done" else "your turn" if self.your_turn else self.status)
+        return self.landed or self.deployed or ("replied" if self.replied else "in review" if self.status == "done" else "your turn" if self.your_turn else NAMES.get(self.status, self.status))
 
     @property
     def on_a_pr(self) -> bool:

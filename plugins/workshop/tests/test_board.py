@@ -36,6 +36,11 @@ def joined(lines):
     return "\n".join(texts(lines))
 
 
+class Names(unittest.TestCase):
+    def test_a_stop_says_what_you_do_about_it(self):
+        self.assertEqual((run(status="waiting").label, run(status="parked").label), ("decide", "fix"))
+
+
 class Text(unittest.TestCase):
     def test_controls_never_reach_the_terminal(self):
         self.assertEqual(clean("a\x1b]0;x\x07b\nc‮"), "a ]0;x b c ")
@@ -214,7 +219,7 @@ class Drill(unittest.TestCase):
         test = next(line for line in lines if line.text.startswith(" Test "))
         self.assertEqual(build.text, " Build   done   3.0 min  $0.30")
         self.assertEqual((build.spans[0].style, test.spans[0].style), ("on-green", "on-red"))
-        self.assertIn("stopped", test.text)
+        self.assertIn("fix", test.text)
 
     def test_a_pipeline_without_stages_shows_plain_steps(self):
         lines = texts(drill(run(), [], "", "", "/f", 80))
