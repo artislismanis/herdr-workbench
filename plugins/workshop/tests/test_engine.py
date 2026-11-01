@@ -1063,32 +1063,12 @@ class Concluding(Case):
         self.source.is_closed = True
         self.assertEqual(self.engine.unblock(run).landed, "dropped")
 
-    def test_a_terminal_comment_is_a_real_comment_and_acts_now(self):
-        run = self.engine.comment(self.parked_after_rounds(), "Use v2")
-        self.assertIn("Use v2", self.source.reports)
-        self.assertEqual(run.status, "running")
-
-    def test_a_terminal_comment_takes_commands(self):
-        run = self.engine.comment(self.parked_after_rounds(), "/ai drop Done with this")
-        self.assertEqual((run.landed, run.reason), ("dropped", "Done with this"))
-
-    def test_a_command_needs_no_note(self):
-        self.assertEqual(self.engine.comment(self.parked_after_rounds(), "/ai drop").landed, "dropped")
-
     def gate(self):
         run = self.engine.start("repo", "DE-1", self.root, "main", load("gated"), self.source)
         return self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
 
-    def test_a_comment_cant_move_a_gate_and_posts_nothing(self):
-        run = self.gate()
-        before = len(self.source.reports)
-        for text in ("Looks fine", "/ai retry", "/ai pass"):
-            with self.assertRaises(KeyError):
-                self.engine.comment(run, text)
-        self.assertEqual((run.status, len(self.source.reports)), ("waiting", before))
-
     def test_a_command_can_put_its_note_on_the_next_line(self):
-        self.assertEqual(self.engine.comment(self.parked_after_rounds(), "/ai drop\nNo longer needed").reason, "No longer needed")
+        self.assertEqual(self.engine._ticket_action("/ai drop\nNo longer needed"), ("drop", "No longer needed"))
 
     def test_gate_decisions_leave_a_record_on_the_ticket(self):
         self.engine.approve(self.gate())
@@ -1292,7 +1272,7 @@ class Gates(Case):
         self.assertIn("tasks needs your approval", run.reason)
         self.assertEqual(self.tools.notes, ["Workshop: DE-1 needs you"])
         self.assertIn("waiting", self.source.reports[-1])
-        self.assertIn("workshop approve DE-1", self.engine.explain(run))
+        self.assertIn("a accepts it", self.engine.explain(run))
 
     def test_a_waiting_run_doesnt_move_by_itself(self):
         prompts = len(self.tools.prompts)
@@ -1674,7 +1654,7 @@ class Explain(Case):
         run = self.finish_agent(self.start(), "ws-de-1", "tasks", "VERDICT: BLOCKED\n")
         text = self.engine.explain(run)
         self.assertIn("Why:", text)
-        self.assertIn("workshop retry, pass or drop DE-1", text)
+        self.assertIn("x runs it again", text)
 
 
 if __name__ == "__main__":

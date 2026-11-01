@@ -50,10 +50,11 @@ class Ask(NamedTuple):
 
 
 # Key, button label, command, what to ask for, and whether it's needed.
-STOPPED = ((ord("c"), "c comment", "comment", "Comment on the ticket", True), (ord("t"), "t retry", "retry", "Retry, with an optional note", False), (ord("p"), "p pass", "pass", "Pass this step, with an optional note", False), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
-TURN = ((ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False),)
-PROPOSED = ((ord("a"), "a approve", "approve", "Do what's left of these? Enter confirms", False), (ord("x"), "x skip", "reject", "Numbers to skip, or all", True), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
-GATE = ((ord("a"), "a approve", "approve", "Approve this gate? Enter confirms", False), (ord("x"), "x reject", "reject", "Reject, saying what to change", True), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
+DROP = (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False)
+STOPPED = ((ord("a"), "a accept", "pass", "Accept this and move on, with an optional note", False), (ord("x"), "x redo", "retry", "Run it again, with an optional note to steer it", False), DROP)
+TURN = (DROP,)
+PROPOSED = ((ord("a"), "a accept", "approve", "Do what's left of these? Enter confirms", False), (ord("x"), "x skip", "reject", "Numbers to skip, or all", True), DROP)
+GATE = ((ord("a"), "a accept", "approve", "Accept this? Enter confirms", False), (ord("x"), "x redo", "reject", "Send it back, saying what to change", True), DROP)
 
 
 class Board:

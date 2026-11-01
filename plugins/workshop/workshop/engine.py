@@ -181,13 +181,6 @@ class Engine:
         if word == "pass" and kind not in ("agent", "command"):
             raise KeyError(f"{run.key} has no stopped step to pass")
 
-    def comment(self, run: Run, text: str) -> Run:
-        """A ticket comment from the terminal, acted on now rather than at the next tick."""
-        word, note = self._ticket_action(text) or ("retry", text)
-        self._check(run, word)
-        self.source_for(run).report(run.key, text)
-        return self._act(run, word, note)
-
     def _fresh_rounds(self, run: Run) -> None:
         # A person stepped in, so the rounds that ran out no longer apply. Attempt numbers (id#) keep agent names unique.
         run.loops = {step: used for step, used in run.loops.items() if step.endswith("#")}
@@ -529,25 +522,22 @@ class Engine:
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
         if run.current and run.current["id"] == "release":
-            return f"Do the release steps, then workshop approve {run.key}"
+            return "Do the release steps, then a. d drops it"
         if run.sweeping and run.current and run.current["kind"] == "gate":
-            return f'workshop approve {run.key} does what it proposes, workshop reject {run.key} "2 3" skips those, or "all"'
+            return "a does what's listed. x skips the numbers you give, or all. d drops it"
         if run.deployed == "preprod":
             return "In preprod. It lands when it reaches prod"
         if run.preparing and run.current and run.current["kind"] == "gate":
-            return f'workshop approve {run.key} writes it to the ticket, workshop reject {run.key} "what to change" sends it back'
+            return "a writes it to the ticket. x sends it back with what to change. d drops it"
         if run.on_a_pr:
-            return "Post it with prefix+shift+u in the workspace" if run.status == "done" else f"workshop retry, pass or drop {run.key}"
+            return "Post it with prefix+shift+u in the workspace" if run.status == "done" else "x runs it again, with your note if you add one. a accepts it and moves on. d drops it"
         if self.reviewable(run):
             return "Finish with prefix+shift+u in the workspace"
         if self.delivered(run):
             return "With reviewers. Ask for review if nobody's assigned. It lands when the PR merges, and its worktree goes then"
-        actions = f"workshop retry, pass or drop {run.key}, or {self.command} retry, pass or drop on the ticket"
-        if run.status == "parked":
-            return f"Comment on the ticket, or {actions}"
         if run.current and run.current["kind"] == "gate":
-            return f'workshop approve {run.key}, or workshop reject {run.key} "what to change"'
-        return f'Comment on the ticket, workshop answer {run.key} "your answer", or {actions}'
+            return "a accepts it. x sends it back with what to change. d drops it"
+        return "x runs it again, with your note if you add one. a accepts it and moves on. d drops it"
 
     def explain(self, run: Run) -> str:
         step = run.current["id"] if run.current else "finished"
