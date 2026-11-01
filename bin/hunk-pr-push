@@ -19,7 +19,7 @@ done
 repo="$(git -C "${path:-$PWD}" rev-parse --show-toplevel)"
 cd "$repo"
 
-pr="$(gh pr view --json number,url,headRefOid,author,autoMergeRequest)" || die "no PR for this branch."
+pr="$(gh pr view --json number,url,title,headRefOid,author,autoMergeRequest)" || die "no PR for this branch."
 number="$(jq -r .number <<<"$pr")"
 head="$(jq -r .headRefOid <<<"$pr")"
 me="$(gh api user --jq .login)"
@@ -60,11 +60,20 @@ own=0
 [ "$(jq -r .author.login <<<"$pr")" != "$me" ] || own=1
 
 if [ -z "$as" ]; then
-  [ -z "$body" ] || printf '%s\n\n' "$body"
-  printf '%s%s inline comment(s).\n' "${body:+Plus }" "$count"
-  if [ "$own" = 1 ]; then choices='[c]omment, [d]raft, [n] cancel'; else choices='[c]omment, [a]pprove, [r]equest changes, [d]raft, [n] cancel'; fi
-  read -rp "$choices: " answer || answer=n
-  case "${answer:-c}" in
+  jq -r '"\(.url | sub("^https?://[^/]+/"; "") | sub("/pull/"; "#"))  \(.title // "")\nBy \(.author.login)  \(.url)"' <<<"$pr"
+  printf 'Posting as %s\n\n' "$me"
+  [ -z "$body" ] || printf 'PR comment:\n%s\n\n' "$(sed 's/^/  /' <<<"$body")"
+  printf '%s inline comment(s):\n' "$count"
+  jq -r '.comments[] | "  \(.path):\(.line)  \(.body | split("\n")[0] | .[0:100])"' <<<"$draft"
+  printf '\n[c] Comment           post these, with no verdict\n'
+  if [ "$own" = 0 ]; then
+    printf '[a] Approve           post these and approve the PR\n'
+    printf '[r] Request changes   post these and hold the PR until you approve it or the review is dismissed\n'
+  fi
+  printf '[d] Draft             save these on GitHub, visible only to you, to finish there\n'
+  printf '[n] Cancel            post nothing, and keep the notes in hunk\n\n'
+  read -rp "Choose: " answer || answer=n
+  case "$answer" in
     c) as=comment ;;
     a) as=approve ;;
     r) as=request-changes ;;

@@ -31,6 +31,18 @@ The Review tab works like Delivery: Needs you, With agents, With people, and Don
 
 New commits offer `a` again, for a review of what's changed.
 
+Posting asks what the review should be. These are GitHub's own review types, and your inline comments and PR comment go with whichever you choose:
+
+| Choice | On GitHub |
+|---|---|
+| Comment | Your comments, with no verdict |
+| Approve | Your comments, plus your approval |
+| Request changes | Your comments, plus a verdict on the whole PR. GitHub doesn't tie it to any one comment. If the repo requires reviews, it can't merge until you approve or the review is dismissed. It needs a PR comment saying what you want |
+| Draft | A pending review only you can see, to finish on GitHub. The PR itself doesn't change |
+| Cancel | Nothing leaves. The notes stay in hunk |
+
+Pressing enter on its own cancels. Approve and Request changes aren't offered on your own PR, because GitHub refuses them from the author.
+
 ## When something needs you
 
 A run that needs you shows one of three states.
