@@ -79,7 +79,7 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 |---|---|
 | `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `open-pr` |
 | `gated` | The same, with your approval after `tasks` |
-| `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk |
+| `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk with the reviewer left beside it until you post |
 | `reply` | `reply`: an agent answers comments on your own PR |
 | `sweep-deps`, `sweep-docs`, `sweep-backlog`, `sweep-logs` | A read-only agent looks at the repo, then your go on what it proposes |
 | `prepare` | `requirements` and `design`, two fresh agents that grill you, each with your go after it |
@@ -128,7 +128,7 @@ When a run stops on a question or a problem, the ticket moves to `blocked`. Comm
 
 Tab and Shift+Tab switch views. Tabs, rows and the buttons along the bottom work with the mouse as well as the keys, and the wheel scrolls. Clicking a row opens it. Dragging selects text inside the list or the panel and copies it on release, with `wl-copy`. Shift+drag is your terminal's own selection, across the whole window.
 
-Delivery, where it opens, shows counts and usage meters, then runs by who they wait on, each with a strip of its stages (`●─◐─○`), and recent events below. Green is fine, amber waits on a person or had to go round again, and red has stopped. A pipeline without stages shows each step. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Backlog shows a bar per column, then the columns as cards on a wide enough window. Review lists PRs, yours and others', by whose move it is: `●` in blue is yours, `○` in cyan someone else's, and yellow means someone else reviewed a PR you're asked to review. Enter shows its reviews, threads and comments from the last refresh, with open threads first and `blocking:` comments in red. `g` goes to a run's workspace, with hunk open on a draft PR, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. On a window 130 wide or more, Delivery and Review show the selected item's detail in a panel beside the list, with its actions at the top. Clicking a row selects it, the wheel over the panel scrolls it, and so do Page Up and Page Down. Enter still opens the detail full width.
+Delivery, where it opens, shows counts and usage meters, then runs by who they wait on, each with a strip of its stages (`●─◐─○`), and recent events below. Green is fine, amber waits on a person or had to go round again, and red has stopped. A pipeline without stages shows each step. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Backlog shows a bar per column, then the columns as cards on a wide enough window. Review lists PRs, yours and others', in the same groups as Delivery, with a run's status and stages on its PR: `●` in blue is yours, `○` in cyan someone else's, and yellow means someone else reviewed a PR you're asked to review. Reviews and replies live here, and a delivered draft stays on Delivery until your self-review lets it go. Enter shows the next move, the agent's briefing, the workflow, then reviews, threads and comments from the last refresh, with open threads first and `blocking:` comments in red. `g` goes to a run's workspace, with hunk open on a draft PR, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. On a window 130 wide or more, Delivery and Review show the selected item's detail in a panel beside the list, with its actions at the top. Clicking a row selects it, the wheel over the panel scrolls it, and so do Page Up and Page Down. Enter still opens the detail full width.
 
 A run's detail is built around what to do next. A stopped run starts with Needs you, taken from the `## Needs you` section of the report that stopped it, with its actions underneath. The Workflow section comes next, as a tree under stage headings that carry the stage's colour, status and total, each with its verdict, rounds, cost and latest report, and the stopped step shows its findings in place. `▸` marks the report to read first. Older rounds sit behind `+2 older`, or press `e`: `ai-review.md` is always the latest, and `ai-review-1.md` is the first round, counting up. Enter or a click opens a report, and `esc` goes back.
 
@@ -189,7 +189,7 @@ Nothing reaches the ticket before a go. Each go puts its section at the top of t
 
 The same poll saves your open PRs, PRs you're asked to review or have reviewed, and those merged in the last week, in one GitHub call. Each gets whose move it is. `[prs] search` narrows them, in GitHub search terms.
 
-| Your move | Waiting on others |
+| Needs you | With people |
 |---|---|
 | Yours: draft, checks failing, changes requested, fixed and not re-requested, comments to address, approved | Yours: awaiting review, re-review requested |
 | Theirs: needs review, re-review | Theirs: draft, waiting for fixes, new commits, approved |

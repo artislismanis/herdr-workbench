@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, REVIEW, Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pulls, run_style, stage_groups, stage_state, to_go, usage_line, usage_view  # noqa: E402
+from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pull_story, pulls, run_style, stage_groups, stage_state, to_go, usage_line, usage_view  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -371,7 +371,7 @@ class PRs(unittest.TestCase):
     def test_groups_by_whose_move_it_is(self):
         lines = pulls({"prs": {"polled_at": 1.0, "error": "", "items": [pr("a", "others", True), pr("b"), pr("c", "done", True)]}}, WIDE)
         self.assertEqual([line.pr["url"] for line in lines if line.pr], ["b", "a", "c"])
-        self.assertIn("Your move 1", joined(lines))
+        self.assertIn("Needs you 1", joined(lines))
 
     def test_mine_and_others_differ_by_symbol_and_colour(self):
         mine, theirs = self.rows(pr("a", mine=True), pr("b"))
@@ -386,6 +386,31 @@ class PRs(unittest.TestCase):
     def test_shows_a_failed_poll_and_a_first_run(self):
         self.assertEqual(pulls({"prs": {"error": "gh failed", "items": []}})[0].style, "red")
         self.assertIn("Press r", pulls({})[0].text)
+
+    def test_a_review_at_work_shows_with_agents(self):
+        lines = pulls({"prs": {"error": "", "items": [pr()]}}, WIDE, lambda p: (run("pr-7", pr="u", reviewing=True), ""))
+        self.assertIn("With agents 1", joined(lines))
+        self.assertIn("reviewing", next(line for line in lines if line.pr).text)
+
+    def test_a_finished_review_needs_you_with_its_advice_in_the_row(self):
+        lines = pulls({"prs": {"error": "", "items": [pr(move="others")]}}, WIDE, lambda p: (run("pr-7", "done", pr="u", reviewing=True), "AI: approve"))
+        self.assertIn("Needs you 1", joined(lines))
+        row = next(line for line in lines if line.pr).text
+        self.assertIn("your turn", row)
+        self.assertIn("AI: approve", row)
+
+    def test_a_posted_review_goes_by_whose_move_it_is(self):
+        posted = run("pr-7", "done", pr="u", reviewing=True, reviewed="abc", posted="abc")
+        self.assertIn("With people 1", joined(pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: (posted, ""))))
+
+    def test_the_detail_leads_with_the_next_move_then_the_briefing(self):
+        done = run("pr-7", "done", pr="u", reviewing=True)
+        text = joined(pull(pr(), WIDE, pull_story(pr(), done, "AI: approve, 1 note(s)", "Intent: tidy up", "", [], WIDE)))
+        self.assertLess(text.index("AI: approve, 1 note(s). g opens it in hunk"), text.index("Intent: tidy up"))
+        self.assertLess(text.index("Intent: tidy up"), text.index("Reviews"))
+
+    def test_a_pr_with_no_run_says_how_to_start(self):
+        self.assertIn("a starts the AI review", joined(pull_story(pr(), None, "", "", "", [], WIDE)))
 
     def test_the_detail_wraps_a_long_title_and_url(self):
         lines = pull(pr(url="https://x.test/" + "a" * 80, title="Long words here " * 10), 40)
@@ -852,6 +877,23 @@ class Keys(unittest.TestCase):
             self.board.press(ord("m"))
             thread.call_args.kwargs["target"]()
         self.tools.workshop.assert_called_once_with("claim", "pr-7")
+
+    def test_a_review_shows_on_review_and_not_on_delivery(self):
+        self.on_pr()
+        self.store.save(run("pr-7", status="running", pr=self.board.picked[1], reviewing=True))
+        self.board.seen = None
+        self.board.reload()
+        self.assertIn("reviewing", joined(self.board.listing(WIDE)))
+        self.board.tab = DELIVERY
+        self.assertNotIn("pr-7", joined(self.board.listing(WIDE)))
+
+    def test_a_delivered_draft_stays_on_delivery_until_you_let_it_go(self):
+        self.on_pr()
+        self.store.save(run("9", status="done", pr=self.board.picked[1]))
+        self.board.engine.reviewable.return_value = True
+        self.board.seen = None
+        self.board.reload()
+        self.assertEqual(self.board.pr_items(), [])
 
     def test_a_claimed_review_offers_no_claim(self):
         self.on_pr()

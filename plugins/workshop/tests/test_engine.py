@@ -571,9 +571,25 @@ class Reviews(unittest.TestCase):
     def test_a_finished_review_opens_against_where_the_pr_branched(self):
         run = self.to_review(self.start())
         self.assertEqual(run.status, "done")
-        self.assertEqual(self.tools.reviews, [("p1", "abc123")])
+        self.assertEqual(self.tools.reviews, [(run.step_pane, "abc123")])
         self.assertEqual(self.tools.pushes, 0)
         self.assertEqual(self.tools.commits, [])
+
+    def test_the_reviewer_stays_until_the_review_is_posted(self):
+        run = self.to_review(self.start())
+        pane = run.step_pane
+        self.assertTrue(pane)
+        self.assertNotIn(pane, self.tools.closed)
+        self.assertEqual(run.label, "your turn")
+        self.engine.posted(run)
+        self.assertIn(pane, self.tools.closed)
+        self.assertEqual(run.label, "posted")
+
+    def test_new_commits_make_a_posted_review_yours_again(self):
+        run = self.to_review(self.start())
+        self.engine.posted(run)
+        run.reviewed = "newer"
+        self.assertTrue(run.with_you)
 
     def test_a_finished_review_is_never_a_delivery(self):
         run = self.to_review(self.start())
@@ -800,7 +816,7 @@ class Replies(unittest.TestCase):
 
     def test_nothing_leaves_until_your_go(self):
         run = self.finished()
-        self.assertEqual((run.status, run.label, self.tools.pushes, self.tools.commits), ("done", "in review", 0, []))
+        self.assertEqual((run.status, run.label, self.tools.pushes, self.tools.commits), ("done", "your turn", 0, []))
         self.source.reply.assert_not_called()
         self.assertEqual(self.tools.reloads, [True])
         self.assertFalse(self.engine.delivered(run))

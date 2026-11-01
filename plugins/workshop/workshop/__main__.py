@@ -341,7 +341,7 @@ def finish_choices(changed: list[str], draft: bool) -> list[tuple[str, str, str]
     return found + ([("c", "post the review notes as a PR comment", "comment")] if not changed else [])
 
 
-def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any]) -> int:
+def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any], root: Path) -> int:
     """Going visible in one step: anything new shows first, then after your go the claim goes out just before the review."""
     source = engine.source_for(run)
     started = time.time()
@@ -351,6 +351,8 @@ def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any]) -> i
         for seen in source.activity(run.key, run.begun):
             print(f"Since you started: {seen}")
         code = post_review(path, "--before", f"{Path.home()}/.local/bin/workshop claim {run.key}")
+    if code == 0:
+        waited(root, lambda: engine.posted(engine.store.load(run.repo, run.key)))
     if code == 0 and review_settings(cfg, cfg["repos"][run.repo])["after_post"] == "chat-reply":
         offer_reply(run, source, chat_of(cfg), started)
     return code
@@ -411,7 +413,7 @@ def finish(engine: Engine, root: Path, cfg: dict[str, Any]) -> int:
     if replying := next((r for r in engine.store.all() if r.worktree == path and r.replying and engine.review_ready(r) and not r.replied), None):
         return finish_reply(engine, replying, path, root)
     if reviewing := next((r for r in engine.store.all() if r.worktree == path and r.reviewing), None):
-        return finish_review(engine, reviewing, path, cfg)
+        return finish_review(engine, reviewing, path, cfg, root)
     delivered = next((r for r in engine.store.all() if r.worktree == path and engine.delivered(r)), None)
     if delivered is None:
         return post_review(path)

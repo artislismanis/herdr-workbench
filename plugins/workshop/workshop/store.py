@@ -44,6 +44,7 @@ class Run:
     reviewing: bool = False  # someone's PR under review, not a delivery, so workshop only reads it
     replying: bool = False  # comments on your own PR: fixes and replies wait for your go
     replied: bool = False  # those went out
+    posted: str = ""  # the commit whose review went out
     sent: int = 0  # how many replies have, should a send stop halfway
     reviewed: str = ""  # what the last review looked at, a commit on a PR, otherwise a snapshot
     checking: str = ""  # the snapshot this review is looking at
@@ -70,12 +71,19 @@ class Run:
         """A finished run is still with people until its PR lands."""
         if self.deployed == "prod" and self.landed == "merged":
             return "in prod"
-        return self.landed or self.deployed or ("replied" if self.replied else "in review" if self.status == "done" else "your turn" if self.your_turn else NAMES.get(self.status, self.status))
+        finished = "replied" if self.replied else "your turn" if self.with_you else "posted" if self.on_a_pr else "in review"
+        working = "reviewing" if self.reviewing else "replying" if self.replying else "running"
+        return self.landed or self.deployed or (finished if self.status == "done" else "your turn" if self.your_turn else working if self.status == "running" else NAMES[self.status])
 
     @property
     def on_a_pr(self) -> bool:
         """Started from a PR, so its source is that PR and it delivers nothing."""
         return self.reviewing or self.replying
+
+    @property
+    def with_you(self) -> bool:
+        """A review or reply is done, and waits in hunk until you send it."""
+        return self.on_a_pr and self.status == "done" and not self.landed and not self.replied and not (self.posted and self.posted == self.reviewed)
 
     def index_of(self, step_id: str) -> int:
         return [s["id"] for s in self.pipeline["steps"]].index(step_id)

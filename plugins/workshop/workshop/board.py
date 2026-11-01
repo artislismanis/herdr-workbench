@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls, rule, usage_view, wrapped
+from .boardview import RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_view, wrapped
 from .engine import STOPS, Engine
 from .review import decisions
 from .store import Run
@@ -42,7 +42,6 @@ LIST_SHARE = 55  # percent of the window for the list
 ESCAPE = 27
 TAB_KEY = ord("\t")
 AI_REVIEW = ord("a")  # with nothing stopped under it, where the same key answers
-RESPOND = ("changes requested", "comments to address", "fixed, re-request")
 AI_REVIEW_OTHER = ord("A")  # the mode you don't usually use
 CLAIM = ord("m")
 PREPARE = ord("p")
@@ -150,13 +149,44 @@ class Board:
         return (name, path.read_text(encoding="utf-8", errors="replace")) if path.exists() else ("", "")
 
     def detail(self, ref: tuple[str, str] | None, width: int) -> list[Line]:
-        if pr := next((p for p in self.snapshot.get("prs", {}).get("items", []) if ("#pr", p["url"]) == ref), None):
-            return pull(pr, width)
+        if pr := next((p for p in self.pr_items() if ("#pr", p["url"]) == ref), None):
+            return pull(pr, width, self.pull_context(pr, width))
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:
             return []
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
         return drill(run, events, self.title(run), "", str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run))
+
+    def pr_items(self) -> list[dict[str, Any]]:
+        """A draft from delivery is still your self-review, on Delivery, until you let it go."""
+        drafts = {r.pr for r in self.runs if self.engine.reviewable(r)}
+        return [p for p in self.snapshot.get("prs", {}).get("items", []) if p["url"] not in drafts]
+
+    def run_of(self, ref: tuple[str, str] | None) -> Run | None:
+        """The run behind a row. On a PR, what's working on it now comes before the delivery that made it."""
+        found = [r for r in self.runs if ref in ((r.repo, r.key), ("#pr", r.pr))]
+        return next((r for r in found if r.on_a_pr and not r.landed), found[0] if found else None)
+
+    def advice(self, run: Run | None) -> str:
+        """The agent's bottom line, for the row and the top of the detail."""
+        if run is None or not run.with_you:
+            return ""
+        said = [line.strip(" -*") for line in self.engine.handover(run).splitlines()]
+        word = next((line.removeprefix("Recommendation:").strip() for line in said if line.startswith("Recommendation:")), "")
+        notes = next((e["notes"] for e in reversed(self.events) if (e["repo"], e["key"], e["type"]) == (run.repo, run.key, "review")), None)
+        return ", ".join(part for part in (f"AI: {word}" if word else "", "" if notes is None else f"{notes} note(s)") if part)
+
+    def linked(self, pr: dict[str, Any]) -> tuple[Run | None, str]:
+        run = self.run_of(("#pr", pr["url"]))
+        return run, self.advice(run)
+
+    def pull_context(self, pr: dict[str, Any], width: int) -> list[Line]:
+        run, advice = self.linked(pr)
+        if run is None:
+            return pull_story(pr, None, "", "", "", [], width)
+        events = [e for e in self.events if (e["repo"], e["key"]) == (run.repo, run.key)]
+        stopped = self.stop_report(run)
+        return pull_story(pr, run, advice, self.engine.handover(run), stopped[1], timeline(run, events, self.reports(run), width, ("", "") if run.current and run.current["kind"] == "gate" else stopped, self.earlier), width)
 
     def panel(self, width: int) -> list[Line]:
         """The selected item beside the list. Its actions are on the bottom row, as everywhere."""
@@ -179,8 +209,8 @@ class Board:
         if self.tab == USAGE:
             return usage_view(samples(self.store.root), self.events, self.meter.read(), self.clock(), width)
         if self.tab == DELIVERY:
-            return deliveries(self.runs, self.events, self.title, width, self.engine.throttle.pace(), self.meter.read())
-        return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls(self.snapshot, width)
+            return deliveries([r for r in self.runs if not r.on_a_pr], self.events, self.title, width, self.engine.throttle.pace(), self.meter.read())
+        return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked)
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:
         return [line.ref for line in lines if line.ref]
@@ -272,8 +302,7 @@ class Board:
             self.offset = max(0, self.offset + by)
 
     def target(self, lines: list[Line]) -> Run | None:
-        wanted = self.open or self.selected(lines)
-        return next((r for r in self.runs if (r.repo, r.key) == wanted), None)
+        return self.run_of(self.open or self.selected(lines))
 
     def unreviewed(self, lines: list[Line]) -> str:
         """The selected PR, if it can go to an AI review: an open PR with no run yet, or something new since the last one."""
@@ -297,8 +326,7 @@ class Board:
         return "silent" if self.cfg.get("review", {}).get("mode") == "claimed" else "claimed"
 
     def claimable(self, lines: list[Line]) -> Run | None:
-        wanted = self.open or self.selected(lines)
-        run = next((r for r in self.runs if wanted in ((r.repo, r.key), ("#pr", r.pr))), None)
+        run = self.target(lines)
         return run if run and run.reviewing and not run.claimed and not run.landed else None
 
     def run_actions(self, run: Run | None) -> dict[int, str]:
@@ -457,7 +485,7 @@ class Board:
         self.message, self.said = text, self.clock()
 
     def jump(self, target: tuple[str, str] | None) -> None:
-        run = next((r for r in self.runs if target in ((r.repo, r.key), ("#pr", r.pr))), None)
+        run = self.run_of(target)
         try:
             if run is None or not run.pane:
                 raise KeyError("no workspace")
@@ -471,9 +499,9 @@ class Board:
         self.send("refresh")
 
     def counts(self) -> tuple[int, ...]:
-        waiting = sum(r.status in ("parked", "waiting") or r.your_turn for r in self.runs)
+        waiting = sum((r.status in ("parked", "waiting") or r.your_turn) and not r.on_a_pr for r in self.runs)
         tickets = sum(not self.store.exists(repo, i["key"]) for repo, r in self.snapshot.get("repos", {}).items() for i in r["items"])
-        return tickets, waiting, sum(p["move"] == "you" for p in self.snapshot.get("prs", {}).get("items", []))
+        return tickets, waiting, sum(pull_group(p, self.linked(p)[0]) == "Needs you" for p in self.pr_items())
 
     def header(self) -> Line:
         tabs = [part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]
@@ -497,7 +525,7 @@ class Board:
         offers = [("a ai reply", AI_REVIEW)] if self.answerable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
-        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run is None or run.pane) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run.pane if run else self.tab != REVIEW) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def note(self, width: int) -> list[Line]:
