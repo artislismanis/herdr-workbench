@@ -104,10 +104,13 @@ class Deliveries(unittest.TestCase):
         lines = deliveries([run("1"), run("2", "parked", reason="It broke"), run("3", "waiting", reason="Which API?")], [], lambda r: "Title", WIDE)
         self.assertEqual([line.run.key for line in lines if line.run], ["2", "3", "1"])
         self.assertIn("It broke", next(line.text for line in lines if line.run and line.run.key == "2"))
-        self.assertIn(" 2  needs you", lines[0].text)
+        self.assertIn(" 2  needs you", lines[1].text)
 
     def test_limits_show_on_one_line(self):
-        self.assertIn("5h 40% 2h", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[1].text)
+        self.assertIn("5h 40%, 2h left", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[0].text)
+
+    def test_usage_sits_above_the_counts(self):
+        self.assertIn("needs you", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[1].text)
 
     def test_limits_are_coloured_by_whether_they_last_until_the_reset(self):
         hour, day = 3600, 86400
@@ -121,12 +124,12 @@ class Deliveries(unittest.TestCase):
 
     def test_the_machine_shows_when_it_can_be_read(self):
         found = {"cpu": 40, "cores": 8, "ram": 80, "memory": 31.4, "cpu_peak": 90, "ram_peak": 85}
-        line = deliveries([], [], lambda r: "", WIDE, {"5h": (58.0, 2880)}, found)[1]
-        self.assertEqual(line.text.split(), ["5h", "58%", "48m", "cpu", "40%", "ram", "80%"])
+        line = deliveries([], [], lambda r: "", WIDE, {"5h": (58.0, 2880)}, found)[0]
+        self.assertEqual(line.text.split(), ["Agents:", "5h", "58%,", "48m", "left", "OS:", "cpu", "40%", "ram", "80%"])
 
     def test_all_is_well_is_quiet_and_only_trouble_has_colour(self):
         line = usage_line({}, {"cpu": 40, "ram": 80})
-        self.assertEqual([s.style for s in line.spans if s.text.strip()], ["dim", "yellow"])
+        self.assertEqual([s.style for s in line.spans if s.text.strip()], ["bold", "", "yellow"])
 
     def test_the_usage_tab_says_when_theres_nothing_yet(self):
         self.assertIn("No samples yet", joined(usage_view([], [], None, 1000.0)))

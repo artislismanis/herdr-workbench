@@ -195,14 +195,19 @@ def tiles(runs: list[Run]) -> Line:
 
 
 def calm(style: str) -> str:
-    """Colour means something needs a look, so all's well is quiet."""
-    return "dim" if style == "green" else style
+    """Colour means something needs a look, so all's well is plain."""
+    return "" if style == "green" else style
 
 
 def usage_line(usage: Usage, machine: dict[str, Any] | None) -> Line:
-    parts = [(f"{window} {used:.0f}%" + (f" {ago(left)}" if left else ""), calm(limit_style(window, used, left))) for window, (used, left) in usage.items()]
-    parts += [(f"{name} {machine[name]:.0f}%", calm(machine_style(machine[name]))) for name in ("cpu", "ram")] if machine else []
-    return Line([span for text, style in parts for span in (Span(text, style), Span("   "))])
+    """What you've got left to work with, grouped by whose limit it is."""
+    agents = [(f"{window} {used:.0f}%" + (f", {ago(left)} left" if left else ""), calm(limit_style(window, used, left))) for window, (used, left) in usage.items()]
+    system = [(f"{name} {machine[name]:.0f}%", calm(machine_style(machine[name]))) for name in ("cpu", "ram")] if machine else []
+    spans: list[Span] = []
+    for label, parts in (("Agents:", agents), ("OS:", system)):
+        if parts:
+            spans += [Span(f"{label} ", "bold"), *(span for text, style in parts for span in (Span(text, style), Span("   ")))]
+    return Line(spans)
 
 
 def machine_style(value: float) -> str:
@@ -238,7 +243,7 @@ def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[R
     last = {(e["repo"], e["key"]): e["at"] for e in events}
     landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
     active = sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index(r.status))
-    lines = [tiles(runs), usage_line(usage or {}, machine), plain()]
+    lines = [usage_line(usage or {}, machine), tiles(runs), plain()]
     for heading in dict.fromkeys(HEADINGS[r.status] for r in active):
         group = [r for r in active if HEADINGS[r.status] == heading]
         lines += [rule(f"{heading} {len(group)}", width), *(delivery(r, title(r), width) for r in group), plain()]
