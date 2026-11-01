@@ -135,6 +135,15 @@ class Tools:
         # No --force: wt refuses a dirty worktree and keeps an unmerged branch, the same as the key.
         run("wt", "remove", "--foreground", "--yes", "-C", str(repo), str(work))
 
+    def back_to_board(self, pane: str) -> None:
+        """Closing the workspace you're in would drop you on whichever is next. Anywhere else, you stay put."""
+        try:
+            spaces = run_json("herdr", "workspace", "list")["result"]["workspaces"]
+            if any(space["workspace_id"] == pane.split(":")[0] and space["focused"] for space in spaces):
+                self.open_board()
+        except ToolError:
+            pass  # it only decides where you land
+
     def close_workspace(self, pane: str) -> None:
         run("herdr", "workspace", "close", pane.split(":")[0])
 

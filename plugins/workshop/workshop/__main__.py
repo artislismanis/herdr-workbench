@@ -143,11 +143,13 @@ def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
     pipeline = load(repo.get("prepare_pipeline", "prepare"))
     prep = f"prep-{key}"
     stages = source.stages(prep)
-    # A stage already signed off isn't reopened, unless every stage is, which means you want to go again.
+    # One stage at a time, whichever the ticket has reached, so each talk can wait for its moment. Past the last, you want to go again.
     gates = [i for i, step in enumerate(pipeline["steps"]) if step.get("label") in stages]
     at = gates[-1] + 1 if gates else 0
+    stage = pipeline["steps"][0 if at == len(pipeline["steps"]) else at].get("stage")
+    pipeline = {**pipeline, "steps": [step for step in pipeline["steps"] if step.get("stage") == stage]}
     again = engine.store.exists(name, prep) and bool(engine.store.load(name, prep).landed)
-    return engine.start(name, prep, Path(repo["path"]).expanduser(), repo.get("base", "main"), pipeline, source, restart=again, preparing=True, at=0 if at == len(pipeline["steps"]) else at)
+    return engine.start(name, prep, Path(repo["path"]).expanduser(), repo.get("base", "main"), pipeline, source, restart=again, preparing=True)
 
 
 def begin_sweep(engine: Engine, cfg: dict[str, Any], name: str, sweep: str) -> Run:
@@ -386,11 +388,6 @@ def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any], root
 
 
 def step_away(engine: Engine, run: Run, root: Path) -> None:
-    """Back to the board first, as the workspace you're in is about to go."""
-    try:
-        engine.tools.open_board()
-    except STOPS:
-        pass  # you'd only land somewhere else
     waited(root, lambda: engine.leave(engine.store.load(run.repo, run.key)))
 
 

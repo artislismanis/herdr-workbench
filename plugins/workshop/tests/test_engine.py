@@ -523,11 +523,19 @@ class Prepare(unittest.TestCase):
 
     def test_the_last_go_ends_the_run_with_no_pr(self):
         run = self.finished()
-        self.assertEqual((run.status, run.landed, run.pr, run.label), ("done", "prepared", "", "prepared"))
+        self.assertEqual((run.status, run.landed, run.pr, run.label), ("done", "designed", "", "designed"))
         self.assertEqual(self.ticket.tags, ["planned", "designed"])
         self.assertIn("## Design\n\n### How", self.ticket.text)
         self.assertEqual(self.tools.reviews, [])
         self.assertFalse([r for r in self.ticket.reports if "Draft PR" in r])
+
+    def test_one_stage_ends_as_that_stage(self):
+        pipeline = load("prepare")
+        run = self.engine.start("r", "prep-7", self.root, "main", {**pipeline, "steps": pipeline["steps"][:1]}, self.source, preparing=True)
+        run = self.agree(run)
+        self.assertEqual((run.status, run.label, run.worktree), ("done", "planned", ""))
+        self.assertIn("Workshop: prep-7 planned", self.tools.notes)
+        self.assertEqual(self.tools.boards, [self.tools.closed_workspaces[-1]])
 
     def test_the_end_takes_the_checkout(self):
         run = self.finished()
@@ -1018,7 +1026,7 @@ class FakeTools:
         self.reloads, self.threads_loaded, self.followed = [], 0, 0
         self.snapshots = 0
         self.removed, self.closed_workspaces, self.remove_fails = [], [], False
-        self.lost = set()
+        self.lost, self.boards = set(), []
         self.heads, self.ancestor = ["one", "two"], True
 
 
@@ -1043,6 +1051,9 @@ class FakeTools:
         if self.remove_fails:
             raise ToolError("wt: worktree has uncommitted changes")
         self.removed.append(work)
+
+    def back_to_board(self, pane):
+        self.boards.append(pane)
 
     def close_workspace(self, pane):
         self.closed_workspaces.append(pane)

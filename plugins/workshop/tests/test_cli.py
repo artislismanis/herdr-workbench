@@ -134,6 +134,9 @@ class Preparing(unittest.TestCase):
         cli.begin_prepare(self.engine, {"repos": {name: {"path": "/x"} for name in repos}}, ticket)
         return self.engine.start.call_args
 
+    def stage(self):
+        return [step["id"] for step in self.begin("r/7").args[4]["steps"]]
+
     def test_it_runs_beside_the_ticket_not_as_it(self):
         call = self.begin("r/7")
         self.assertEqual(call.args[:2], ("r", "prep-7"))
@@ -179,11 +182,14 @@ class Preparing(unittest.TestCase):
 
     def test_a_ticket_past_requirements_starts_at_design(self):
         self.source.stages.return_value = ["planned"]
-        self.assertEqual(self.begin("r/7").kwargs["at"], 1)
+        self.assertEqual(self.stage(), ["design"])
+
+    def test_a_new_ticket_does_only_the_requirements(self):
+        self.assertEqual(self.stage(), ["requirements"])
 
     def test_a_fully_prepared_ticket_starts_over(self):
         self.source.stages.return_value = ["planned", "designed"]
-        self.assertEqual(self.begin("r/7").kwargs["at"], 0)
+        self.assertEqual(self.stage(), ["requirements"])
 
     def test_a_ticket_in_delivery_is_refused(self):
         self.engine.store.exists.side_effect = lambda repo, key: key == "7"
