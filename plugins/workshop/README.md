@@ -110,7 +110,7 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 
 ## Limits
 
-One line under the board's counts shows the 5h and 7d limits, cpu and ram. It stays quiet until something needs a look. The limits are coloured by whether you'd last until the reset at an even pace, not by how much is used, so 50% used with 15 minutes left stays quiet. Amber is more than 10 points ahead of that pace, and red more than 25, or the limit reached. Ram counts what's available, which includes cache that can be reclaimed.
+One line above the board's counts shows the 5h and 7d limits under `Agents:`, and cpu and ram under `OS:`. Colour means something needs a look. The limits are coloured by whether you'd last until the reset at an even pace, not by how much is used, so 50% used with 15 minutes left stays quiet. Amber is more than 10 points ahead of that pace, and red more than 25, or the limit reached. Ram counts what's available, which includes cache that can be reclaimed.
 
 The Usage tab shows how that went: peaks, agents and spend by hour, and totals for the day, week and month, so you can see whether WSL needs more and what uses your limits. `workshop sample` adds a reading every 5 minutes from its own timer, which is on from install and costs no tokens. Samples last 30 days, in `~/.local/state/workshop/usage.jsonl`.
 
