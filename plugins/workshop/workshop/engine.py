@@ -462,6 +462,7 @@ class Engine:
         self._post(run, f"Rejected. {note}")
         self._note(run, "feedback.md", note)
         self.store.event(run, "rejected", note=note)
+        self._fresh_rounds(run)  # limits stop agents going round in circles, not a person giving feedback
         run.status, run.reason = "running", ""
         try:
             if rule := step.get("then", {}).get("REJECTED"):
