@@ -133,6 +133,25 @@ AGENT_NOTE='{"source": "agent", "author": "claude", "filePath": "f.txt", "newRan
   ! echo "$output" | grep -q approve
 }
 
+@test "push: the prompt says what's being posted, where and as whom" {
+  jq '.url = "https://github.com/o/r/pull/7" | .title = "A change"' "$STUB/pr.json" >"$STUB/x" && mv "$STUB/x" "$STUB/pr.json"
+  notes "{\"comments\": [$AGENT_NOTE]}"
+  run bash -c "echo n | '$REPO_ROOT/bin/hunk-pr-push' '$REPO' 2>&1"
+  echo "$output" | grep -q "o/r#7  A change"
+  echo "$output" | grep -q "By them"
+  echo "$output" | grep -q "Posting as me"
+  echo "$output" | grep -q "1 inline comment(s):"
+  echo "$output" | grep -q "f.txt:"
+  echo "$output" | grep -q "Request changes"
+}
+
+@test "push: enter on its own posts nothing" {
+  notes "{\"comments\": [$AGENT_NOTE]}"
+  run bash -c "echo | '$REPO_ROOT/bin/hunk-pr-push' '$REPO'"
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUB/posted.json" ]
+}
+
 @test "push: a pending review of yours is refused" {
   echo '[[{"state": "PENDING", "user": {"login": "me"}}]]' >"$STUB/reviews.json"
   notes "{\"comments\": [$AGENT_NOTE]}"
