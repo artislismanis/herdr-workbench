@@ -395,20 +395,24 @@ class PRs(unittest.TestCase):
     def test_a_row_is_mark_status_pr_title_author_ci(self):
         row = self.rows(pr(state="comments to address", mine=True))[0]
         self.assertRegex(row.text, r"^ ● changes    r#7 A change +you ●$")
-        self.assertEqual(columns(row.text), WIDE - 1)
+        self.assertEqual(columns(row.text), WIDE - 2)
 
     def test_a_row_at_panel_width_keeps_long_names_whole(self):
         long = pr(title="T" * 90, repo="herdr-workbench", number=125, author="artislismanis-ai")
         row = next(line for line in pulls({"prs": {"error": "", "items": [long]}}, 84) if line.pr)
         self.assertIn("herdr-workbench#125", row.text)
         self.assertIn("artislismanis-ai", row.text)
-        self.assertEqual(columns(row.text), 83)
+        self.assertEqual(columns(row.text), 82)
 
     def test_a_status_says_where_a_pr_is(self):
         words = {"review": ("needs review", "awaiting review", "open"), "changes": ("changes requested", "waiting for fixes", "comments to address", "checks failing", "new commits"), "re-review": ("re-review", "re-review requested"), "approved": ("approved", "you approved"), "merged": ("merged",)}
         for word, states in words.items():
             for state in states:
                 self.assertEqual(pull_status(pr(state=state), None)[0], word)
+
+    def test_every_status_of_yours_under_needs_you_says_what_next(self):
+        for state in ("changes requested", "comments to address", "checks failing", "re-review", "approved"):
+            self.assertIn("▌ Next", joined(pull_story(pr(mine=True, state=state), None, "", "", "", [], WIDE)))
 
     def test_the_ci_dot_goes_by_the_checks(self):
         dots = {"SUCCESS": "green", "FAILURE": "red", "ERROR": "red", "PENDING": "yellow", "EXPECTED": "yellow", "": "dim"}

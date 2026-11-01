@@ -350,7 +350,7 @@ def author(pr: dict[str, Any]) -> str:
 def pull_row(pr: dict[str, Any], width: int, name_width: int, author_width: int, run: Run | None = None) -> Line:
     label, colour = pull_status(pr, run)
     mark, tone = MARKS[pr["mine"]]
-    room = max(width - name_width - author_width - 19, 20)
+    room = max(width - name_width - author_width - 20, 20)
     return Line([Span(" "), Span(mark + " ", tone), Span(cell(label, 10) + " ", colour), Span(cell(pr_name(pr), name_width) + " "), Span(cell(pr["title"], room) + " ", "yellow" if pr["beaten"] else ""), Span(cell(author(pr), author_width) + " ", tone), Span("●", CI_DOTS.get(pr["checks"], "dim"))], pr=pr)
 
 
@@ -373,6 +373,10 @@ def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
         return "Check the fix and the replies below. g opens the fix in hunk, beside the agent: tell it what to change. prefix+shift+u there pushes the fix and sends the replies."
     if pr["mine"] and pr["state"] in RESPOND:
         return "a has an agent draft the fixes and replies, for you to check."
+    if pr["mine"] and pr["state"] == "checks failing":
+        return "CI is failing. The PR's checks say why."
+    if pr["mine"] and pr["state"] == "approved":
+        return "It's approved, so it's ready to merge."
     if pr["move"] == "you" and not pr["mine"] and pr["state"] != "draft":
         return "a starts the AI review: a brief to read first, then notes on the diff to keep or drop, with the reviewer beside you."
     return ""
