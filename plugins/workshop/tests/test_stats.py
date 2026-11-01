@@ -25,6 +25,18 @@ class Stats(unittest.TestCase):
         self.assertIn("  b: 3 rounds", text)
         self.assertIn("Average cost per ticket (API-equivalent USD): $1.25", text)
 
+    def test_spend_by_model_for_tuning_choices(self):
+        text = stats([{**spent("1", "plan"), "model": "claude-haiku-5-5"}, {**spent("1", "build"), "model": "claude-opus-5-5"}, spent("2", "old")])
+        self.assertIn("  claude-haiku-5-5: 1 rounds", text)
+        self.assertIn("  not recorded: 1 rounds", text)
+
+    def test_preparing_counts_towards_its_ticket(self):
+        events = [spent("prep-1", "design"), spent("1", "build"), {"type": "finished", "repo": "a", "key": "1"}, {"type": "prepared", "repo": "a", "key": "prep-1"}]
+        text = stats(events)
+        self.assertIn("  a/1: 2 rounds, 200 tokens in, 20 out, 2.0 min, $1.00", text)
+        self.assertIn("Tickets finished: 1", text)
+        self.assertIn("Average cost per ticket (API-equivalent USD): $1.00", text)
+
     def test_a_round_that_stopped_to_ask_isnt_rework(self):
         events = [{**spent("1", "plan"), "asked": True}, spent("1", "plan"), {"type": "finished", "repo": "a", "key": "1"}]
         self.assertIn("First pass: 1 of 1", stats(events))

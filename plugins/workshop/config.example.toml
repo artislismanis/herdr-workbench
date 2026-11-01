@@ -26,10 +26,13 @@
 
 # Paces work against Claude's limits, in percent. These are the defaults.
 # [throttle]
-# pause_new_at = 60          # no new tickets above this 5h usage
-# pause_steps_at = 85        # no new agent steps above this 5h usage
-# weekly_pace_margin = 5     # no new tickets when 7d usage passes the share of the week gone plus this
-# weekly_reserve = 25        # no new agent steps in the last of the week's allowance
+# work_hours = [8, 18]       # weekdays, your local time, when the 5h window is kept for you too
+# pause_new_at = 80          # in those hours, no new tickets at this 5h usage
+# pause_steps_at = 90        # in those hours, no new agent steps at this 5h usage
+# five_hour_pace_margin = 5  # out of hours, no new tickets this many points ahead of an even 5h pace
+# five_hour_pace_stop = 15   # out of hours, no new agent steps this far ahead
+# weekly_pace_margin = 5     # no new tickets this many points ahead of an even 7d pace
+# weekly_pace_stop = 15      # no new agent steps this far ahead
 
 # One table per repo. `source` is github, jira or markdown.
 [repos.my-app]
