@@ -7,21 +7,21 @@ import sys
 import textwrap
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_view, wrapped
-from .engine import STOPS, Engine
+from .boardview import RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_view, wrapped
+from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .review import decisions
 from .store import Run
 from .system import Meter
 from .usage import samples
 
 SKIPPED = "skipped.json"
-TABS = ("Backlog", "Delivery", "Review", "Usage")  # the order work moves through, then how it went
-BACKLOG, DELIVERY, REVIEW, USAGE = range(4)
+TABS = ("Backlog", "Delivery", "Review", "Operate", "Usage")  # the order work moves through, then how it went
+BACKLOG, DELIVERY, REVIEW, OPERATE, USAGE = range(5)
 TOP = 1  # a gap under herdr's tab bar
 WHEEL = 3
 MESSAGE_SECONDS = 5
@@ -69,6 +69,10 @@ class Ask(NamedTuple):
 
 ANSWER = ord("a")
 DROP = ord("d")
+
+
+def stopped(runs: Iterable[Run]) -> int:
+    return sum(r.status in ("parked", "waiting") or r.your_turn for r in runs)
 
 
 class Board:
@@ -124,7 +128,7 @@ class Board:
         return tuple(str(p) for p in sorted(found, key=lambda p: p.stat().st_mtime, reverse=True))
 
     def panelled(self, width: int) -> bool:
-        return width >= PANEL_WIDTH and self.tab in (DELIVERY, REVIEW) and not self.open
+        return width >= PANEL_WIDTH and self.tab in (DELIVERY, REVIEW, OPERATE) and not self.open
 
     def list_width(self, width: int) -> int:
         return width * LIST_SHARE // 100
@@ -156,6 +160,13 @@ class Board:
             return []
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
         return drill(run, events, self.title(run), "", str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run))
+
+    def building(self) -> list[Run]:
+        return [r for r in self.runs if not r.on_a_pr and not r.operating]
+
+    def schedule(self) -> list[dict[str, Any]]:
+        seen = self.store.read(SWEEPS)
+        return [{"repo": name, "sweep": sweep, "cadence": cadence, "every": SWEEP_EVERY.get(cadence, 0), "last": seen.get(f"{name}/{sweep}", {}).get("last", 0)} for name, repo in self.cfg["repos"].items() for sweep, cadence in repo.get("sweeps", {}).items()]
 
     def pr_items(self) -> list[dict[str, Any]]:
         """A draft from delivery is still your self-review, on Delivery, until you let it go."""
@@ -209,7 +220,9 @@ class Board:
         if self.tab == USAGE:
             return usage_view(samples(self.store.root), self.events, self.meter.read(), self.clock(), width)
         if self.tab == DELIVERY:
-            return deliveries([r for r in self.runs if not r.on_a_pr], self.events, self.title, width, self.engine.throttle.pace(), self.meter.read())
+            return deliveries(self.building(), self.events, self.title, width, self.engine.throttle.pace(), self.meter.read())
+        if self.tab == OPERATE:
+            return operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), self.clock(), width)
         return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked)
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:
@@ -499,9 +512,8 @@ class Board:
         self.send("refresh")
 
     def counts(self) -> tuple[int, ...]:
-        waiting = sum((r.status in ("parked", "waiting") or r.your_turn) and not r.on_a_pr for r in self.runs)
         tickets = sum(not self.store.exists(repo, i["key"]) for repo, r in self.snapshot.get("repos", {}).items() for i in r["items"])
-        return tickets, waiting, sum(pull_group(p, self.linked(p)[0]) == "Needs you" for p in self.pr_items())
+        return tickets, stopped(self.building()), sum(pull_group(p, self.linked(p)[0]) == "Needs you" for p in self.pr_items()), stopped(r for r in self.runs if r.operating)
 
     def header(self) -> Line:
         tabs = [part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]

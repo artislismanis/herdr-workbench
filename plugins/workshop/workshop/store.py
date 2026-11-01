@@ -85,6 +85,11 @@ class Run:
         """A review or reply is done, and waits in hunk until you send it."""
         return self.on_a_pr and self.status == "done" and not self.landed and not self.replied and not (self.posted and self.posted == self.reviewed)
 
+    @property
+    def operating(self) -> bool:
+        """Past the merge, or looking after what's live. What comes of it starts as new tickets."""
+        return bool(self.sweeping or self.deployed or self.landed == "merged")
+
     def index_of(self, step_id: str) -> int:
         return [s["id"] for s in self.pipeline["steps"]].index(step_id)
 

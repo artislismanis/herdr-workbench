@@ -245,18 +245,33 @@ def delivery(run: Run, title: str, width: int) -> Line:
 
 
 def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, usage: Usage | None = None, machine: dict[str, Any] | None = None) -> list[Line]:
-    last = {(e["repo"], e["key"]): e["at"] for e in events}
-    landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
-    active = sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index(r.status))
-    lines = [usage_line(usage or {}, machine, width), plain(), tiles(runs), plain()]
-    for heading in dict.fromkeys(HEADINGS[r.status] for r in active):
-        group = [r for r in active if HEADINGS[r.status] == heading]
-        lines += [rule(f"{heading} {len(group)}", width), *(delivery(r, title(r), width) for r in group), plain()]
-    if landed:
-        lines += [rule("Landed", width), *(delivery(r, title(r), width) for r in landed), plain()]
+    lines = [usage_line(usage or {}, machine, width), plain(), tiles(runs), plain(), *run_groups(runs, events, title, width)]
     if not runs:
         lines += [plain("  No tickets picked up yet.", "dim"), plain()]
     return [*lines, rule("Recent", width), *recent(events, RECENT)]
+
+
+def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int) -> list[Line]:
+    last = {(e["repo"], e["key"]): e["at"] for e in events}
+    landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
+    active = sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index(r.status))
+    lines = []
+    for heading in dict.fromkeys(HEADINGS[r.status] for r in active):
+        group = [r for r in active if HEADINGS[r.status] == heading]
+        lines += [rule(f"{heading} {len(group)}", width), *(delivery(r, title(r), width) for r in group), plain()]
+    return lines + ([rule("Landed", width), *(delivery(r, title(r), width) for r in landed), plain()] if landed else [])
+
+
+def operations(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], schedule: list[dict[str, Any]], now: float, width: int = 120) -> list[Line]:
+    """After the merge: getting it live, then looking after it. What a sweep turns up becomes a ticket on the Backlog."""
+    lines = run_groups(runs, events, title, width) or [plain("  Nothing merged or swept yet.", "dim"), plain()]
+    return [*lines, rule("Sweeps", width), *(sweep_row(item, now) for item in schedule)] if schedule else [*lines, rule("Sweeps", width), plain("  None scheduled. A repo lists them in its config, as `sweeps = { docs = \"monthly\" }`.", "dim")]
+
+
+def sweep_row(item: dict[str, Any], now: float) -> Line:
+    last = f"ran {ago(now - item['last'])} ago" if item["last"] else "not run yet"
+    left = item["last"] + item["every"] - now if item["last"] else 0
+    return plain(f"  {cell(item['repo'], 22)} {cell(item['sweep'], 9)} {cell(item['cadence'], 9)} {cell(last, 16)} {'next in ' + to_go(left) if left > 0 else 'due'}")
 
 
 def card(ticket: str, item: dict[str, Any], skipped: dict[str, str]) -> list[tuple[str, str]]:
