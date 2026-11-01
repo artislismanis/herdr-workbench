@@ -56,6 +56,9 @@ class Run:
     environments: dict[str, str] = field(default_factory=dict)  # the repo's, branch to environment, if it names its own
     deployed: str = ""  # the furthest environment its PR has reached
     sweeping: str = ""  # which scheduled look at the repo this is
+    decided: dict[str, str] = field(default_factory=dict)  # your answer to each proposal: do, skip or guide
+    revised: bool = False  # the agent has acted on your guidance
+    applied: list[int] = field(default_factory=list)  # proposals done, should a failure stop it halfway
 
     @property
     def current(self) -> dict[str, Any] | None:

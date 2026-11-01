@@ -16,7 +16,7 @@ then.BLOCKED = { park = "The ticket needs clarifying before it can be built." }
 id = "approve"
 stage = "Build"
 kind = "gate"
-go = "start building"
+go = "Start building"
 ask = "Are these the right tasks to build?"
 report = "tasks"
 then.REJECTED = { goto = "tasks", max = 2, prompt = "revise.md" }

@@ -606,7 +606,7 @@ class Keys(unittest.TestCase):
     def test_a_blank_answer_on_a_stop_runs_it_again(self):
         self.stopped()
         self.board.press(ord("a"))
-        self.assertIn("enter to run it again", joined(self.board.note(80)))
+        self.assertIn("› Run it again", joined(self.board.note(80)))
         self.assertEqual(self.sent(), ("retry", "1"))
 
     def test_words_on_a_stop_steer_the_next_try(self):
@@ -629,7 +629,7 @@ class Keys(unittest.TestCase):
 
     def test_a_very_long_note_stops_growing_and_follows_the_cursor(self):
         shown = self.noted("word " * 200)
-        self.assertLessEqual(len(shown), NOTE_ROWS + 4)
+        self.assertLessEqual(len(shown), NOTE_ROWS + 8)
         self.assertIn("▌", "".join(shown))
         for _ in range(900):
             self.board.press(curses.KEY_LEFT)
@@ -637,7 +637,7 @@ class Keys(unittest.TestCase):
 
     def test_a_note_keeps_the_report_in_view(self):
         self.noted("short")
-        self.assertLess(len(self.board.note(100)), NOTE_ROWS)
+        self.assertLess(len(self.board.note(100)), NOTE_ROWS + 3)
 
     def test_the_cursor_moves_and_typing_goes_there(self):
         self.noted("helo")
@@ -694,7 +694,7 @@ class Keys(unittest.TestCase):
     def test_a_pasted_note_shows_its_lines(self):
         self.noted("")
         self.board.paste(Pasted(b"[200~one\ntwo\033[201~"))
-        self.assertIn(" one", texts(self.board.note(80)))
+        self.assertIn("   one", texts(self.board.note(80)))
 
     def test_a_plain_escape_is_still_an_escape(self):
         self.noted("x")
@@ -706,6 +706,17 @@ class Keys(unittest.TestCase):
         with mock.patch("workshop.board.curses.ungetch") as back:
             self.assertEqual(self.board.paste(Pasted(b"ab")), 27)
         self.assertEqual([c.args[0] for c in back.call_args_list], [ord("b"), ord("a")])
+
+    def test_a_failure_stays_until_a_key_and_shows_in_full(self):
+        self.tools.workshop.side_effect = ToolError("word " * 40)
+        self.stopped()
+        self.board.press(ord("d"))
+        self.sent()
+        self.board.clock = lambda: 5000.0
+        self.assertGreater(len(self.board.note(40)), 3)
+        self.assertEqual(joined(self.board.note(40)).count("word"), 40)
+        self.board.press(ord("j"))
+        self.assertEqual(len(self.board.note(40)), 1)
 
     def test_typing_takes_backspace_and_esc_cancels(self):
         self.stopped()
@@ -723,7 +734,7 @@ class Keys(unittest.TestCase):
         self.type_in("keep me")
         self.board.refreshing = True
         self.board.press(10)
-        self.assertEqual((self.board.asking.words, self.board.typed), ("retry", "keep me"))
+        self.assertEqual((self.board.asking.command, self.board.typed), ("retry", "keep me"))
 
     def reported(self):
         self.board.press(10)
@@ -891,7 +902,7 @@ class Keys(unittest.TestCase):
         self.assertEqual(list(self.board.run_actions(self.board.runs[-1]).values()), ["d drop"])
 
     def at_gate(self):
-        steps = [{"id": "tasks", "kind": "agent"}, {"id": "approve", "kind": "gate", "report": "tasks", "ask": "Are these the right tasks?", "go": "start building"}]
+        steps = [{"id": "tasks", "kind": "agent"}, {"id": "approve", "kind": "gate", "report": "tasks", "ask": "Are these the right tasks?", "go": "Start building"}]
         found = Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": steps}, status="waiting", step=1, reason="Are these the right tasks?")
         self.store.save(found)
         (self.store.files(found) / "tasks.md").write_text("Add the flag in main.\n\nVERDICT: READY\n", encoding="utf-8")
@@ -933,10 +944,67 @@ class Keys(unittest.TestCase):
         found = self.at_gate()
         self.assertEqual(joined(self.board.detail((found.repo, found.key), 100)).count("Add the flag in main."), 1)
 
+    def test_the_question_and_its_context_live_with_the_answer(self):
+        self.at_gate()
+        self.board.press(ord("a"))
+        card = texts(self.board.note(100))
+        self.assertLess(next(i for i, t in enumerate(card) if "right tasks" in t), next(i for i, t in enumerate(card) if "Start building" in t))
+        self.assertIn("Add the flag in main.", joined(self.board.note(100)))
+
+    def test_a_long_report_is_cut_in_the_card(self):
+        found = self.at_gate()
+        (self.store.files(found) / "tasks.md").write_text("step\n" * 30, encoding="utf-8")
+        self.board.press(ord("a"))
+        self.assertIn("22 more lines above", joined(self.board.note(100)))
+
+    def test_a_summary_is_what_the_card_shows(self):
+        found = self.at_gate()
+        (self.store.files(found) / "tasks.md").write_text("## Summary\n\nShort version.\n\n## Tasks\n\nLong version.\n", encoding="utf-8")
+        self.board.press(ord("a"))
+        self.assertIn("Short version", joined(self.board.note(100)))
+        self.assertNotIn("Long version", joined(self.board.note(100)))
+
+    def test_up_and_down_choose_and_typing_chooses_your_own_words(self):
+        self.at_gate()
+        self.board.press(ord("a"))
+        self.board.press(curses.KEY_DOWN)
+        self.assertIn("› Say what to change", joined(self.board.note(100)))
+        self.board.press(curses.KEY_UP)
+        self.assertIn("› Start building", joined(self.board.note(100)))
+        self.type_in("rename it")
+        self.assertIn("› Say what to change", joined(self.board.note(100)))
+
+    def test_your_own_words_need_words(self):
+        self.at_gate()
+        self.board.press(ord("a"))
+        self.board.press(curses.KEY_DOWN)
+        self.board.press(10)
+        self.assertIsNotNone(self.board.asking)
+
+    def test_a_proposal_offers_do_skip_or_your_words(self):
+        steps = [{"id": "sweep", "kind": "agent"}, {"id": "decide", "kind": "gate", "report": "sweep", "proposals": True, "go": "Do it", "change": "Tell the agent what to do instead"}]
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": steps}, status="waiting", step=1, reason="1 of 2: Close 3?"))
+        self.board.engine.proposal.return_value = "Already done."
+        self.board.seen = None
+        self.board.reload()
+        self.board.press(ord("a"))
+        text = joined(self.board.note(100))
+        self.assertIn("1 of 2: Close 3?", text)
+        self.assertIn("Already done.", text)
+        self.assertIn("Skip it", text)
+        self.board.press(curses.KEY_DOWN)
+        self.assertEqual(self.sent(), ("reject", "1", "n"))
+
+    def test_no_workspace_means_no_g(self):
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=PIPELINE, status="waiting", reason="x"))
+        self.board.seen = None
+        self.board.reload()
+        self.assertNotIn("g workspace", self.board.footer().text)
+
     def test_a_blank_answer_at_a_gate_does_what_the_box_says(self):
         self.at_gate()
         self.board.press(ord("a"))
-        self.assertIn("enter to start building", joined(self.board.note(80)))
+        self.assertIn("› Start building", joined(self.board.note(80)))
         self.assertEqual(self.sent(), ("approve", "1"))
 
     def test_words_at_a_gate_send_it_back(self):
@@ -951,7 +1019,7 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.board.press(ord("a"))
-        self.assertIn("type your answer", joined(self.board.note(80)))
+        self.assertIn("› Your answer", joined(self.board.note(80)))
         self.board.press(10)
         self.assertIsNotNone(self.board.asking)
         self.type_in("the first")
@@ -1118,7 +1186,7 @@ class Panel(Mouse):
         self.assertIn("d drop", self.board.footer(width).text)
         spots = [region for region in self.board.regions if region[3] == f"key:{ord('d')}"]
         self.tap(spots[0][1], spots[0][0], width)
-        self.assertEqual(self.board.asking.blank, "drop")
+        self.assertEqual(self.board.asking.command, "drop")
 
     def test_a_report_shows_in_the_panel_and_esc_closes_it(self):
         path = self.store.files(run("1")) / "plan.md"
