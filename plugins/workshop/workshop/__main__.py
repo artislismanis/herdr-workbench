@@ -383,7 +383,7 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
     replies = engine.replies(run)
     print(f"\n{len(replies)} repl{'y' if len(replies) == 1 else 'ies'} to post:")
     for reply in replies:
-        print(f"\n  On {reply['comment'] or 'the PR'}:\n  {reply['reply']}")
+        print(f"\n  On {reply.get('about') or reply['comment'] or 'the PR'}:\n  {reply['reply']}" + ("\n  (and the commit it's fixed in)" if reply.get("fixed") else ""))
     print("\nTo change any of it, tell the agent here, or edit the fixes in the worktree.\n")
     try:
         answer = input("[y] push and post, [n] cancel: ").strip().lower()

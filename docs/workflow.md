@@ -31,6 +31,8 @@ The Review tab works like Delivery: Needs you, With agents, With people, and Don
 
 New commits offer `a` again, for a review of what's changed.
 
+`a` on your own PR with comments has an agent draft the fixes and replies. Nothing goes out yet: the row moves to Needs you, and its detail shows each reply. `g` opens the fix in hunk beside the agent, so you can tell it what to change. `prefix+shift+u` then pushes the fix and sends the replies, and a reply about a fix names its commit. A reply to an inline comment joins that thread. Comments in a review's summary have no thread on GitHub, so those replies are general comments that quote what they answer.
+
 Posting asks what the review should be. These are GitHub's own review types, and your inline comments and PR comment go with whichever you choose:
 
 | Choice | On GitHub |

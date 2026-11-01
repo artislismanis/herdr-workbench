@@ -32,7 +32,7 @@ MAX_LINES = 2000
 TICKET_LINES = 8  # of the ticket under Needs you. All of it is in brief.md
 FINDINGS = 12  # lines of a stopped step's findings in the detail. The whole report is a click away
 BAD_VERDICTS = ("CHANGES_NEEDED", "BLOCKED", "FAILED")
-FILE_NOTES = {"brief.md": "the ticket", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "line notes", "ask.md": "the open question"}
+FILE_NOTES = {"replies.json": "draft replies", "brief.md": "the ticket", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "line notes", "ask.md": "the open question"}
 RECENT = 10
 LANDED = 5
 BAR = 30
@@ -358,13 +358,16 @@ def pull_status(pr: dict[str, Any], run: Run | None) -> tuple[str, str]:
 
 def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
     """The one thing to do next, so nobody has to work it out from the state."""
+    if run and run.replied:
+        return "Sent. Re-request review on GitHub when it's ready for another look."
     if run and run.status == "running":
         return "An agent is on it. This moves to Needs you when it's done."
     if run and run.status != "done":
         return ""  # what's stopped it says what it needs
+    if run and run.reviewing and run.with_you:
+        return f"{advice}. g opens it in hunk, beside the agent, so you can ask it anything. prefix+shift+u there posts what you keep.".removeprefix(". ")
     if run and run.with_you:
-        ending = "prefix+shift+u there posts what you keep" if run.reviewing else "prefix+shift+u there sends it"
-        return f"{advice}. g opens it in hunk, beside the agent, so you can ask it anything. {ending}.".removeprefix(". ")
+        return "Check the fix and the replies below. g opens the fix in hunk, beside the agent: tell it what to change. prefix+shift+u there pushes the fix and sends the replies."
     if pr["mine"] and pr["state"] in RESPOND:
         return "a has an agent draft the fixes and replies, for you to check."
     if pr["move"] == "you" and not pr["mine"] and pr["state"] != "draft":
@@ -372,11 +375,19 @@ def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
     return ""
 
 
-def pull_story(pr: dict[str, Any], run: Run | None, advice: str, handover: str, stopped: str, workflow: list[Line], width: int) -> list[Line]:
+def drafted(replies: list[dict[str, Any]], width: int) -> list[Line]:
+    """What will go out, while it can still be changed."""
+    lines = [plain(), Line([Span("▌ Replies to post", "yellow")])] if replies else []
+    for reply in replies:
+        lines += [*wrapped(f"  On {reply.get('about') or reply['comment'] or 'the PR'}" + (", with the commit" if reply.get("fixed") else ""), width, "dim"), *(plain("    " + part.text) for part in wrapped(reply["reply"], width - 4))]
+    return lines
+
+
+def pull_story(pr: dict[str, Any], run: Run | None, advice: str, handover: str, stopped: str, workflow: list[Line], width: int, replies: list[dict[str, Any]] | None = None) -> list[Line]:
     """What a person needs to move on a PR, in the order they need it."""
     lines = [plain(), Line([Span("▌ Next", "yellow")]), *(plain("  " + part.text) for part in wrapped(step, width - 2))] if (step := next_move(pr, run, advice)) else []
     lines += [plain(), *needs_you(run, stopped, width)] if run and run.status in ("parked", "waiting") else []
-    return lines + briefing(handover, width) + ([plain(), rule("Workflow", width), *workflow] if workflow else [])
+    return lines + drafted(replies or [], width) + briefing(handover, width) + ([plain(), rule("Workflow", width), *workflow] if workflow else [])
 
 
 def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str, Any]], tuple[Run | None, str]] = lambda pr: (None, ""), band: Line | None = None) -> list[Line]:
@@ -503,7 +514,7 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
     room = max(min(28, width - 52), 5)
     owned = {path for step in steps for path in (files_of(step, reports)[0], *(p for _, p in files_of(step, reports)[1]))}
     loose = [path for path in reports if path not in owned]
-    notes = [path for path in loose if path.endswith("/notes.json")]
+    notes = [path for path in loose if path.endswith(("/notes.json", "/replies.json"))]  # what the last agent wrote beside its report
     lines = ticket_rows(run, sorted((path for path in loose if path not in notes), key=lambda path: not path.endswith("/brief.md")), staged, room)
     writes_notes = max((index for index, step in enumerate(steps) if step["kind"] == "agent"), default=-1)
     groups = stage_groups(steps)

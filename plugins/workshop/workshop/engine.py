@@ -561,8 +561,9 @@ class Engine:
             self.tools.push(work, run.branch)
             self.store.event(run, "pushed")
         source = self.source_for(run)
+        fix = self.tools.head(work)[:7]
         for reply in self.replies(run)[run.sent:]:
-            source.reply(run.key, reply["comment"], self.mark + reply["reply"])
+            source.reply(run.key, reply["comment"], self.mark + reply["reply"] + (f"\n\nFixed in {fix}." if reply.get("fixed") else ""))
             run.sent += 1
             self.store.save(run)
         run.replied = True
