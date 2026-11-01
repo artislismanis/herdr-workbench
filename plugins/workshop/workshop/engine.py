@@ -234,7 +234,7 @@ class Engine:
         run.status, run.landed, run.reason, run.blocked_at, run.your_turn = "done", "dropped", reason, 0.0, False
         self._move(run, "dropped")
         self.store.save(run)
-        if run.preparing:
+        if run.preparing or run.sweeping:
             self._tidy(run)  # it never holds work
         return run
 

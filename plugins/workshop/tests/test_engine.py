@@ -114,6 +114,11 @@ class Sweeps(unittest.TestCase):
         self.assertIn("1. create: Add docs", report)
         self.assertIn("2. close 1: Done already", report)
 
+    def test_dropping_one_takes_its_checkout(self):
+        run = self.engine.drop(self.swept([self.CREATE]), "Not now")
+        self.assertEqual((run.landed, len(self.tools.removed)), ("dropped", 1))
+        self.ticket.create.assert_not_called()
+
     def test_nothing_to_propose_ends_quietly(self):
         run = self.swept([])
         self.assertEqual((run.status, run.landed, run.label), ("done", "swept", "swept"))

@@ -2,6 +2,8 @@
 
 Config and glue for a terminal workbench built on [herdr](https://github.com/herdrdev/herdr), [worktrunk](https://github.com/max-sixty/worktrunk) and [hunk](https://github.com/modem-dev/hunk). It installs into `$HOME` and expects the tools themselves to be installed already, as pinned binaries in `~/.local/bin` ([wsl-starter-script](https://github.com/artislismanis/wsl-starter-script) does that, then runs this repo's installer at a pinned commit).
 
+How work moves through it, and what you do at each point: [docs/workflow.md](docs/workflow.md).
+
 ## What it installs
 
 | Path | What | On re-run |
