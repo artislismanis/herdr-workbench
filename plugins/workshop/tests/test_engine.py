@@ -847,6 +847,10 @@ class Replies(unittest.TestCase):
         self.engine.send_replies(self.finished('[{"comment": 12, "reply": "Done", "fixed": true}, {"comment": 13, "reply": "No need"}]'))
         self.assertEqual([c.args[2] for c in self.source.reply.call_args_list], [f"{PREFIX} Done\n\nFixed in abcdef0.", f"{PREFIX} No need"])
 
+    def test_a_quote_stays_a_quote_and_the_mark_goes_on_our_words(self):
+        self.engine.send_replies(self.finished('[{"comment": null, "reply": "> Why this name?\\n\\nIt stays for now."}]'))
+        self.assertEqual(self.source.reply.call_args.args[2], f"> Why this name?\n\n{PREFIX} It stays for now.")
+
     def test_a_send_that_stops_halfway_doesnt_repeat_itself(self):
         run = self.finished()
         self.source.reply.side_effect = [None, ToolError("gh failed")]

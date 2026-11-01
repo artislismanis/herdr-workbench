@@ -148,7 +148,7 @@ class Engine:
             source = self.source_for(run)
             if source.closed(run.key):
                 return self.drop(run, "The ticket was closed.")
-            comments = [c for c in source.comments(run.key, run.blocked_at) if not c.text.startswith(self.mark)]
+            comments = [c for c in source.comments(run.key, run.blocked_at) if not self._split_quote(c.text)[1].startswith(self.mark)]
             guidance = [c.text for c in comments if c.mine]
             if not guidance:
                 return run
@@ -554,6 +554,17 @@ class Engine:
         self._post(run, "Marked ready for review.")
         return self.land(run)
 
+    def _split_quote(self, text: str) -> tuple[str, str]:
+        """A quote at the top, and what follows it."""
+        lines = text.split("\n")
+        count = next((i for i, line in enumerate(lines) if not line.startswith(">")), len(lines))
+        return "\n".join(lines[:count]), "\n".join(lines[count:]).lstrip()
+
+    def _marked(self, text: str) -> str:
+        """The mark goes on our words: in front of a quote it stops being a quote."""
+        quote, words = self._split_quote(text)
+        return f"{quote}\n\n{self.mark}{words}" if quote else self.mark + words
+
     def replies(self, run: Run) -> list[dict[str, Any]]:
         """The agent's draft replies. It writes this file by hand, so a bad one means none, not a stop."""
         return load_replies(self.store.files(run) / "replies.json")
@@ -570,7 +581,7 @@ class Engine:
         source = self.source_for(run)
         fix = self.tools.head(work)[:7]
         for reply in self.replies(run)[run.sent:]:
-            source.reply(run.key, reply["comment"], self.mark + reply["reply"] + (f"\n\nFixed in {fix}." if reply.get("fixed") else ""))
+            source.reply(run.key, reply["comment"], self._marked(reply["reply"]) + (f"\n\nFixed in {fix}." if reply.get("fixed") else ""))
             run.sent += 1
             self.store.save(run)
         run.replied = True
