@@ -55,6 +55,10 @@ class FakeTickets(FakeSource):
     def __init__(self):
         super().__init__()
         self.text, self.tags, self.labelled = "Body", [], []
+        self.label, self.queue = "", []
+
+    def ready(self):
+        return self.queue
 
     def body(self, key):
         return self.text
@@ -508,8 +512,8 @@ class Prepare(unittest.TestCase):
     def test_a_pane_you_closed_is_replaced(self):
         run = self.agree(self.start())
         self.tools.lost = {run.pane}
-        run = self.engine.advance(self.agree(run, "design"))
-        self.assertEqual(run.status, "done")
+        run = self.agree(run, "design")
+        self.assertEqual((run.status, run.current["id"]), ("running", "queue"))
 
     def test_design_is_a_fresh_agent(self):
         first = self.start()
@@ -519,11 +523,36 @@ class Prepare(unittest.TestCase):
         self.assertIn(pane, self.tools.closed)
 
     def finished(self):
-        return self.agree(self.agree(self.start()), "design", "### How\n\nLike so.\n\nVERDICT: READY\n")
+        return self.design("### How\n\nLike so.\n\nQUEUE: hold\nVERDICT: READY\n")
+
+    def design(self, text):
+        return self.agree(self.agree(self.engine.start("r", "prep-7", self.root, "main", self.two_stages(), self.source, preparing=True)), "design", text)
+
+    def two_stages(self):
+        pipeline = load("prepare")
+        return {**pipeline, "steps": pipeline["steps"][:2]}
+
+    def test_a_yes_to_the_queue_adds_the_label_and_its_place(self):
+        self.ticket.label, self.ticket.queue = "ai", ["3", "4"]
+        run = self.design("### How\n\nLike so.\n\nQUEUE: front\nVERDICT: READY\n")
+        self.assertEqual((run.label, self.ticket.tags), ("queued", ["planned", "designed", "ai"]))
+        self.assertEqual(self.engine.in_order("r", ["3", "4", "7"]), ["7", "3", "4"])
+        self.assertNotIn("QUEUE", self.ticket.text)
+
+    def test_not_ready_stays_out_of_the_queue(self):
+        self.ticket.label, self.ticket.queue = "ai", []
+        run = self.design("### How\n\nLike so.\n\nQUEUE: hold\nVERDICT: READY\n")
+        self.assertEqual((run.label, self.ticket.tags), ("designed", ["planned", "designed"]))
+
+    def test_the_talk_sees_what_is_queued(self):
+        self.ticket.label, self.ticket.queue = "ai", ["3"]
+        pipeline = load("prepare")
+        self.engine.start("r", "prep-7", self.root, "main", {**pipeline, "steps": pipeline["steps"][2:]}, self.source, preparing=True)
+        self.assertIn("- 3:", self.tools.prompts[-1][1])
 
     def test_the_last_go_ends_the_run_with_no_pr(self):
         run = self.finished()
-        self.assertEqual((run.status, run.landed, run.pr, run.label), ("done", "designed", "", "designed"))
+        self.assertEqual((run.status, run.landed, run.pr), ("done", "designed", ""))
         self.assertEqual(self.ticket.tags, ["planned", "designed"])
         self.assertIn("## Design\n\n### How", self.ticket.text)
         self.assertEqual(self.tools.reviews, [])

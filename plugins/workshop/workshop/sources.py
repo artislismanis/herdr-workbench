@@ -603,6 +603,13 @@ class PrepareSource:
     def signed(self, key: str, text: str) -> None:
         self.ticket.report(self._key(key), text)
 
+    def queued(self) -> list[str]:
+        return self.ticket.ready()
+
+    def enqueue(self, key: str) -> None:
+        if label := getattr(self.ticket, "label", ""):  # a folder of intent files has no queue to join
+            self.ticket.tag(self._key(key), label)
+
     def ready(self) -> list[str]:
         return []
 

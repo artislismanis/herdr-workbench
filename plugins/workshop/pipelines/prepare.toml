@@ -1,5 +1,5 @@
-# One talk per stage: what's needed, then how to build it. Each run does the next stage the ticket
-# hasn't reached. Your yes to the agent's summary is the go, and nothing reaches the ticket before it.
+# One talk per stage: what's needed, how to build it, then whether it's queued and where. Each run
+# does the next stage the ticket hasn't reached, and the design talk asks about the queue too. Your yes to the agent's summary is the go, and nothing reaches the ticket before it.
 # Copy to ~/.config/workshop/pipelines/ to change it.
 name = "prepare"
 
@@ -26,3 +26,15 @@ read_only = true
 verdict = ["READY"]
 section = "Design"
 label = "designed"
+queues = true
+
+[[steps]]
+id = "queue"
+stage = "Queue"
+kind = "agent"
+prompt = "queue.md"
+interactive = true
+fresh = true
+read_only = true
+verdict = ["READY"]
+queues = true
