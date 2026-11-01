@@ -964,7 +964,7 @@ class Keys(unittest.TestCase):
 
     def test_a_brief_line_that_runs_on_is_cut(self):
         found = self.at_gate()
-        (self.store.files(found) / "tasks.md").write_text("What: " + "word " * 200 + "\nAsk: Go?\n", encoding="utf-8")
+        (self.store.files(found) / "tasks.md").write_text("## Decision\n\nWhat: " + "word " * 200 + "\nAsk: Go?\n", encoding="utf-8")
         self.board.press(ord("a"))
         self.assertLess(joined(self.board.note(100)).count("word"), 45)
 
@@ -975,6 +975,40 @@ class Keys(unittest.TestCase):
         text = joined(self.board.note(100))
         self.assertNotIn("step", text)
         self.assertIn("full report is above", text)
+
+    MANY = "## Decision\n\nOverview: Two calls before building\n\nWhat: The name\nAsk: Call it --whisper?\nWhat: The short form\nAsk: Add -w?\n\n## Tasks\n\nLong.\n"
+
+    def many(self):
+        found = self.at_gate()
+        (self.store.files(found) / "tasks.md").write_text(self.MANY, encoding="utf-8")
+        self.board.press(ord("a"))
+        return found
+
+    def test_several_decisions_get_a_card_each_with_how_they_fit(self):
+        self.many()
+        self.assertEqual(self.board.asking.question, "1 of 2: Call it --whisper?")
+        self.assertIn("Overview: Two calls before building", joined(self.board.note(100)))
+        self.board.press(10)
+        self.assertEqual(self.board.asking.question, "2 of 2: Add -w?")
+        self.tools.workshop.assert_not_called()
+
+    def test_agreeing_with_them_all_is_one_go(self):
+        self.many()
+        self.board.press(10)
+        self.assertEqual(self.sent(), ("approve", "1"))
+
+    def test_your_words_on_any_of_them_go_back_together(self):
+        self.many()
+        self.board.press(10)
+        self.type_in("no short form")
+        self.assertEqual(self.sent(), ("reject", "1", "Decision 2: no short form"))
+
+    def test_esc_keeps_your_place_in_a_series(self):
+        self.many()
+        self.board.press(10)
+        self.board.press(27)
+        self.board.press(ord("a"))
+        self.assertEqual(self.board.asking.question, "2 of 2: Add -w?")
 
     def test_a_question_from_an_agent_can_be_a_brief(self):
         self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": [{"id": "plan", "kind": "agent"}]}, status="waiting", reason="plan asks: What: Two APIs\nAsk: Which one?"))

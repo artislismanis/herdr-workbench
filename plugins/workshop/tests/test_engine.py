@@ -69,6 +69,38 @@ class FakeTickets(FakeSource):
         return self.labelled
 
 
+class Briefs(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.tools, self.source = FakeTools(self.root), FakeSource()
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: 1000.0)
+
+    def finish(self, text):
+        run = self.engine.start("r", "7", self.root, "main", load("gated"), self.source)
+        (self.engine.store.files(run) / "tasks.md").write_text(text)
+        self.tools.statuses[run.agent] = "idle"
+        return self.engine.advance(run)
+
+    def test_a_report_for_a_gate_without_a_brief_goes_back_once(self):
+        run = self.finish("Tasks.\n\nVERDICT: READY\n")
+        self.assertEqual((run.status, run.current["id"]), ("running", "tasks"))
+        self.assertIn("yours has none", self.tools.prompts[-1][1])
+        self.tools.statuses[run.agent] = "idle"
+        run = self.engine.advance(run)
+        self.assertEqual(run.current["id"], "approve")
+
+    def test_a_report_with_a_brief_goes_straight_on(self):
+        self.assertEqual(self.finish("## Decision\n\nWhat: A\nAsk: B?\n\nVERDICT: READY\n").current["id"], "approve")
+
+    def test_a_step_with_no_gate_needs_no_brief(self):
+        pipeline = {"name": "x", "steps": [{"id": "tasks", "kind": "agent", "prompt": "tasks.md"}]}
+        run = self.engine.start("r", "8", self.root, "main", pipeline, self.source)
+        (self.engine.store.files(run) / "tasks.md").write_text("Tasks.\n")
+        self.tools.statuses[run.agent] = "idle"
+        self.engine.advance(run)
+        self.assertNotIn("yours has none", self.tools.prompts[-1][1])
+
+
 class OldRunFiles(unittest.TestCase):
     def test_a_field_thats_gone_doesnt_stop_a_run_loading(self):
         store = Store(Path(tempfile.mkdtemp()))
@@ -374,7 +406,7 @@ class Prepare(unittest.TestCase):
     def start(self, at=0):
         return self.engine.start("r", "prep-7", self.root, "main", load("prepare"), self.source, preparing=True, at=at)
 
-    def agree(self, run, name="requirements", text="### What\n\nA thing.\n\nVERDICT: READY\n"):
+    def agree(self, run, name="requirements", text="## Decision\n\nWhat: A\nAsk: B?\n\n### What\n\nA thing.\n\nVERDICT: READY\n"):
         (self.engine.store.files(run) / f"{name}.md").write_text(text)
         self.tools.statuses[run.step_agent] = "idle"
         return self.engine.advance(run)
@@ -468,7 +500,7 @@ class Prepare(unittest.TestCase):
 
     def finished(self):
         run = self.engine.approve(self.agree(self.start()))
-        return self.engine.approve(self.agree(run, "design", "### How\n\nLike so.\n\nVERDICT: READY\n"))
+        return self.engine.approve(self.agree(run, "design", "## Decision\n\nWhat: A\nAsk: B?\n\n### How\n\nLike so.\n\nVERDICT: READY\n"))
 
     def test_the_last_go_ends_the_run_with_no_pr(self):
         run = self.finished()
@@ -1081,7 +1113,7 @@ class Case(unittest.TestCase):
         return self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source)
 
     def finish_agent(self, run, agent, step, text="done"):
-        (self.kept() / f"{step}.md").write_text(text, encoding="utf-8")
+        (self.kept() / f"{step}.md").write_text(f"## Decision\n\nWhat: A\nAsk: B?\n\n{text}", encoding="utf-8")
         self.tools.statuses[agent] = "idle"
         return self.engine.advance(run)
 

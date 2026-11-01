@@ -10,7 +10,7 @@ from typing import Any
 
 from .cost import summary
 from .pipeline import prompt_text
-from .review import load_notes, load_replies, place, section
+from .review import decisions, load_notes, load_replies, place, section
 from .shell import ToolError
 from .sources import Source
 from .store import Run, Store
@@ -185,7 +185,7 @@ class Engine:
 
     def _fresh_rounds(self, run: Run) -> None:
         # A person stepped in, so the rounds that ran out no longer apply. Attempt numbers (id#) keep agent names unique.
-        run.loops = {step: used for step, used in run.loops.items() if step.endswith("#")}
+        run.loops = {step: used for step, used in run.loops.items() if step.endswith(("#", "!"))}
 
     def _keep_guidance(self, run: Run, note: str) -> None:
         """No agent is waiting for it, so it goes where the next one reads."""
@@ -393,8 +393,9 @@ class Engine:
     def proposal(self, run: Run) -> str:
         """The one being asked about, in full."""
         found = self._proposals(run)[run.sent]
+        overview = decisions(self._last_report(run).read_text(encoding="utf-8", errors="replace"))[0]
         lines = ((label, found.get(name)) for label, name in (("Why", "why"), ("Background", "background"), ("Bottom line", "bottom_line")))
-        return "\n".join(f"{label}: {text}" for label, text in lines if text)
+        return "\n".join([*([f"Overview: {overview}"] if overview else []), *(f"{label}: {text}" for label, text in lines if text)])
 
     def _do(self, run: Run, found: dict[str, Any]) -> None:
         """A ticket that's since gained a run or been queued is left alone."""
@@ -783,6 +784,10 @@ class Engine:
             self._wait(run, f"{step['id']} asks: {ask.read_text(encoding='utf-8').strip()}")
             self._block(run)
             return
+        if self._brief_missing(run, step):
+            run.started_at = self.clock()
+            self.tools.prompt(run.step_agent or run.agent, f"A person decides from a brief, not your report, and yours has none. Add it to the top of `{self._report(run, step)}`, and keep the rest as it is.{prompt_text('decision.md').replace('{run}', str(self.store.files(run)))}")
+            return
         if run.step_pane:
             self.tools.close_pane(run.step_pane)
         # Done with this attempt: if it parks below, a resume runs the step afresh.
@@ -808,6 +813,16 @@ class Engine:
             run.step, run.phase = run.step + 1, ""
         else:
             self._follow(run, step, rule, verdict, f"See {report}.")
+
+    def _brief_missing(self, run: Run, step: dict[str, Any]) -> bool:
+        """A prompt's last lines are easily missed, so a gate's report is checked, and sent back once. After that the card makes do."""
+        asked = f"{step['id']}!"
+        report = self._report(run, step)
+        needed = any(s.get("report") == step["id"] and not s.get("proposals") for s in run.pipeline["steps"])
+        if not needed or run.loops.get(asked) or not report.exists() or decisions(report.read_text(encoding="utf-8"))[1]:
+            return False
+        run.loops[asked] = 1
+        return True
 
     def _follow(self, run: Run, step: dict[str, Any], rule: dict[str, Any], verdict: str, where: str) -> None:
         if "park" in rule:

@@ -14,7 +14,7 @@ from typing import Any, NamedTuple, Protocol
 from .backlog import SNAPSHOT
 from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls, rule, wrapped
 from .engine import STOPS, Engine
-from .review import brief
+from .review import decisions
 from .store import Run
 from .system import Meter
 
@@ -91,6 +91,10 @@ class Board:
         self.cursor = 0
         self.choice = 0  # which option the card has selected. Past the last is your own words
         self.follow = ""  # the run just answered, to carry on with once its command is done
+        self.series = False  # several decisions, answered one card at a time
+        self.queue: list[Ask] = []
+        self.given: list[str] = []
+        self.paused: dict[str, tuple[Ask, list[Ask], list[str]]] = {}
         self.failed = False  # a failure stays until a key, so it can be read
         self.drafts: dict[tuple[str, str], str] = {}  # what esc left, for when you come back
         self.regions: list[tuple[int, int, int, Action]] = []
@@ -201,7 +205,10 @@ class Board:
         lines = self.lines(width)
         self.message, self.failed = "", False
         if (run := self.target(lines)) and key in self.run_actions(run):
-            self.begin_note(self.answer(run) if key == ANSWER else Ask(run.key, f"Drop {run.key}?", (), (("Drop it", "drop", ""),), "Drop it, and say why", "drop"))
+            if key == ANSWER:
+                self.begin_series(run)
+            else:
+                self.begin_note(Ask(run.key, f"Drop {run.key}?", (), (("Drop it", "drop", ""),), "Drop it, and say why", "drop"))
             return True
         if key == AI_REVIEW and (pr := self.answerable(lines)):
             self.send("reply", pr)
@@ -299,14 +306,36 @@ class Board:
             return {}
         return {ANSWER: "a answer", DROP: "d drop"}
 
-    def answer(self, run: Run) -> Ask:
+    def answers(self, run: Run) -> list[Ask]:
+        """One card per decision, each with how it fits in. No brief from the agent means the reason, and the report stays above, because a wall of it here helps nobody."""
         options, typed, command = self.engine.choices(run)
         report = self.stop_report(run)[1]
-        said = brief(run.reason) or brief(report)
-        if said:
-            return Ask(run.key, said.get("Ask", run.reason.splitlines()[0]), tuple(f"{label}: {said[label]}" for label in BRIEF if label in said), tuple(options), typed, command)
-        # No brief from the agent: the reason, and the report stays above, because a wall of it here helps nobody.
-        return Ask(run.key, run.reason.splitlines()[0], ("The full report is above.",) if report else (), tuple(options), typed, command)
+        overview, said = decisions(run.reason)
+        if not said:
+            overview, said = decisions(report)
+        fits = [f"Overview: {overview}"] * bool(overview)
+        if not said:
+            return [Ask(run.key, run.reason.splitlines()[0], (*fits, *self.plain_lines(report)), tuple(options), typed, command)]
+        if len(said) == 1:
+            return [Ask(run.key, said[0].get("Ask", run.reason.splitlines()[0]), (*fits, *(f"{label}: {said[0][label]}" for label in BRIEF if label in said[0])), tuple(options), typed, command)]
+        agree = (("Agree", *options[0][1:]),) if options else ()
+        return [Ask(run.key, f"{n} of {len(said)}: {item.get('Ask', '')}", (*fits, *(f"{label}: {item[label]}" for label in BRIEF if label in item)), agree, "Say what to do instead", command) for n, item in enumerate(said, 1)]
+
+    def plain_lines(self, report: str) -> tuple[str, ...]:
+        """A proposal's own lines are a brief already, and anything else stays in the panel above."""
+        lines = tuple(line for line in report.splitlines() if line.startswith(("Why:", "Background:", "Bottom line:", "Overview:")))
+        return lines or (("The full report is above.",) if report else ())
+
+    def begin_series(self, run: Run) -> None:
+        """Answers are collected, and sent as one, so several decisions are one go. Esc leaves your place."""
+        if run.key in self.paused:
+            first, self.queue, self.given = self.paused.pop(run.key)
+            self.begin_note(first)
+            return
+        first, *self.queue = self.answers(run)
+        self.given = []
+        self.series = bool(self.queue)
+        self.begin_note(first)
 
     def carry_on(self) -> None:
         """An answer doesn't end the conversation: the same run's next question opens by itself. When it's done, you're told, and left on what needs you next, but never answering for another run on a stray enter."""
@@ -317,7 +346,7 @@ class Board:
         if run is None or self.failed:
             return
         if self.run_actions(run).get(ANSWER):
-            self.begin_note(self.answer(run))
+            self.begin_series(run)
             return
         self.say(f"{run.key}: {run.label}")
         if waiting := next((r for r in self.runs if self.run_actions(r).get(ANSWER)), None):
@@ -344,14 +373,23 @@ class Board:
             return
         if key == ESCAPE:
             self.drafts[asking.key + asking.command] = self.typed
-            self.asking = None
+            if self.series:
+                self.paused[asking.key] = (asking, self.queue, self.given)
+            self.asking, self.series = None, False
         elif key in ENTERS:
             typing = self.choice == len(asking.options)
             command, words = (asking.command, self.typed.strip()) if typing else asking.options[self.choice][1:]
             # While another command runs, the words stay put for a second enter.
             if (words or not typing) and not self.refreshing:
-                self.asking = None
                 self.drafts.pop(asking.key + asking.command, None)
+                if self.series:
+                    self.given.append(words)
+                    if self.queue:
+                        self.begin_note(self.queue.pop(0))
+                        return
+                    notes = [f"Decision {n}: {note}" for n, note in enumerate(self.given, 1) if note]
+                    command, words = (asking.command, "\n".join(notes)) if notes else (command, "")
+                self.asking, self.series = None, False
                 self.follow = asking.key
                 self.send(*filter(None, (command, asking.key, words)))
         elif key in (curses.KEY_UP, curses.KEY_DOWN):
