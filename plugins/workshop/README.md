@@ -166,9 +166,9 @@ Sweeps are scheduled looks at a repo that keep the backlog full and tidy. Set th
 | `backlog` | Tickets done, duplicated, overtaken or too vague |
 | `logs` | Output of the repo's `logs` command under `[repos.<name>.commands]`, for repeating or growing failures. Without one it proposes nothing |
 
-Any `sweep-<name>` pipeline works, so a repo can add its own.
+Any `sweep-<name>` pipeline works, so a repo can add its own. What a sweep reaches is set by the repo's table: see [the workflow](../../docs/workflow.md).
 
-A sweep is a run in its own read-only checkout. It proposes tickets to create, close or comment on, and stops at a gate with them numbered, unless there's nothing to say. Nothing changes before your go. `a` then enter does what's left, and typing numbers, or `all`, skips those. Skipped ones are remembered, so the next sweep won't ask again. Sweeps never add the delivery label, and can't touch a queued ticket or one with a run. On Jira, `[jira]` needs `project` to create and `moves.dropped` to close.
+A sweep is a run in its own read-only checkout. It proposes tickets to create, close or comment on, and stops at a gate with them numbered, unless there's nothing to say. Nothing changes before your go. `a` then enter does them all. Typing numbers skips those and does the rest, and `all` skips everything. Skipped ones are remembered, so the next sweep won't ask again. Sweeps never add the delivery label, and can't touch a queued ticket or one with a run. On Jira, `[jira]` needs `project` to create and `moves.dropped` to close.
 
 ## Backlog
 

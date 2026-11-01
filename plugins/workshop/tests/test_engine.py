@@ -145,10 +145,9 @@ class Sweeps(unittest.TestCase):
         self.assertEqual(len(self.ticket.create.call_args.args), 2)
         self.ticket.tag.assert_not_called()
 
-    def test_skipping_by_number_keeps_the_rest_at_the_gate(self):
+    def test_skipping_by_number_does_the_rest_in_one_go(self):
         run = self.engine.reject(self.swept([self.CREATE, self.CLOSE]), "2")
-        self.assertEqual((run.status, run.skipped), ("waiting", [2]))
-        self.engine.approve(run)
+        self.assertEqual((run.landed, run.skipped), ("swept", [2]))
         self.ticket.create.assert_called_once()
         self.ticket.close.assert_not_called()
 
