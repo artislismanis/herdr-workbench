@@ -47,6 +47,7 @@ class Run:
     replied: bool = False  # those went out
     posted: str = ""  # the commit whose review went out
     landed_as: str = ""  # where the queue talk left its ticket, if it moved it
+    until: int = 0  # the step to stop before, for a run that does one stage of its pipeline
     sent: int = 0  # how many replies have, should a send stop halfway
     reviewed: str = ""  # what the last review looked at, a commit on a PR, otherwise a snapshot
     checking: str = ""  # the snapshot this review is looking at
@@ -66,7 +67,7 @@ class Run:
     @property
     def current(self) -> dict[str, Any] | None:
         steps = self.pipeline["steps"]
-        return steps[self.step] if self.step < len(steps) else None
+        return steps[self.step] if self.step < (self.until or len(steps)) else None
 
     @property
     def label(self) -> str:

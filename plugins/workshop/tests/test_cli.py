@@ -136,7 +136,8 @@ class Preparing(unittest.TestCase):
         return self.engine.start.call_args
 
     def stage(self):
-        return [step["id"] for step in self.begin("r/7").args[4]["steps"]]
+        call = self.begin("r/7")
+        return [step["id"] for step in call.args[4]["steps"][call.kwargs["at"] : call.kwargs["until"]]]
 
     def test_it_runs_beside_the_ticket_not_as_it(self):
         call = self.begin("r/7")

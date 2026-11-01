@@ -125,6 +125,15 @@ def begin_reply(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
     return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("reply_pipeline", "reply")), source, restart=again, pr=url.rstrip("/"), replying=True)
 
 
+def take_me_to(engine: Engine, run: Run) -> None:
+    """You asked for this talk, and it needs you now."""
+    print(engine.explain(run))
+    try:
+        engine.tools.focus(run.pane)
+    except STOPS:
+        pass  # g on the board still goes there
+
+
 def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
     """A ticket key, or words, which you've just typed, so they become the ticket being prepared."""
     first, slash, rest = ticket.partition("/")
@@ -146,10 +155,10 @@ def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
     # One stage at a time, whichever the ticket has reached, so each talk can wait for its moment. Past the last, you want to go again.
     gates = [i for i, step in enumerate(pipeline["steps"]) if step.get("label") in stages]
     at = gates[-1] + 1 if gates else 0
-    stage = pipeline["steps"][0 if at == len(pipeline["steps"]) else at].get("stage")
-    pipeline = {**pipeline, "steps": [step for step in pipeline["steps"] if step.get("stage") == stage]}
+    at = 0 if at == len(pipeline["steps"]) else at
+    until = max(i for i, step in enumerate(pipeline["steps"]) if step.get("stage") == pipeline["steps"][at].get("stage")) + 1
     again = engine.store.exists(name, prep) and bool(engine.store.load(name, prep).landed)
-    return engine.start(name, prep, Path(repo["path"]).expanduser(), repo.get("base", "main"), pipeline, source, restart=again, preparing=True)
+    return engine.start(name, prep, Path(repo["path"]).expanduser(), repo.get("base", "main"), pipeline, source, restart=again, preparing=True, at=at, until=until)
 
 
 def begin_sweep(engine: Engine, cfg: dict[str, Any], name: str, sweep: str) -> Run:
@@ -339,6 +348,7 @@ def here() -> str:
 def post_review(path: str, *args: str) -> int:
     code = subprocess.run([str(Path.home() / ".config/herdr/bin/hunk-pr-push"), *args, path]).returncode
     if code == 0:
+        refresh_soon()
         time.sleep(SHOWN_SECONDS)
     return code
 
@@ -388,7 +398,13 @@ def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any], root
 
 
 def step_away(engine: Engine, run: Run, root: Path) -> None:
+    refresh_soon()
     waited(root, lambda: engine.leave(engine.store.load(run.repo, run.key)))
+
+
+def refresh_soon() -> None:
+    """The board only sees files, and this happened on GitHub. On its own, as the popup is about to close."""
+    subprocess.Popen([str(Path.home() / ".local/bin/workshop"), "refresh"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def offer_reply(run: Run, source: Any, chat: Chat | None, started: float) -> None:
@@ -481,6 +497,7 @@ def finish(engine: Engine, root: Path, cfg: dict[str, Any]) -> int:
         print(outcome[0])
         if not done[0]:
             return 1  # the popup stays, so the reason can be read
+        refresh_soon()
         time.sleep(SHOWN_SECONDS)
         if action == "ready":
             try:
@@ -542,7 +559,7 @@ def main(argv: list[str]) -> int:
             case "claim":
                 waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
             case "prepare":
-                waited(root, lambda: print(engine.explain(begin_prepare(engine, cfg, argv[1]))))
+                waited(root, lambda: take_me_to(engine, begin_prepare(engine, cfg, argv[1])))
             case "sample":
                 read_limits(engine)
                 sample(root, engine.throttle.snapshot(), agents_open(), Meter())

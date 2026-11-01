@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, operations, limit_style, pipe, pull, pull_story, pulls, run_style, stage_groups, stage_state, timeline, to_go, usage_line, usage_view  # noqa: E402
+from workshop.boardview import ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, operations, limit_style, pipe, pull, pull_story, pulls, run_style, stage_groups, stage_state, timeline, to_go, usage_line, usage_view  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -67,10 +67,6 @@ class Text(unittest.TestCase):
         self.assertEqual(cell("abc", 5), "abc  ")
         self.assertEqual(cell("abcdefgh", 5), "abcd…")
         self.assertEqual(columns(cell("日本語のタイトル", 7)), 7)
-
-    def test_bars_scale(self):
-        self.assertEqual(bar(1, 2, 4), "██░░")
-        self.assertEqual(bar(0, 0, 2), "░░")
 
     def test_a_dropped_run_opens_at_the_step_it_stopped(self):
         lines = texts(drill(run(status="done", landed="dropped", step=1), [], "", "", "/f", 80))
@@ -325,7 +321,7 @@ class Drill(unittest.TestCase):
         self.assertIn("round 2", next(line.text for line in lines if "verify-2.md" in line.text))
 
     def test_ticket_files_say_what_they_are(self):
-        self.assertIn("the ticket", joined(self.stopped_view()))
+        self.assertIn("ticket", joined(self.stopped_view()))
 
     def test_a_dropped_run_still_shows_why_it_stopped(self):
         lines = drill(run(status="done", landed="dropped", step=1), [], "", "", "/f", 90, ("/f/verify.md",), ("verify.md", self.report))
@@ -406,6 +402,11 @@ class PRs(unittest.TestCase):
         row = self.rows(pr(beaten=["sam"]))[0]
         self.assertIn("reviewed by sam", row.text)
 
+    def test_a_used_up_limit_reads_as_a_wait_not_a_failure(self):
+        lines = pulls({"prs": {"error": "API rate limit already exceeded", "items": []}})
+        self.assertIn("hourly limit", lines[0].text)
+        self.assertEqual(lines[0].style, "yellow")
+
     def test_shows_a_failed_poll_and_a_first_run(self):
         self.assertEqual(pulls({"prs": {"error": "gh failed", "items": []}})[0].style, "red")
         self.assertIn("Press r", pulls({})[0].text)
@@ -431,6 +432,44 @@ class PRs(unittest.TestCase):
         text = joined(pull(pr(), WIDE, pull_story(pr(), done, "AI: approve, 1 note(s)", "Intent: tidy up", "", [], WIDE)))
         self.assertLess(text.index("AI: approve, 1 note(s). g opens it in hunk"), text.index("Intent: tidy up"))
         self.assertLess(text.index("Intent: tidy up"), text.index("Reviews"))
+
+    def test_a_run_of_one_stage_shows_the_whole_journey(self):
+        steps = [{"id": name, "stage": name.title(), "kind": "agent"} for name in ("requirements", "design", "queue")]
+        talk = run("prep-7", "done", landed="designed", step=2, until=2)
+        talk.pipeline = {"name": "prepare", "steps": steps}
+        files = ("/x/brief.md", "/x/requirements.md", "/x/design.md")
+        lines = [line.text for line in timeline(talk, [], files, WIDE)]
+        text = "\n".join(lines)
+        self.assertLess(text.index("Requirements"), text.index("requirements.md"))
+        self.assertLess(text.index("Design"), text.index("design.md"))
+        self.assertIn("not started", next(line for line in lines if "Queue" in line))
+        self.assertIn("●", next(line for line in lines if "requirements.md" in line))
+        self.assertIn("○", next(line for line in lines if "queue" in line and "Queue" not in line))
+
+    def test_a_review_starts_from_its_pr_and_a_sweep_from_its_brief(self):
+        steps = [{"id": "look", "kind": "agent"}]
+        for fields, word in (({"reviewing": True}, "PR"), ({"sweeping": "docs"}, "brief")):
+            found = run("x", "done", **fields)
+            found.pipeline = {"name": "x", "steps": steps}
+            self.assertIn(word, joined(timeline(found, [], ("/x/brief.md",), WIDE)))
+
+    def test_every_file_with_the_ticket_says_what_it_is(self):
+        draft = run("7", "done")
+        draft.pipeline = {"name": "x", "steps": [{"id": "look", "kind": "agent"}]}
+        rows = [line.text for line in timeline(draft, [], ("/x/brief.md", "/x/answers.md"), WIDE) if ".md" in line.text]
+        self.assertIn("ticket", rows[0])
+        self.assertIn("your answers", rows[1])
+
+    def test_queued_tickets_show_first_to_go_at_the_top(self):
+        items = [{"key": key, "title": key, "column": "queued"} for key in ("1", "2")]
+        lines = backlog({"repos": {"r": {"error": "", "items": items}}}, {}, lambda repo, key: False, 60, lambda repo, key: -int(key))
+        rows = [line.text for line in lines if line.text.strip().startswith("r/")]
+        self.assertIn("r/2", rows[0])
+
+    def test_usage_leads_with_totals(self):
+        now = datetime(2026, 11, 2, 10, 30).timestamp()
+        text = joined(usage_view([{"at": now - 60, "cpu": 1.0, "ram": 1.0, "five": 1, "agents": 1}], [], None, now))
+        self.assertLess(text.index("Totals"), text.index("Last 24 hours"))
 
     def test_draft_replies_sit_under_the_step_that_wrote_them(self):
         steps = [{"id": "reply", "stage": "Review", "kind": "agent", "output": "reply.md"}]
@@ -581,7 +620,7 @@ class Keys(unittest.TestCase):
             self.store.save(run(key, pane=f"w{key}:p1"))
             self.store.event(run(key), "claimed")
         self.tools = mock.Mock()
-        engine = mock.Mock(store=self.store, tools=self.tools, **{"reviewable.return_value": False, "review_ready.return_value": False, "delivered.return_value": False, "handover.return_value": ""})
+        engine = mock.Mock(store=self.store, tools=self.tools, **{"queue_place.return_value": 0, "reviewable.return_value": False, "review_ready.return_value": False, "delivered.return_value": False, "handover.return_value": ""})
         engine.throttle.hold_new.return_value = ""
         engine.throttle.pace.return_value = {"5h": (10, 3600)}
         engine.choices = lambda found: Engine.choices(engine, found)
@@ -991,28 +1030,20 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.assertEqual(self.board.pr_items(), [])
 
-    def test_coming_back_to_the_board_refreshes_quietly_and_not_too_often(self):
+    def test_a_used_up_limit_backs_off(self):
+        self.board.snapshot = {"prs": {"error": "API rate limit already exceeded"}}
+        self.board.caught = 400.0
         with mock.patch("workshop.board.threading.Thread") as thread:
-            self.assertEqual(self.board.paste(Pasted(b"[I")), curses.ERR)
-            self.board.paste(Pasted(b"[I"))
+            self.board.catch_up()
+        thread.assert_not_called()
+
+    def test_an_action_refreshes_once_and_quietly(self):
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.catch_up()
             thread.return_value.start.assert_called_once()
             thread.call_args.kwargs["target"]()
         self.tools.workshop.assert_called_once_with("refresh")
         self.assertFalse(self.board.refreshing)
-
-    def test_a_terminal_that_names_focus_keys_counts_too(self):
-        with mock.patch("workshop.board.threading.Thread") as thread, mock.patch("workshop.board.curses.keyname", side_effect=lambda key: {590: b"kxIN", 591: b"kxOUT"}.get(key, b"")):
-            self.assertTrue(self.board.focus_changed(590))
-            thread.return_value.start.assert_called_once()
-            self.assertTrue(self.board.focus_changed(591))
-            self.assertFalse(self.board.focus_changed(curses.KEY_UP))
-            self.assertFalse(self.board.focus_changed(ord("r")))
-            self.assertFalse(self.board.focus_changed(curses.ERR))
-
-    def test_leaving_the_board_does_nothing(self):
-        with mock.patch("workshop.board.threading.Thread") as thread:
-            self.assertEqual(self.board.paste(Pasted(b"[O")), curses.ERR)
-        thread.assert_not_called()
 
     def test_a_paste_with_no_box_open_goes_nowhere(self):
         self.assertEqual(self.board.paste(Pasted(b"[200~one\033[201~")), curses.ERR)
