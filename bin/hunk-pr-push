@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # Posts the agent's hunk notes to the branch's PR as one GitHub review. A note
 # with author pr-level becomes the review's PR-level comment.
-# Usage: hunk-pr-push [--as comment|approve|request-changes|draft] [--body <text>] [worktree]
+# Usage: hunk-pr-push [--as comment|approve|request-changes|draft] [--body <text>] [--before <command>] [worktree]
+# --before runs after your go and just before a visible review, so both land together.
 set -euo pipefail
 
 die() { printf 'hunk-pr-push: %s\n' "$*" >&2; exit 1; }
 
-as="" extra="" path="${HERDR_ACTIVE_PANE_ID:+$(herdr pane get "$HERDR_ACTIVE_PANE_ID" | jq -r .result.pane.cwd)}"
+as="" extra="" before="" path="${HERDR_ACTIVE_PANE_ID:+$(herdr pane get "$HERDR_ACTIVE_PANE_ID" | jq -r .result.pane.cwd)}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --as) as="$2"; shift 2 ;;
     --body) extra="$2"; shift 2 ;;
+    --before) before="$2"; shift 2 ;;
     *) path="$1"; shift ;;
   esac
 done
@@ -91,6 +93,10 @@ fi
 if [ "$as" = approve ] && [ "$(jq '.autoMergeRequest != null' <<<"$pr")" = true ]; then
   read -rp "Auto-merge is on, so approving may merge this PR. Approve? [y/N] " answer || answer=n
   [ "$answer" = y ] || { echo "Cancelled."; exit 0; }
+fi
+
+if [ -n "$before" ] && [ "$own" = 0 ] && [ "$as" != draft ]; then
+  sh -c "$before" >/dev/null || die "the step before posting failed, so nothing was posted."
 fi
 
 url="$(jq --arg commit "$head" --arg event "$event" '

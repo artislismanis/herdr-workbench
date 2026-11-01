@@ -10,7 +10,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop import __main__ as cli  # noqa: E402
-from workshop.__main__ import finish_choices, main, repo_of  # noqa: E402
+from workshop.__main__ import finish_choices, main, repo_of, review_settings  # noqa: E402
 
 
 class Finish(unittest.TestCase):
@@ -78,6 +78,19 @@ class ReviewRepo(unittest.TestCase):
     def test_anything_else_is_not_a_pr(self):
         with self.assertRaisesRegex(KeyError, "not a PR link"):
             repo_of(self.CFG, "12; rm -rf /")
+
+
+class ReviewSettings(unittest.TestCase):
+    def test_the_defaults_assume_no_team(self):
+        self.assertEqual(review_settings({}, {}), {"mode": "silent", "claim": "none"})
+
+    def test_a_repo_can_differ_from_you(self):
+        found = review_settings({"review": {"mode": "claimed", "claim": "github-reviewer"}}, {"review": {"claim": "none"}})
+        self.assertEqual(found, {"mode": "claimed", "claim": "none"})
+
+    def test_a_typo_is_an_error(self):
+        with self.assertRaisesRegex(KeyError, "review"):
+            review_settings({"review": {"claim": "slack"}}, {})
 
 
 class Cli(unittest.TestCase):

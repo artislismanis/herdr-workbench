@@ -30,6 +30,8 @@ LIST_SHARE = 55  # percent of the window for the list
 ESCAPE = 27
 TAB_KEY = ord("\t")
 AI_REVIEW = ord("a")
+AI_REVIEW_OTHER = ord("A")  # the mode you don't usually use
+CLAIM = ord("m")
 RENEWED = ("re-review", "new commits")
 ENTERS = (10, 13, curses.KEY_ENTER)
 BACKSPACES = (8, 127, curses.KEY_BACKSPACE)
@@ -172,6 +174,12 @@ class Board:
         if key == AI_REVIEW and (pr := self.unreviewed(lines)):
             self.send("pr", pr)
             return True
+        if key == AI_REVIEW_OTHER and (pr := self.unreviewed(lines)):
+            self.send("pr", pr, f"--{self.other_mode()}")
+            return True
+        if key == CLAIM and (found := self.claimable(lines)):
+            self.send("claim", found.key)
+            return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
         elif key in (curses.KEY_DOWN, ord("j")):
@@ -227,6 +235,14 @@ class Board:
             return ""
         run = next((r for r in self.runs if r.pr == pr["url"]), None)
         return pr["url"] if run is None or (self.engine.review_ready(run) and pr["state"] in RENEWED) else ""
+
+    def other_mode(self) -> str:
+        return "silent" if self.cfg.get("review", {}).get("mode") == "claimed" else "claimed"
+
+    def claimable(self, lines: list[Line]) -> Run | None:
+        wanted = self.open or self.selected(lines)
+        run = next((r for r in self.runs if wanted in ((r.repo, r.key), ("#pr", r.pr))), None)
+        return run if run and run.reviewing and not run.claimed and not run.landed else None
 
     def actions(self, lines: list[Line]) -> tuple[tuple[int, str, str, str, bool], ...]:
         return self.run_actions(self.target(lines))
@@ -315,7 +331,8 @@ class Board:
         lines = self.lines(width)
         run = self.target(lines)
         stopped = moves[:1] * bool(self.open) + [(action[1], action[0]) for action in self.actions(lines)]
-        offers = [("a ai review", AI_REVIEW)] * bool(self.unreviewed(lines))
+        offers = [("a ai review", AI_REVIEW), (f"A ai review, {self.other_mode()}", AI_REVIEW_OTHER)] if self.unreviewed(lines) else []
+        offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 

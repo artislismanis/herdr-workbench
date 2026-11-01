@@ -173,6 +173,26 @@ AGENT_NOTE='{"source": "agent", "author": "claude", "filePath": "f.txt", "newRan
   [ "$(posted .event)" = REQUEST_CHANGES ]
 }
 
+@test "push: --before runs ahead of a visible review, and a failure posts nothing" {
+  jq '.author.login = "them"' "$STUB/pr.json" >"$STUB/x" && mv "$STUB/x" "$STUB/pr.json"
+  notes "{\"comments\": [$AGENT_NOTE]}"
+  push --as comment --before "test ! -e '$STUB/posted.json' && touch '$STUB/before'"
+  [ "$status" -eq 0 ]
+  [ -e "$STUB/before" ]
+  rm "$STUB/posted.json"
+  push --as comment --before false
+  [ "$status" -ne 0 ]
+  [ ! -e "$STUB/posted.json" ]
+}
+
+@test "push: --before waits for a review anyone can see" {
+  jq '.author.login = "them"' "$STUB/pr.json" >"$STUB/x" && mv "$STUB/x" "$STUB/pr.json"
+  notes "{\"comments\": [$AGENT_NOTE]}"
+  push --as draft --before "touch '$STUB/before'"
+  [ "$status" -eq 0 ]
+  [ ! -e "$STUB/before" ]
+}
+
 @test "push: a clean review can be approved with no notes" {
   push --as approve
   [ "$status" -eq 0 ]

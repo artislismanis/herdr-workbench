@@ -12,6 +12,14 @@
 # planned = "planned"
 # designed = "designed"
 
+# How PR reviews show to others. A repo's table can set its own [repos.<name>.review].
+# Silent shows nothing until you post, then claims just before the review. Claimed claims when the
+# review starts. `a` on the board uses mode, `A` the other one, and `m` claims one already going.
+# claim is none, github-reviewer or github-assignee. Use none where reviewers are assigned for you.
+# [review]
+# mode = "silent"
+# claim = "none"
+
 # The board's PRs tab covers everything GitHub shows you. This narrows it, in GitHub search terms.
 # [prs]
 # search = "org:my-company"
