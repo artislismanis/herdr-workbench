@@ -571,19 +571,20 @@ class Reviews(unittest.TestCase):
     def test_a_finished_review_opens_against_where_the_pr_branched(self):
         run = self.to_review(self.start())
         self.assertEqual(run.status, "done")
-        self.assertEqual(self.tools.reviews, [(run.step_pane, "abc123")])
+        self.assertEqual(self.tools.reviews, [("p1", "abc123")])
         self.assertEqual(self.tools.pushes, 0)
         self.assertEqual(self.tools.commits, [])
 
     def test_the_reviewer_stays_until_the_review_is_posted(self):
         run = self.to_review(self.start())
-        pane = run.step_pane
-        self.assertTrue(pane)
-        self.assertNotIn(pane, self.tools.closed)
+        pane = run.pane
+        self.assertTrue(run.step_agent)
+        self.assertEqual((run.step_pane, self.tools.closed), ("", []))
         self.assertEqual(run.label, "your turn")
         self.engine.posted(run)
         self.assertIn(pane, self.tools.closed)
-        self.assertEqual(run.label, "posted")
+        self.assertNotEqual(run.pane, pane)
+        self.assertEqual((run.step_agent, run.label), ("", "posted"))
 
     def test_new_commits_make_a_posted_review_yours_again(self):
         run = self.to_review(self.start())

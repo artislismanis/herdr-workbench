@@ -200,6 +200,9 @@ class Engine:
     def _let_go_of_step(self, run: Run) -> None:
         if run.step_pane:
             self.tools.close_pane(run.step_pane)
+        elif run.reviewing and run.step_agent:  # its pane holds the workspace open, so a new one takes over first
+            old, run.pane = run.pane, self.tools.split(run.pane, Path(run.worktree))
+            self.tools.close_pane(old)
         run.step_pane, run.step_agent = "", ""
 
     def retry(self, run: Run, note: str = "") -> Run:
@@ -508,8 +511,7 @@ class Engine:
         if self.tools.review_open(work) and not fresh:  # reloading would drop what's been added since
             return "Already open in hunk."
         # A PR shows what GitHub shows: against where it branched, not against wherever its base has got to.
-        beside = run.step_pane if run.step_pane and self.tools.agent_status(run.step_agent) != "gone" else run.pane
-        files = self.tools.open_review(beside, work, self.tools.fork_point(work, run.base) if run.on_a_pr else f"origin/{run.base}", fresh)
+        files = self.tools.open_review(run.pane, work, self.tools.fork_point(work, run.base) if run.on_a_pr else f"origin/{run.base}", fresh)
         placed, outside = place(load_notes(kept / "notes.json"), files)
         self.tools.replace_notes(work, placed)
         if run.on_a_pr:
@@ -767,12 +769,12 @@ class Engine:
         if step.get("fresh"):
             # A new agent each time: nothing checks its own work.
             run.loops[f"{step['id']}#"] = attempt = run.loops.get(f"{step['id']}#", 0) + 1
-            if run.step_pane:  # the reviewer from last time
-                self.tools.close_pane(run.step_pane)
+            self._let_go_of_step(run)  # the reviewer from last time
             suffix = f"-{step['id']}-{attempt}"
             run.step_agent = run.agent[: AGENT_NAME - len(suffix)] + suffix
-            run.step_pane = self.tools.split(run.pane, work)
-            self.tools.start_agent(run.step_agent, run.step_pane, self.store.files(run), step.get("model", ""))
+            # A review has nothing else to run, so its reviewer takes the workspace rather than sit beside an empty shell.
+            run.step_pane = "" if run.reviewing else self.tools.split(run.pane, work)
+            self.tools.start_agent(run.step_agent, run.step_pane or run.pane, self.store.files(run), step.get("model", ""))
             agent = run.step_agent
         else:
             agent = run.agent
