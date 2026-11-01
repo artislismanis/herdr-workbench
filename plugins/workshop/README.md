@@ -177,7 +177,7 @@ A sweep is a run in its own read-only checkout. It proposes tickets to create, c
 
 Each `tick` and `workshop refresh` saves open tickets to `~/.local/state/workshop/board.json`, sorted by label: none is `new`, then `planned`, `designed`, and the delivery label is `queued`. `[backlog]` renames the first two. Claimed tickets leave the list. On Jira the repo's label sets the scope, so a ticket without it doesn't show. A source that fails keeps its last good list and records the error. Polling makes API calls but uses no tokens.
 
-`p` on the Backlog tab, or `workshop prepare <key>`, starts Prepare, which gets a ticket ready before you queue it. Give it an idea instead of a ticket key and it creates the ticket from your words first, using the first sentence as the title. With several repos, start with `repo/`. It runs in its own read-only checkout, shows on the Delivery tab, and takes no `max_active` slot.
+`p` on the Backlog tab, or `workshop prepare <key>`, starts Prepare, which gets a ticket ready before you queue it. Give it an idea instead of a ticket key and it creates the ticket from your words first, using the first sentence as the title. With several repos, the key asks which one first, and the command takes `repo/` in front. It runs in its own read-only checkout, shows on the Delivery tab, and takes no `max_active` slot.
 
 1. A fresh agent grills you on the requirements, one question at a time, in a pane of the `prep-<key>` workspace. `g` on the board goes there. `your turn` means it's waiting for you, which is normal, so there's no time limit.
 2. When you agree, it writes `requirements.md` and stops at a gate. Enter on `a` writes it to the ticket and adds `planned`. Typing what to change sends it back.

@@ -48,6 +48,7 @@ AI_REVIEW = ord("a")  # with nothing stopped under it, where the same key answer
 AI_REVIEW_OTHER = ord("A")  # the mode you don't usually use
 CLAIM = ord("m")
 PREPARE = ord("p")
+CHOOSE_REPO = "choose-repo"  # stays on the board: its answer leads to the next question
 RENEWED = ("re-review", "new commits")
 ENTERS = (10, 13, curses.KEY_ENTER)
 BACKSPACES = (8, 127, curses.KEY_BACKSPACE)
@@ -276,7 +277,11 @@ class Board:
             self.send("claim", found.key)
             return True
         if key == PREPARE and self.tab == BACKLOG and not self.open:
-            self.begin_note(Ask("", "What should be prepared?", (), (), "A ticket number, or an idea to make into a ticket", "prepare"))
+            repos = list(self.cfg["repos"])
+            if len(repos) > 1:  # a ticket number means nothing without one
+                self.begin_note(Ask("", "Prepare in which repo?", (), tuple((name, CHOOSE_REPO, name) for name in repos), "Or write it as repo/ticket or repo/idea", "prepare"))
+            else:
+                self.ask_what_to_prepare()
             return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
@@ -405,6 +410,11 @@ class Board:
         if waiting := next((r for r in self.runs if self.run_actions(r).get(ANSWER)), None):
             self.picked = (waiting.repo, waiting.key)
 
+    def ask_what_to_prepare(self, repo: str = "") -> None:
+        self.begin_note(Ask("", "What should be prepared?", (), (), "A ticket number, or an idea to make into a ticket", "prepare"))
+        if repo:  # the form the command reads, and you can see where it's going
+            self.typed, self.cursor = f"{repo}/", len(repo) + 1
+
     def begin_note(self, asking: Ask) -> None:
         self.asking, self.typed = asking, self.drafts.get(asking.key + asking.command, "")
         self.cursor = len(self.typed)
@@ -435,6 +445,9 @@ class Board:
             # While another command runs, the words stay put for a second enter.
             if (words or not typing) and not self.refreshing:
                 self.drafts.pop(asking.key + asking.command, None)
+                if command == CHOOSE_REPO:
+                    self.ask_what_to_prepare(words)
+                    return
                 if self.series:
                     self.given.append(f"{asking.question.partition(': ')[2]} {words}" if words else "")
                     if self.queue:

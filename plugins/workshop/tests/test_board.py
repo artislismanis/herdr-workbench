@@ -1063,6 +1063,17 @@ class Keys(unittest.TestCase):
         self.type_in("7")
         self.assertEqual(self.sent(), ("prepare", "7"))
 
+    def test_with_several_repos_p_asks_which_one_first(self):
+        self.board.cfg = {"repos": {"one": {}, "two": {}}}
+        self.board.tab = BACKLOG
+        self.board.press(ord("p"))
+        self.assertEqual([label for label, _, _ in self.board.asking.options], ["one", "two"])
+        self.board.press(curses.KEY_DOWN)
+        self.board.press(10)
+        self.assertEqual(self.board.typed, "two/")
+        self.type_in("7")
+        self.assertEqual(self.sent(), ("prepare", "two/7"))
+
     def test_no_prepare_key_away_from_the_backlog(self):
         self.board.tab = REVIEW
         self.assertNotIn("p prepare", self.board.footer().text)
