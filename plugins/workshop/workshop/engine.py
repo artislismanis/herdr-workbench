@@ -222,9 +222,24 @@ class Engine:
                 # A draft is still self-review, so the ticket stays in progress until the PR opens.
                 self._move(run, "merged" if pr["state"] == "MERGED" else "working" if pr["isDraft"] else "approved" if pr["reviewDecision"] == "APPROVED" else "review")
             self.store.save(run)
+            if run.landed:
+                self._tidy(run, pr["headRefOid"])
         except STOPS as failed:
             self.store.event(run, "check_failed", reason=str(failed))
         return run
+
+    def _tidy(self, run: Run, landed_head: str) -> None:
+        """A landed run's checkout goes, unless it holds work: wt refuses uncommitted changes, and a head that isn't the PR's has commits nobody pushed."""
+        try:
+            if self.tools.head(Path(run.worktree)) != landed_head:
+                raise ToolError("it has commits that aren't on the PR")
+            self.tools.remove_worktree(Path(run.repo_path), Path(run.worktree))
+            self.tools.close_workspace(run.pane)
+            run.worktree, run.pane, run.agent = "", "", ""
+            self.store.event(run, "tidied")
+            self.store.save(run)
+        except STOPS as failed:
+            self.store.event(run, "kept_worktree", reason=str(failed))
 
     def resume(self, run: Run) -> Run:
         """Try the stopped step again. Finished steps never run twice."""
@@ -348,7 +363,7 @@ class Engine:
         if self.reviewable(run):
             return "Finish with prefix+shift+u in the workspace"
         if self.delivered(run):
-            return "With reviewers. Ask for review if nobody's assigned. It lands when the PR merges, and prefix+shift+e removes the worktree"
+            return "With reviewers. Ask for review if nobody's assigned. It lands when the PR merges, and its worktree goes then"
         actions = f"workshop retry, pass or drop {run.key}, or {self.command} retry, pass or drop on the ticket"
         if run.status == "parked":
             return f"Comment on the ticket, or {actions}"
