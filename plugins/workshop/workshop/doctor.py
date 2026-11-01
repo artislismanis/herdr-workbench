@@ -43,7 +43,7 @@ def launch_test(repo: Path, name: str, base: str) -> Result:
         # Through wt, so it's the kind of worktree a run gets, in the same place.
         path = Tools().worktree(repo, branch, base)
         pane = Tools().workspace(path, f"doctor {name}")
-        Tools().start_agent(agent, pane)
+        Tools().start_agent(agent, pane, path)
         run("herdr", "agent", "prompt", agent, "Reply with the single word ready.", "--wait", "--timeout", LAUNCH_TIMEOUT_MS)
         if Tools().agent_status(agent) == "blocked":
             return Result(title, False, f"agent is blocked: {_screen(pane)}")
