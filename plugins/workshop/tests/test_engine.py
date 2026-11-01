@@ -577,14 +577,28 @@ class Reviews(unittest.TestCase):
 
     def test_the_reviewer_stays_until_the_review_is_posted(self):
         run = self.to_review(self.start())
-        pane = run.pane
         self.assertTrue(run.step_agent)
         self.assertEqual((run.step_pane, self.tools.closed), ("", []))
         self.assertEqual(run.label, "your turn")
         self.engine.posted(run)
-        self.assertIn(pane, self.tools.closed)
-        self.assertNotEqual(run.pane, pane)
-        self.assertEqual((run.step_agent, run.label), ("", "posted"))
+        self.assertEqual(run.label, "posted")
+
+    def test_leaving_a_posted_review_takes_everything(self):
+        run = self.to_review(self.start())
+        self.engine.posted(run)
+        self.engine.leave(run)
+        self.assertEqual((run.worktree, run.pane, run.step_agent), ("", "", ""))
+        self.assertEqual(len(self.tools.removed), 1)
+
+    def test_a_review_after_leaving_starts_a_fresh_checkout_from_where_it_got_to(self):
+        run = self.to_review(self.start())
+        reviewed = run.reviewed
+        self.engine.posted(run)
+        self.engine.leave(run)
+        with mock.patch.object(PullRequestSource, "details", return_value=self.details):
+            again = self.engine.start("r", "pr-7", self.root, "main", load("review"), PullRequestSource(self.root), commands={"qa": "make test"}, pr=self.URL, restart=True)
+        self.assertTrue(again.worktree)
+        self.assertEqual(again.reviewed, reviewed)
 
     def test_new_commits_make_a_posted_review_yours_again(self):
         run = self.to_review(self.start())

@@ -354,7 +354,18 @@ def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any], root
         waited(root, lambda: engine.posted(engine.store.load(run.repo, run.key)))
     if code == 0 and review_settings(cfg, cfg["repos"][run.repo])["after_post"] == "chat-reply":
         offer_reply(run, source, chat_of(cfg), started)
+    if code == 0:
+        step_away(engine, run, root)
     return code
+
+
+def step_away(engine: Engine, run: Run, root: Path) -> None:
+    """Back to the board first, as the workspace you're in is about to go."""
+    try:
+        engine.tools.open_board()
+    except STOPS:
+        pass  # you'd only land somewhere else
+    waited(root, lambda: engine.leave(engine.store.load(run.repo, run.key)))
 
 
 def offer_reply(run: Run, source: Any, chat: Chat | None, started: float) -> None:
@@ -402,6 +413,8 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
 
     locked(root, act, PATIENCE)
     print(outcome[0])
+    if engine.store.load(run.repo, run.key).replied:
+        step_away(engine, run, root)
     return 0
 
 

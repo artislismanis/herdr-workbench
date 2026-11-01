@@ -27,11 +27,11 @@ The Review tab works like Delivery: Needs you, With agents, With people, and Don
 1. `a` on someone else's PR runs the repo's checks and a fresh AI review. The row shows `reviewing` with its stages, under With agents.
 2. When it's done, the row moves to Needs you as `your turn`, with the AI's recommendation. Its detail says what to do next, then gives a four line briefing to read before the diff: the intent, what the code delivers against it, the challenges, and the recommendation.
 3. `g` opens hunk with the AI's notes on the diff, and the reviewer beside it. Ask it anything. It changes nothing and posts nothing.
-4. Keep, change or drop the notes, then post with `prefix+shift+u`. What you post is the review. The reviewer closes, and the row shows `posted` until the PR moves on.
+4. Keep, change or drop the notes, then post with `prefix+shift+u`. What you post is the review, and it's all on GitHub, so the workspace and checkout go whatever you chose, and you're back on the board. The row shows `posted` until the PR moves on.
 
-New commits offer `a` again, for a review of what's changed.
+New commits offer `a` again, in a fresh checkout, for a review of what's changed.
 
-`a` on your own PR with comments has an agent draft the fixes and replies. Nothing goes out yet: the row moves to Needs you, and its detail shows each reply. `g` opens the fix in hunk beside the agent, so you can tell it what to change. `prefix+shift+u` then pushes the fix and sends the replies, and a reply about a fix names its commit. A reply to an inline comment joins that thread. Comments in a review's summary have no thread on GitHub, so those replies are general comments that quote what they answer.
+`a` on your own PR with comments has an agent draft the fixes and replies. Nothing goes out yet: the row moves to Needs you, and its detail shows each reply. `g` opens the fix in hunk beside the agent, so you can tell it what to change. `prefix+shift+u` then pushes the fix and sends the replies, and a reply about a fix names its commit. The workspace and checkout then go, as with a posted review. A reply to an inline comment joins that thread. Comments in a review's summary have no thread on GitHub, so those replies are general comments that quote what they answer.
 
 Posting asks what the review should be. These are GitHub's own review types, and your inline comments and PR comment go with whichever you choose:
 

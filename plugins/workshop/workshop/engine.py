@@ -55,7 +55,10 @@ class Engine:
                 self.store.save(run)
                 self._write_brief(run)  # the comments have moved on
             if run.reviewing:
-                self._catch_up(run, old.reviewed)
+                if run.worktree:
+                    self._catch_up(run, old.reviewed)
+                else:  # it went when the last review was posted, and a new one is made below
+                    run.reviewed = old.reviewed
                 run.begun, run.claimed, run.noticed = old.begun, old.claimed or claimed, old.noticed
         self.store.save(run)
         self.store.event(run, "claimed", override=override, restart=restart)
@@ -330,10 +333,11 @@ class Engine:
             if landed_head and self.tools.head(Path(run.worktree)) != landed_head:
                 raise ToolError("it has commits that aren't on the PR")
             self.tools.remove_worktree(Path(run.repo_path), Path(run.worktree))
-            self.tools.close_workspace(run.pane)
-            run.worktree, run.pane, run.agent = "", "", ""
+            pane = run.pane
+            run.worktree, run.pane, run.agent, run.step_pane, run.step_agent = "", "", "", "", ""
             self.store.event(run, "tidied")
             self.store.save(run)
+            self.tools.close_workspace(pane)  # last, as it can be the workspace this is running in
         except STOPS as failed:
             self.store.event(run, "kept_worktree", reason=str(failed))
 
@@ -521,11 +525,14 @@ class Engine:
         return "\n".join(lines + [f"  {n['file']}:{n['line']} {n['note']}" for n in outside])
 
     def posted(self, run: Run) -> None:
-        """Your review went out, so it's with the author and the reviewer's job is done."""
         run.posted = run.reviewed
-        self._let_go_of_step(run)
         self.store.event(run, "posted")
         self.store.save(run)
+
+    def leave(self, run: Run) -> None:
+        """It went out, so nothing here is needed whatever the verdict. New commits get a fresh checkout on the next review."""
+        if run.worktree:
+            self._tidy(run, self.tools.head(Path(run.worktree)))
 
     def push_fixes(self, run: Run) -> None:
         """Your go on what review changed. Agents never commit, so this is how fixes reach the PR."""
@@ -664,6 +671,9 @@ class Engine:
                 run.branch = f"workshop/{slug(run.key)}"
                 path = self.tools.worktree(Path(run.repo_path), run.branch, run.base)
             run.worktree = str(path)
+            if run.reviewed:  # back for new commits: its branch may be an old local one
+                self.tools.follow_pr(path, run.branch, run.base)
+                run.reviewed = run.reviewed if self.tools.contains(path, run.reviewed) else ""
             self._write_brief(run)
             self.store.event(run, "worktree", path=run.worktree)
         if not run.pane:
