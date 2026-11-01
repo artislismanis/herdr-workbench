@@ -20,7 +20,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop status` | Every run, plus what's skipped or held |
 | `workshop needs-you` | Only what's waiting on you, and what to run |
 | `workshop explain <key>` | One run in detail |
-| `workshop resume <key>` | Tries a parked run's stopped step again |
+| `workshop resume <key>` | Tries a stopped run's step again |
 | `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff. A run does this itself when its PR is ready |
 | `workshop prepare <[repo/]key or idea>` | Grills you on a ticket, then writes what you agreed to it. Words create the ticket first: see Backlog |
 | `workshop sweep <repo> <name>` | Runs a sweep now: see Maintain |
@@ -37,7 +37,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop board` | The board. `prefix+shift+b` in herdr opens it in its own workspace |
 | `workshop doctor [--no-launch]` | Finds what would stop a run |
 
-A `waiting` run stopped as planned, at a gate or with a question. A `parked` run stopped because something went wrong. Neither counts towards `max_active`.
+A `decide` run stopped as planned, at a gate or with a question. A `fix` run stopped because something went wrong. Neither counts towards `max_active`.
 
 ## Safety
 
@@ -99,7 +99,7 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 | Stage | A group of steps, such as Build, and nothing else |
 | Step | One piece of work in a pipeline, by an agent, a person or workshop |
 | Round | One attempt at a step. A failed review sends the work round again |
-| Status | Where a run stands: `running`, `parked`, `waiting` or `in review`, then what became of it, such as `merged` or `dropped` |
+| Status | Where a run stands: `running`, `decide`, `fix`, `your turn` or `in review`, then what became of it, such as `merged` or `dropped` |
 | Column | Where a ticket sits on Backlog: New, Planned, Designed or Queued |
 | Move | What workshop does to the ticket as a run goes on: `working`, `blocked`, `review`, `approved` or `merged` |
 | Self-review | You reading the change in hunk, before anyone else sees it |
