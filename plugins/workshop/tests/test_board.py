@@ -966,6 +966,23 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.assertEqual(self.board.pr_items(), [])
 
+    def test_coming_back_to_the_board_refreshes_quietly_and_not_too_often(self):
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.assertEqual(self.board.paste(Pasted(b"[I")), curses.ERR)
+            self.board.paste(Pasted(b"[I"))
+            thread.return_value.start.assert_called_once()
+            thread.call_args.kwargs["target"]()
+        self.tools.workshop.assert_called_once_with("refresh")
+        self.assertFalse(self.board.refreshing)
+
+    def test_leaving_the_board_does_nothing(self):
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.assertEqual(self.board.paste(Pasted(b"[O")), curses.ERR)
+        thread.assert_not_called()
+
+    def test_a_paste_with_no_box_open_goes_nowhere(self):
+        self.assertEqual(self.board.paste(Pasted(b"[200~one\033[201~")), curses.ERR)
+
     def test_a_claimed_review_offers_no_claim(self):
         self.on_pr()
         self.store.save(run("pr-7", status="done", pr=self.board.picked[1], reviewing=True, claimed=True))
