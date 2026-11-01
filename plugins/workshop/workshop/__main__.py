@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | claim <key> | review <key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -19,7 +19,7 @@ from .engine import PREFIX, STOPS, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
 from .shell import ToolError, run, run_json
-from .sources import CLAIMS, PullRequestSource, Source, make_source
+from .sources import CLAIMS, PullRequestSource, ReplySource, Source, make_source
 from .stats import stats
 from .store import Run, Store
 from .throttle import Throttle, usage_path
@@ -28,7 +28,7 @@ from .tools import Tools
 
 PATIENCE = 60  # seconds a person's command waits for a tick to finish
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "claim": 1, "review": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 def config_path() -> Path:
@@ -54,7 +54,10 @@ def review_settings(cfg: dict[str, Any], repo: dict[str, Any]) -> dict[str, str]
 def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
     def find(run: Run) -> Source:
         repo = cfg["repos"][run.repo]
-        return PullRequestSource(Path(repo["path"]).expanduser(), review_settings(cfg, repo)["claim"]) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
+        path = Path(repo["path"]).expanduser()
+        if run.replying:
+            return ReplySource(path)
+        return PullRequestSource(path, review_settings(cfg, repo)["claim"]) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
 
     return find
 
@@ -88,6 +91,16 @@ def begin_review(engine: Engine, cfg: dict[str, Any], url: str, mode: str = "") 
     key = f"pr-{number}"
     again = engine.store.exists(name, key) and engine.review_ready(engine.store.load(name, key))
     return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("review_pipeline", "review")), source, restart=again, commands=repo.get("commands"), pr=url.rstrip("/"), claimed=claimed)
+
+
+def begin_reply(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
+    name, number = repo_of(cfg, url)
+    repo = cfg["repos"][name]
+    path = Path(repo["path"]).expanduser()
+    source = ReplySource(path)
+    key = f"reply-{number}"
+    again = engine.store.exists(name, key) and engine.review_ready(engine.store.load(name, key))
+    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("reply_pipeline", "reply")), source, restart=again, pr=url.rstrip("/"), replying=True)
 
 
 def advance_all(engine: Engine) -> None:
@@ -231,9 +244,41 @@ def finish_review(engine: Engine, run: Run, path: str) -> int:
     return post_review(path, "--before", f"{Path.home()}/.local/bin/workshop claim {run.key}")
 
 
+def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
+    """Shows everything that would leave this machine, then one go for all of it."""
+    changed = engine.tools.changes(Path(path))
+    print(f"{run.repo}/{run.key}  {run.pr}")
+    print("\n".join(["Fixes to push:", *changed]) if changed else "No fixes to push.")
+    replies = engine.replies(run)
+    print(f"\n{len(replies)} repl{'y' if len(replies) == 1 else 'ies'} to post:")
+    for reply in replies:
+        print(f"\n  On {reply['comment'] or 'the PR'}:\n  {reply['reply']}")
+    print("\nTo change any of it, tell the agent here, or edit the fixes in the worktree.\n")
+    try:
+        answer = input("[y] push and post, [n] cancel: ").strip().lower()
+    except EOFError:
+        answer = "n"
+    if answer != "y":
+        return 0
+    outcome = ["Workshop is busy, so nothing happened. Try again in a moment."]
+
+    def act() -> None:
+        try:
+            engine.send_replies(engine.store.load(run.repo, run.key))
+            outcome[0] = "Pushed and posted."
+        except STOPS as failed:
+            outcome[0] = str(failed)
+
+    locked(root, act, PATIENCE)
+    print(outcome[0])
+    return 0
+
+
 def finish(engine: Engine, root: Path) -> int:
     """Ends a review from the workspace it happened in. Anything that isn't a delivered run is a plain PR review."""
     path = here()
+    if replying := next((r for r in engine.store.all() if r.worktree == path and r.replying and engine.review_ready(r) and not r.replied), None):
+        return finish_reply(engine, replying, path, root)
     if reviewing := next((r for r in engine.store.all() if r.worktree == path and r.reviewing), None):
         return finish_review(engine, reviewing, path)
     delivered = next((r for r in engine.store.all() if r.worktree == path and engine.delivered(r)), None)
@@ -316,6 +361,8 @@ def main(argv: list[str]) -> int:
             case "pr":
                 mode = "claimed" if "--claimed" in argv else "silent" if "--silent" in argv else ""
                 waited(root, lambda: print(engine.explain(begin_review(engine, cfg, argv[1], mode))))
+            case "reply":
+                waited(root, lambda: print(engine.explain(begin_reply(engine, cfg, argv[1]))))
             case "claim":
                 waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
             case "review":

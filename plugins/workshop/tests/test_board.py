@@ -715,6 +715,23 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.assertNotIn("m claim", self.board.footer().text)
 
+    def test_comments_on_your_pr_offer_an_ai_reply(self):
+        self.on_pr(mine=True, state="comments to address")
+        self.assertIn("a ai reply", self.board.footer().text)
+        self.assertNotIn("a ai review", self.board.footer().text)
+        url = self.board.picked[1]
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(ord("a"))
+            thread.call_args.kwargs["target"]()
+        self.tools.workshop.assert_called_once_with("reply", url)
+
+    def test_a_reply_under_way_offers_no_second_one(self):
+        self.on_pr(mine=True, state="changes requested")
+        self.store.save(run("reply-7", pr=self.board.picked[1], replying=True))
+        self.board.seen = None
+        self.board.reload()
+        self.assertNotIn("a ai reply", self.board.footer().text)
+
     def test_new_commits_offer_another_ai_review(self):
         self.board.engine.review_ready.return_value = True
         self.on_pr(state="re-review")

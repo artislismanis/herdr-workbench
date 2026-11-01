@@ -39,6 +39,7 @@ label = "ai"
 # base = "main"
 # pipeline = "ticket"        # a file in pipelines/ or ~/.config/workshop/pipelines/
 # review_pipeline = "review" # the same, for AI review of a PR
+# reply_pipeline = "reply"   # and for answering comments on your own PR
 # [repos.my-app.commands]
 # qa = "npm test"            # the qa step runs this. Without it, the step is skipped
 

@@ -351,6 +351,10 @@ class MarkdownSource:
         return ""  # local files you put there yourself
 
 
+def number_of(key: str) -> str:
+    return key.rsplit("-", 1)[-1]
+
+
 # How a review shows as yours: the API path and field. Teams that assign reviewers themselves use none.
 CLAIMS = {
     "none": ("", ""),
@@ -366,7 +370,7 @@ class PullRequestSource:
         self.repo, self.action = repo, action
 
     def details(self, key: str) -> dict[str, Any]:
-        return run_json("gh", "pr", "view", key.removeprefix("pr-"), "--json", "title,body,url,state,isCrossRepository,baseRefName", cwd=self.repo)
+        return run_json("gh", "pr", "view", number_of(key), "--json", "title,body,url,state,isCrossRepository,baseRefName,author", cwd=self.repo)
 
     def guard(self, key: str) -> str:
         pr = self.details(key)
@@ -394,11 +398,11 @@ class PullRequestSource:
         path, field_name = CLAIMS[self.action]
         if path:
             me = run("gh", "api", "user", "--jq", ".login").strip()
-            run("gh", "api", "-X", "POST", path % key.removeprefix("pr-"), "-f", f"{field_name}={me}", cwd=self.repo)
+            run("gh", "api", "-X", "POST", path % number_of(key), "-f", f"{field_name}={me}", cwd=self.repo)
 
     def activity(self, key: str, since: float) -> list[str]:
         """What other people did on the PR since then, to flag a review you haven't claimed."""
-        pr = run_json("gh", "pr", "view", key.removeprefix("pr-"), "--json", "author,reviews,comments", cwd=self.repo)
+        pr = run_json("gh", "pr", "view", number_of(key), "--json", "author,reviews,comments", cwd=self.repo)
         people = {run("gh", "api", "user", "--jq", ".login").strip(), pr["author"]["login"]}
         done = [(r["author"]["login"], r["submittedAt"], f"reviewed: {r['state'].lower().replace('_', ' ')}") for r in pr["reviews"]]
         done += [(c["author"]["login"], c["createdAt"], "commented") for c in pr["comments"]]
@@ -412,6 +416,57 @@ class PullRequestSource:
 
     def move(self, key: str, move: str) -> None:
         pass
+
+
+REPLY_THREADS = """
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) { pullRequest(number: $number) {
+    author { login }
+    reviews(last: 30) { nodes { state body author { login } } }
+    comments(last: 30) { nodes { body author { login } } }
+    reviewThreads(first: 100) { nodes {
+      isResolved path line
+      comments(first: 20) { nodes { databaseId body author { login } } }
+    } }
+  } }
+}
+"""
+
+
+def _who(node: dict[str, Any]) -> str:
+    return (node["author"] or {}).get("login", "ghost")
+
+
+class ReplySource(PullRequestSource):
+    """Your own PR with comments to answer. Replies go out only through Engine.send_replies, on your go."""
+
+    def conversation(self, key: str) -> dict[str, Any]:
+        query = ["gh", "api", "graphql", "-F", "owner={owner}", "-F", "repo={repo}", "-F", f"number={number_of(key)}", "-f", f"query={REPLY_THREADS}"]
+        return run_json(*query, cwd=self.repo)["data"]["repository"]["pullRequest"]
+
+    def guard(self, key: str) -> str:
+        if self.details(key)["author"]["login"] != run("gh", "api", "user", "--jq", ".login", cwd=self.repo).strip():
+            return "it isn't your PR"
+        return super().guard(key)
+
+    def get(self, key: str) -> Ticket:
+        pr, said = self.details(key), self.conversation(key)
+        parts = [pr["body"]]
+        reviews = [f"{_who(r)} ({r['state'].lower()}): {r['body']}" for r in said["reviews"]["nodes"] if r["body"].strip()]
+        comments = [f"{_who(c)}: {c['body']}" for c in said["comments"]["nodes"]]
+        if reviews or comments:
+            parts += ["## On the PR, answered with comment null", *reviews, *comments]
+        for thread in said["reviewThreads"]["nodes"]:
+            if not thread["isResolved"]:
+                notes = thread["comments"]["nodes"]
+                parts += [f"## Thread on {thread['path']}:{thread['line'] or 'outdated'}, answered with comment {notes[-1]['databaseId']}", *(f"{_who(n)}: {n['body']}" for n in notes)]
+        return Ticket(key, pr["title"], "\n\n".join(parts), pr["url"])
+
+    def reply(self, key: str, comment: int | None, text: str) -> None:
+        if comment is None:
+            run("gh", "pr", "comment", number_of(key), "--body", text, cwd=self.repo)
+        else:
+            run("gh", "api", "-X", "POST", f"repos/{{owner}}/{{repo}}/pulls/{number_of(key)}/comments/{comment}/replies", "-f", f"body={text}", cwd=self.repo)
 
 
 def make_source(name: str, repo: dict[str, Any], jira: dict[str, Any]) -> Source:

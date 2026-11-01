@@ -31,6 +31,16 @@ def load_notes(path: Path) -> list[dict[str, Any]]:
     return [n for n in notes if isinstance(n, dict) and isinstance(n.get("file"), str) and isinstance(n.get("line"), int) and n.get("note")]
 
 
+def load_replies(path: Path) -> list[dict[str, Any]]:
+    try:
+        replies = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(replies, list):
+        return []
+    return [r for r in replies if isinstance(r, dict) and r.get("reply") and (r.get("comment") is None or isinstance(r.get("comment"), int))]
+
+
 def place(notes: list[dict[str, Any]], files: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Splits notes into hunk comments and those with nowhere to go. Hunk refuses a note outside the diff, so those wait on the first changed line, and hunk-pr-push posts them as the PR-level comment."""
     ranges = {f["path"]: [h["newRange"] for h in f["hunks"] if h["newRange"][0] >= 1 and h["newRange"][0] <= h["newRange"][1]] for f in files}
