@@ -93,6 +93,11 @@ class Sweeps(unittest.TestCase):
     CLOSE = {"action": "close", "key": "1", "why": "Done already"}
     COMMENT = {"action": "comment", "key": "2", "text": "Which one?", "why": "Vague"}
 
+    def test_a_long_key_still_makes_a_name_herdr_takes(self):
+        run = self.engine.start("r", "sweep-backlog-20261101", self.root, "main", load("sweep-backlog"), self.source, sweeping="backlog")
+        self.assertLessEqual(len(run.step_agent), 32)
+        self.assertTrue(run.step_agent.endswith("-sweep-1"))
+
     def test_the_prompt_says_how_to_propose(self):
         self.start()
         self.assertIn("proposals.json", self.tools.prompts[-1][1])

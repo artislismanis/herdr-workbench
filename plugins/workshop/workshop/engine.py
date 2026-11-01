@@ -19,6 +19,7 @@ from .tools import Tools, slug
 
 STEP_TIMEOUT = 45 * 60
 PREFIX = "[ai]"  # workshop comments as you, so its own comments mustn't count as yours
+AGENT_NAME = 32  # herdr's limit
 STOPS = (ToolError, OSError, KeyError, ValueError, json.JSONDecodeError)
 SWEEPS = "sweeps.json"  # when each ran, and what you've declined
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
@@ -598,7 +599,7 @@ class Engine:
         if not run.pane:
             run.pane = self.tools.linked(Path(run.repo_path), Path(run.worktree), run.key)
         if not run.agent:
-            run.agent = f"ws-{slug(run.key)}"
+            run.agent = f"ws-{slug(run.key)}"[:AGENT_NAME]
 
     def _report(self, run: Run, step: dict[str, Any]) -> Path:
         return self.store.files(run) / step.get("output", f"{step['id']}.md")
@@ -699,7 +700,8 @@ class Engine:
         if step.get("fresh"):
             # A new agent each time: nothing checks its own work.
             run.loops[f"{step['id']}#"] = attempt = run.loops.get(f"{step['id']}#", 0) + 1
-            run.step_agent = f"{run.agent}-{step['id']}-{attempt}"
+            suffix = f"-{step['id']}-{attempt}"
+            run.step_agent = run.agent[: AGENT_NAME - len(suffix)] + suffix
             run.step_pane = self.tools.split(run.pane, work)
             self.tools.start_agent(run.step_agent, run.step_pane, self.store.files(run), step.get("model", ""))
             agent = run.step_agent
