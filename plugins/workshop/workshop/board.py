@@ -388,11 +388,11 @@ class Board:
             if (words or not typing) and not self.refreshing:
                 self.drafts.pop(asking.key + asking.command, None)
                 if self.series:
-                    self.given.append(words)
+                    self.given.append(f"{asking.question.partition(': ')[2]} {words}" if words else "")
                     if self.queue:
                         self.begin_note(self.queue.pop(0))
                         return
-                    notes = [f"Decision {n}: {note}" for n, note in enumerate(self.given, 1) if note]
+                    notes = [note for note in self.given if note]
                     command, words = (asking.command, "\n".join(notes)) if notes else (command, "")
                 self.asking, self.series = None, False
                 self.follow = asking.key
@@ -562,6 +562,23 @@ class Board:
             self.copy_selection(start, (x, y))
         return True
 
+    def drain(self, screen: Keys, width: int) -> None:
+        """A drag sends an event per cell, and a redraw for each falls behind the hand, so all that's waiting is one redraw."""
+        screen.timeout(0)
+        while (key := screen.getch()) == curses.KEY_MOUSE:
+            try:
+                _, x, y, _, state = curses.getmouse()
+            except curses.error:
+                continue
+            if state & curses.REPORT_MOUSE_POSITION and self.grab:
+                self.reach = (x, y)
+            else:
+                self.mouse(x, y, state, width)
+                break
+        if key not in (curses.ERR, curses.KEY_MOUSE):
+            curses.ungetch(key)
+        screen.timeout(1000)
+
     def selection(self, start: tuple[int, int], end: tuple[int, int]) -> list[tuple[int, int, int]]:
         """Rows as (y, from, to), held to the column the drag began in, so the list and panel never mix."""
         left, right = (0, self.edge or self.right) if not self.edge or start[0] < self.edge else (self.edge + 2, self.right)
@@ -692,6 +709,7 @@ class Board:
                     continue  # an event curses couldn't read, such as one past the edge
                 if not self.mouse(x, y, state, width - 1):
                     return
+                self.drain(screen, width - 1)
             elif not self.press(key, width - 1):
                 return
 

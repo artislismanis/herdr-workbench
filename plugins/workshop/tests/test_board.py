@@ -1016,7 +1016,7 @@ class Keys(unittest.TestCase):
         self.many()
         self.board.press(10)
         self.type_in("no short form")
-        self.assertEqual(self.sent(), ("reject", "1", "Decision 2: no short form"))
+        self.assertEqual(self.sent(), ("reject", "1", "Add -w? no short form"))
 
     def test_esc_keeps_your_place_in_a_series(self):
         self.many()
@@ -1040,7 +1040,7 @@ class Keys(unittest.TestCase):
         self.asked("plan asks: Overview: Two\nWhat: A\nBottom line: X\nAsk: One?\nWhat: B\nBottom line: Y\nAsk: Two?")
         self.board.press(10)
         self.type_in("no")
-        self.assertEqual(self.sent(), ("retry", "1", "Decision 1: Agreed, go with your recommendation\nDecision 2: no"))
+        self.assertEqual(self.sent(), ("retry", "1", "One? Agreed, go with your recommendation\nTwo? no"))
 
     def test_a_question_with_no_recommendation_still_needs_words(self):
         self.asked("Which one?")
@@ -1181,6 +1181,30 @@ class Keys(unittest.TestCase):
 
 
 class Mouse(Keys):
+    def test_a_drag_catches_up_in_one_go(self):
+        self.board.grab = (1, 1)
+        events = iter([(0, x, 5, 0, curses.REPORT_MOUSE_POSITION) for x in range(2, 40)])
+        screen = Pasted(bytes())
+        screen.data = [curses.KEY_MOUSE] * 38
+        with mock.patch("workshop.board.curses.getmouse", side_effect=lambda: next(events)):
+            self.board.drain(screen, 120)
+        self.assertEqual(self.board.reach, (39, 5))
+
+    def test_a_key_during_a_drag_isnt_lost(self):
+        self.board.grab = (1, 1)
+        screen = Pasted(b"j")
+        with mock.patch("workshop.board.curses.ungetch") as back:
+            self.board.drain(screen, 120)
+        back.assert_called_once_with(ord("j"))
+
+    def test_letting_go_during_a_drag_still_copies(self):
+        self.board.grab = (1, 1)
+        screen = Pasted(b"")
+        screen.data = [curses.KEY_MOUSE]
+        with mock.patch("workshop.board.curses.getmouse", return_value=(0, 30, 5, 0, curses.BUTTON1_RELEASED)), mock.patch.object(self.board, "copy_selection") as copied:
+            self.board.drain(screen, 120)
+        copied.assert_called_once()
+
     def test_a_selected_row_keeps_its_colour_on_the_selection_background(self):
         drawn = []
         screen = mock.Mock(addnstr=lambda y, x, text, size, attr: drawn.append((text, attr)))
