@@ -1,8 +1,10 @@
+import json
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -11,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from workshop.engine import PREFIX, STEP_TIMEOUT, Engine, Park  # noqa: E402
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
-from workshop.sources import Comment, PrepareSource, PullRequestSource, Ticket  # noqa: E402
+from workshop.sources import Comment, Item, PrepareSource, PullRequestSource, SweepSource, Ticket  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
@@ -65,6 +67,116 @@ class FakeTickets(FakeSource):
 
     def labels(self, key):
         return self.labelled
+
+
+class Sweeps(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.tools, self.ticket = FakeTools(self.root), mock.Mock()
+        self.ticket.backlog.return_value = [Item("1", "Old", [], False), Item("2", "Stale", [], False), Item("3", "Queued", ["ai"], True)]
+        self.ticket.create.return_value = "9"
+        self.source = SweepSource(self.ticket, "docs", [])
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: 1000.0)
+
+    def start(self):
+        return self.engine.start("r", "sweep-docs-1", self.root, "main", load("sweep-docs"), self.source, sweeping="docs")
+
+    def swept(self, proposals):
+        run = self.start()
+        files = self.engine.store.files(run)
+        (files / "sweep.md").write_text("Looked around.\n\nVERDICT: DONE\n")
+        (files / "proposals.json").write_text(json.dumps(proposals))
+        self.tools.statuses[run.step_agent] = "idle"
+        return self.engine.advance(run)
+
+    CREATE = {"action": "create", "title": "Add docs", "body": "Body", "why": "Missing"}
+    CLOSE = {"action": "close", "key": "1", "why": "Done already"}
+    COMMENT = {"action": "comment", "key": "2", "text": "Which one?", "why": "Vague"}
+
+    def test_the_prompt_says_how_to_propose(self):
+        self.start()
+        self.assertIn("proposals.json", self.tools.prompts[-1][1])
+
+    def test_nothing_changes_before_your_go(self):
+        run = self.swept([self.CREATE, self.CLOSE])
+        self.assertEqual((run.status, run.current["id"]), ("waiting", "decide"))
+        self.ticket.create.assert_not_called()
+        self.ticket.close.assert_not_called()
+
+    def test_the_gate_numbers_what_it_proposes(self):
+        run = self.swept([self.CREATE, self.CLOSE])
+        report = (self.engine.store.files(run) / "sweep.md").read_text()
+        self.assertIn("1. create: Add docs", report)
+        self.assertIn("2. close 1: Done already", report)
+
+    def test_nothing_to_propose_ends_quietly(self):
+        run = self.swept([])
+        self.assertEqual((run.status, run.landed, run.label), ("done", "swept", "swept"))
+        self.assertEqual(len(self.tools.removed), 1)
+
+    def test_a_broken_file_is_a_stop_not_a_quiet_nothing(self):
+        run = self.start()
+        files = self.engine.store.files(run)
+        (files / "sweep.md").write_text("VERDICT: DONE\n")
+        (files / "proposals.json").write_text("{half")
+        self.tools.statuses[run.step_agent] = "idle"
+        self.assertEqual(self.engine.advance(run).status, "parked")
+
+    def test_your_go_applies_them_and_ends_it(self):
+        run = self.engine.approve(self.swept([self.CREATE, self.CLOSE, self.COMMENT]))
+        self.ticket.create.assert_called_once()
+        self.assertIn("docs sweep", self.ticket.create.call_args.args[1])
+        self.ticket.close.assert_called_once_with("1", f"{PREFIX} Done already")
+        self.ticket.report.assert_called_once_with("2", f"{PREFIX} Which one?")
+        self.assertEqual((run.status, run.landed), ("done", "swept"))
+
+    def test_a_sweep_never_queues_anything(self):
+        self.engine.approve(self.swept([{**self.CREATE, "labels": ["ai"]}]))
+        self.assertEqual(len(self.ticket.create.call_args.args), 2)
+        self.ticket.tag.assert_not_called()
+
+    def test_skipping_by_number_keeps_the_rest_at_the_gate(self):
+        run = self.engine.reject(self.swept([self.CREATE, self.CLOSE]), "2")
+        self.assertEqual((run.status, run.skipped), ("waiting", [2]))
+        self.engine.approve(run)
+        self.ticket.create.assert_called_once()
+        self.ticket.close.assert_not_called()
+
+    def test_skipped_proposals_are_remembered(self):
+        self.engine.reject(self.swept([self.CREATE]), "all")
+        self.assertEqual(self.engine.store.read("sweeps.json")["r/docs"]["declined"], ["Add docs"])
+
+    def test_skipping_them_all_ends_it(self):
+        run = self.engine.reject(self.swept([self.CREATE, self.CLOSE]), "all")
+        self.assertEqual(run.landed, "swept")
+        self.ticket.create.assert_not_called()
+
+    def test_a_number_that_isnt_there_is_refused(self):
+        with self.assertRaises(KeyError):
+            self.engine.reject(self.swept([self.CREATE]), "4")
+
+    def test_a_ticket_out_of_reach_isnt_touched(self):
+        queued = {**self.CLOSE, "key": "3"}
+        unknown = {**self.COMMENT, "key": "77"}
+        self.engine.approve(self.swept([queued, unknown]))
+        self.ticket.close.assert_not_called()
+        self.ticket.report.assert_not_called()
+
+    def test_a_ticket_with_a_run_isnt_touched(self):
+        run = self.swept([self.CLOSE])
+        self.engine.store.save(replace(run, key="1"))
+        self.engine.approve(run)
+        self.ticket.close.assert_not_called()
+
+    def test_a_failure_halfway_doesnt_repeat_what_went_through(self):
+        run = self.swept([self.CREATE, self.CLOSE])
+        self.ticket.close.side_effect = ToolError("gh down")
+        with self.assertRaises(ToolError):
+            self.engine.approve(run)
+        self.ticket.close.side_effect = None
+        self.engine.approve(self.engine.store.load("r", "sweep-docs-1"))
+        self.ticket.create.assert_called_once()
+        self.assertEqual(self.ticket.close.call_count, 2)
 
 
 class Deploy(unittest.TestCase):

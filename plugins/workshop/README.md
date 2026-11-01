@@ -23,6 +23,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop resume <key>` | Tries a parked run's stopped step again |
 | `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff. A run does this itself when its PR is ready |
 | `workshop prepare <[repo/]key>` | Grills you on a ticket, then writes what you agreed to it: see Backlog |
+| `workshop sweep <repo> <name>` | Runs a sweep now: see Maintain |
 | `workshop finish` | Ends a review from its workspace, on `prefix+shift+u`: see Board |
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
 | `workshop answer <key> <text>` | Answers an agent's question |
@@ -72,6 +73,7 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 | `gated` | The same, with your approval after `tasks` |
 | `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk |
 | `reply` | `reply`: an agent answers comments on your own PR |
+| `sweep-deps`, `sweep-docs`, `sweep-backlog`, `sweep-logs` | A read-only agent looks at the repo, then your go on what it proposes |
 | `prepare` | `requirements` and `design`, two fresh agents that grill you, each with your go after it |
 
 `ticket_stage` names the stage the ticket itself stands for. It has no steps yet, so it leads the Workflow panel with the ticket, and it counts in the strip. Any step can set `stage`, and the Workflow panel groups by it. It's a free name, so use your own, and leave it out for a flat list. The shipped pipelines use Build, Test and Deploy, from [the AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook).
@@ -145,6 +147,21 @@ A branch is an environment: a merge to `main` or `master` is prod, and to `dev` 
 A merge to preprod takes the run's worktree, moves the ticket to its `preprod` state, and keeps the ticket open. Each tick then checks whether the PR has reached prod, first by its merge commit, then, for repos that squash on the way, by whether its changes apply in reverse to prod's tree. A merge to prod lands the run and closes the ticket, and the run shows as `in prod`. On Jira, `moves` can name a status for `preprod`.
 
 If the PR or the ticket's design has a `Release steps` heading, the run stops at a `release` gate once it's in prod, with the steps in `release.md`. `workshop approve` says they're done and lands it.
+
+## Maintain
+
+Sweeps are scheduled looks at a repo that keep the backlog full and tidy. Set them per repo with `sweeps = { deps = "weekly", docs = "monthly" }`. A tick starts one when it's due, behind the same limits and `max_active` as tickets, so they need the timer on. `workshop sweep <repo> <name>` runs one now.
+
+| Sweep | Looks at |
+|---|---|
+| `deps` | Dependabot alerts and PRs, and lock files |
+| `docs` | Where the docs and the code disagree |
+| `backlog` | Tickets done, duplicated, overtaken or too vague |
+| `logs` | Output of the repo's `logs` command under `[repos.<name>.commands]`, for repeating or growing failures. Without one it proposes nothing |
+
+Any `sweep-<name>` pipeline works, so a repo can add its own.
+
+A sweep is a run in its own read-only checkout. It proposes tickets to create, close or comment on, and stops at a gate with them numbered, unless there's nothing to say. Nothing changes before your go. `a` does what's left, and `x` skips by number, or `all`. Skipped ones are remembered, so the next sweep won't ask again. Sweeps never add the delivery label, and can't touch a queued ticket or one with a run. On Jira, `[jira]` needs `project` to create and `moves.dropped` to close.
 
 ## Backlog
 

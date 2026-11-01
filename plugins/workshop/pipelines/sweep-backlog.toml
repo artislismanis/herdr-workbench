@@ -1,0 +1,19 @@
+# A scheduled look at a repo. Nothing changes until your go on what it proposes. Copy to ~/.config/workshop/pipelines/ to change it.
+name = "sweep-backlog"
+
+[[steps]]
+id = "sweep"
+stage = "Maintain"
+kind = "agent"
+prompt = "sweep-backlog.md"
+fresh = true
+read_only = true
+proposes = true
+verdict = ["DONE"]
+
+[[steps]]
+id = "decide"
+stage = "Maintain"
+kind = "gate"
+report = "sweep"
+proposals = true

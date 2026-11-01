@@ -17,6 +17,12 @@ class Validate(unittest.TestCase):
         with self.assertRaisesRegex(PipelineError, text):
             validate(raw)
 
+    def test_every_sweep_ends_at_a_go(self):
+        for name in ("deps", "docs", "backlog", "logs"):
+            steps = load(f"sweep-{name}")["steps"]
+            self.assertTrue(steps[-1]["proposals"])
+            self.assertTrue(steps[-2]["read_only"] and steps[-2]["proposes"])
+
     def test_prepare_is_two_talks_each_with_a_go(self):
         steps = load("prepare")["steps"]
         self.assertEqual([s["id"] for s in steps], ["requirements", "sign-requirements", "design", "sign-design"])

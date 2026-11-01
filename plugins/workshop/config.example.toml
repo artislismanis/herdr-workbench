@@ -41,6 +41,7 @@ source = "github"
 label = "ai"
 # base = "main"
 # pipeline = "ticket"        # a file in pipelines/ or ~/.config/workshop/pipelines/
+# sweeps = { deps = "weekly", backlog = "weekly", docs = "monthly", logs = "weekly" }
 # environments = { main = "prod", dev = "preprod" }  # replaces the default, which also has master and preprod
 # review_pipeline = "review" # the same, for AI review of a PR
 # reply_pipeline = "reply"   # and for answering comments on your own PR

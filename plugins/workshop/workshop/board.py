@@ -52,6 +52,7 @@ class Ask(NamedTuple):
 # Key, button label, command, what to ask for, and whether it's needed.
 STOPPED = ((ord("c"), "c comment", "comment", "Comment on the ticket", True), (ord("t"), "t retry", "retry", "Retry, with an optional note", False), (ord("p"), "p pass", "pass", "Pass this step, with an optional note", False), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
 TURN = ((ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False),)
+PROPOSED = ((ord("a"), "a approve", "approve", "Do what's left of these? Enter confirms", False), (ord("x"), "x skip", "reject", "Numbers to skip, or all", True), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
 GATE = ((ord("a"), "a approve", "approve", "Approve this gate? Enter confirms", False), (ord("x"), "x reject", "reject", "Reject, saying what to change", True), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
 
 
@@ -270,6 +271,8 @@ class Board:
             return TURN
         if run is None or run.status not in ("parked", "waiting"):
             return ()
+        if run.current and run.current.get("proposals"):
+            return PROPOSED
         return GATE if run.current and run.current["kind"] == "gate" else STOPPED
 
     def ask(self, action: tuple[int, str, str, str, bool], lines: list[Line]) -> None:

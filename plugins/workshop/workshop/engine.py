@@ -20,6 +20,7 @@ from .tools import Tools, slug
 STEP_TIMEOUT = 45 * 60
 PREFIX = "[ai]"  # workshop comments as you, so its own comments mustn't count as yours
 STOPS = (ToolError, OSError, KeyError, ValueError, json.JSONDecodeError)
+SWEEPS = "sweeps.json"  # when each ran, and what you've declined
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 
 
@@ -33,7 +34,7 @@ class Engine:
         self.mark = prefix + " "
         self.command = "/" + prefix.strip("[]")  # [ai] gives /ai
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, environments: dict[str, str] | None = None) -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, environments: dict[str, str] | None = None, sweeping: str = "") -> Run:
         if self.store.exists(repo, key) and not restart:
             raise Park(f"{key} already has a run. Use workshop resume {key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
@@ -42,7 +43,7 @@ class Engine:
         if reason:
             raise Park(f"{key}: {reason}")
         source.claim(key)
-        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying, replying=replying, begun=self.clock(), claimed=claimed, preparing=preparing, step=at, environments=environments or {})
+        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying, replying=replying, begun=self.clock(), claimed=claimed, preparing=preparing, step=at, environments=environments or {}, sweeping=sweeping)
         if restart and self.store.exists(repo, key):
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
@@ -108,6 +109,8 @@ class Engine:
                     self._agent(run, step)
                 elif step["kind"] == "command":
                     self._command(run, step)
+                elif step.get("proposals") and not self._proposed(run, step):
+                    run.step, run.phase = run.step + 1, ""
                 elif step["kind"] == "gate":
                     self._wait(run, f"{step['report']} needs your approval. See {self._report(run, run.pipeline['steps'][run.index_of(step['report'])])}.")
                 else:
@@ -332,6 +335,8 @@ class Engine:
         step = self._at_gate(run)
         if "section" in step:
             self._sign_off(run, step)
+        if step.get("proposals"):
+            self._apply(run)
         self._post(run, "Approved.")
         run.status, run.reason = "running", ""
         run.step, run.phase = run.step + 1, ""
@@ -348,8 +353,62 @@ class Engine:
         source.signed(run.key, f"{self.mark}Signed off the {step['section'].lower()}.")
         self.store.event(run, "signed_off", step=step["id"], section=step["section"])
 
+    def _proposals(self, run: Run) -> list[dict[str, Any]]:
+        proposals = json.loads((self.store.files(run) / "proposals.json").read_text(encoding="utf-8"))
+        if not isinstance(proposals, list) or any(p.get("action") not in ("create", "close", "comment") for p in proposals):
+            raise ValueError("proposals.json isn't a list of create, close or comment")
+        return proposals
+
+    def _proposed(self, run: Run, step: dict[str, Any]) -> bool:
+        """Numbers them on the report you decide from, once, so skipping by number is plain. Nothing proposed needs no go."""
+        proposals = self._proposals(run)
+        report = self._report(run, run.pipeline["steps"][run.index_of(step["report"])])
+        if proposals and run.told != step["id"]:
+            run.told = step["id"]
+            names = [" ".join(filter(None, (p["action"] + (f" {p['key']}" if "key" in p else "") + ":", p.get("title"), p.get("why")))) for p in proposals]
+            with report.open("a", encoding="utf-8") as out:
+                out.write("\n".join(["", "## Proposals", "", *(f"{n}. {name}" for n, name in enumerate(names, 1)), ""]))
+        return bool(proposals)
+
+    def _skip(self, run: Run, note: str) -> Run:
+        """No to some of what a sweep proposed. It's remembered, so the next sweep doesn't ask again."""
+        proposals = self._proposals(run)
+        numbers = list(range(1, len(proposals) + 1)) if note.strip().lower() == "all" else [int(n) for n in re.findall(r"\d+", note)]
+        if not numbers or set(numbers) - set(range(1, len(proposals) + 1)):
+            raise KeyError(f"say which of 1 to {len(proposals)} to skip, or all")
+        run.skipped = sorted({*run.skipped, *numbers})
+        seen = self.store.read(SWEEPS)
+        entry = seen.setdefault(f"{run.repo}/{run.sweeping}", {})
+        entry["declined"] = list(dict.fromkeys([*entry.get("declined", []), *(p.get("title") or p.get("why", "") for p in (proposals[n - 1] for n in numbers))]))
+        self.store.write(SWEEPS, seen)
+        self.store.event(run, "skipped", proposals=numbers)
+        if len(run.skipped) == len(proposals):
+            return self.approve(run)
+        self.store.save(run)
+        return run
+
+    def _apply(self, run: Run) -> None:
+        """Your go. Done ones are counted, so a retry after a failure doesn't repeat them. A ticket that's since gained a run or been queued is left alone."""
+        source = self.source_for(run)
+        proposals, reachable = self._proposals(run), source.open_keys()
+        for number, proposal in list(enumerate(proposals, 1))[run.sent:]:
+            key = proposal.get("key", "")
+            free = key in reachable and not self.store.exists(run.repo, key)
+            if number not in run.skipped and proposal["action"] == "create":
+                self.store.event(run, "created", ticket=source.create(proposal["title"], proposal["body"]))
+            elif number not in run.skipped and not free:
+                self.store.event(run, "left_alone", ticket=key)
+            elif number not in run.skipped and proposal["action"] == "close":
+                source.close_ticket(key, self.mark + proposal["why"])
+            elif number not in run.skipped:
+                source.comment(key, self.mark + proposal["text"])
+            run.sent = number
+            self.store.save(run)
+
     def reject(self, run: Run, note: str) -> Run:
         step = self._at_gate(run)
+        if step.get("proposals"):
+            return self._skip(run, note)
         self._post(run, f"Rejected. {note}")
         self._note(run, "feedback.md", note)
         self.store.event(run, "rejected", note=note)
@@ -470,6 +529,8 @@ class Engine:
         """What a person does now, for a run that's waiting on one."""
         if run.current and run.current["id"] == "release":
             return f"Do the release steps, then workshop approve {run.key}"
+        if run.sweeping and run.current and run.current["kind"] == "gate":
+            return f'workshop approve {run.key} does what it proposes, workshop reject {run.key} "2 3" skips those, or "all"'
         if run.deployed == "preprod":
             return "In preprod. It lands when it reaches prod"
         if run.preparing and run.current and run.current["kind"] == "gate":
@@ -649,7 +710,7 @@ class Engine:
         if step.get("again") and not run.on_a_pr:
             run.checking = self.tools.snapshot(work)
         prompt = run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
-        text = prompt_text(prompt).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
+        text = (prompt_text(prompt) + (prompt_text("proposals.md") if step.get("proposes") else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()
@@ -725,6 +786,12 @@ class Engine:
         if run.preparing:
             run.status, run.landed = "done", "prepared"
             self.store.event(run, "prepared")
+            self.store.save(run)
+            self._tidy(run)
+            return
+        if run.sweeping:
+            run.status, run.landed = "done", "swept"
+            self.store.event(run, "swept")
             self.store.save(run)
             self._tidy(run)
             return

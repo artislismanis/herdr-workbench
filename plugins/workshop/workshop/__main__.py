@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | prepare <[repo/]key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | prepare <[repo/]key> | sweep <repo> <name> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -15,11 +15,11 @@ from typing import Any
 from .backlog import poll
 from .board import show
 from .doctor import doctor
-from .engine import PREFIX, STOPS, Engine, Park
+from .engine import PREFIX, STOPS, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
 from .shell import ToolError, run, run_json
-from .sources import CLAIMS, PrepareSource, PullRequestSource, ReplySource, Source, make_source
+from .sources import CLAIMS, PrepareSource, PullRequestSource, ReplySource, Source, SweepSource, make_source
 from .stats import stats
 from .store import Run, Store
 from .throttle import Throttle, usage_path
@@ -27,8 +27,9 @@ from .tools import Tools
 
 
 PATIENCE = 60  # seconds a person's command waits for a tick to finish
+EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 def config_path() -> Path:
@@ -57,6 +58,8 @@ def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
         path = Path(repo["path"]).expanduser()
         if run.preparing:
             return PrepareSource(make_source(run.repo, repo, cfg.get("jira", {})), cfg.get("backlog", {}))
+        if run.sweeping:
+            return SweepSource(make_source(run.repo, repo, cfg.get("jira", {})), run.sweeping, [])
         if run.replying:
             return ReplySource(path)
         return PullRequestSource(path, review_settings(cfg, repo)["claim"]) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
@@ -125,6 +128,34 @@ def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
     return engine.start(name, prep, Path(repo["path"]).expanduser(), repo.get("base", "main"), pipeline, source, restart=again, preparing=True, at=0 if at == len(pipeline["steps"]) else at)
 
 
+def begin_sweep(engine: Engine, cfg: dict[str, Any], name: str, sweep: str) -> Run:
+    repo = cfg["repos"][name]
+    seen = engine.store.read(SWEEPS)
+    entry = seen.setdefault(f"{name}/{sweep}", {})
+    source = SweepSource(make_source(name, repo, cfg.get("jira", {})), sweep, entry.get("declined", []))
+    entry["last"] = engine.clock()  # before it starts, so one that can't doesn't try again every tick
+    engine.store.write(SWEEPS, seen)
+    key = f"sweep-{sweep}-{time.strftime('%Y%m%d', time.gmtime(engine.clock()))}"
+    return engine.start(name, key, Path(repo["path"]).expanduser(), repo.get("base", "main"), load(f"sweep-{sweep}"), source, commands=repo.get("commands"), sweeping=sweep)
+
+
+def start_sweeps(engine: Engine, cfg: dict[str, Any]) -> None:
+    """Sweeps are due by the calendar, but they queue behind the same limits and slots as tickets. One waiting for your answer isn't joined by another."""
+    seen = engine.store.read(SWEEPS)
+    for name, repo in cfg["repos"].items():
+        for sweep, every in repo.get("sweeps", {}).items():
+            if every not in EVERY:
+                raise KeyError(f"{name}'s {sweep} sweep runs weekly or monthly, not {every}")
+            waiting = any(r.repo == name and r.sweeping == sweep and not r.landed for r in engine.store.all())
+            if waiting or engine.clock() - seen.get(f"{name}/{sweep}", {}).get("last", 0) < EVERY[every] or no_room(engine, cfg):
+                continue
+            print(f"{name}: starting the {sweep} sweep")
+            try:
+                begin_sweep(engine, cfg, name, sweep)
+            except (Park, PipelineError, *STOPS) as failed:
+                print(f"{name}: {sweep} sweep didn't start: {failed}")
+
+
 def being_prepared(engine: Engine, name: str, key: str) -> bool:
     prep = f"prep-{key}"
     return engine.store.exists(name, prep) and not engine.store.load(name, prep).landed
@@ -166,6 +197,11 @@ def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     advance_all(engine)
     check_tickets(engine)
     poll(cfg, engine.store)  # before the limits below, or a full workshop stops the board updating
+    start_ready(engine, cfg)
+    start_sweeps(engine, cfg)
+
+
+def start_ready(engine: Engine, cfg: dict[str, Any]) -> None:
     if no_room(engine, cfg):
         return
     skipped: dict[str, str] = {}
@@ -395,6 +431,8 @@ def main(argv: list[str]) -> int:
                 waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
             case "prepare":
                 waited(root, lambda: print(engine.explain(begin_prepare(engine, cfg, argv[1]))))
+            case "sweep":
+                waited(root, lambda: print(engine.explain(begin_sweep(engine, cfg, argv[1], argv[2]))))
             case "review":
                 waited(root, lambda: print(engine.review(engine.store.find(argv[1]))))
             case "finish":

@@ -67,6 +67,8 @@ class EditableSource(Source, Protocol):
     def rewrite(self, key: str, text: str) -> None: ...
     def tag(self, key: str, label: str) -> None: ...
     def labels(self, key: str) -> list[str]: ...
+    def create(self, title: str, body: str) -> str: ...
+    def close(self, key: str, why: str) -> None: ...
 
 
 def prepared(body: str, section: str, text: str) -> str:
@@ -137,6 +139,12 @@ class GitHubSource:
 
     def rewrite(self, key: str, text: str) -> None:
         run("gh", "issue", "edit", key, "--body", text, cwd=self.repo)
+
+    def create(self, title: str, body: str) -> str:
+        return run("gh", "issue", "create", "--title", title, "--body", body, cwd=self.repo).strip().rsplit("/", 1)[-1]
+
+    def close(self, key: str, why: str) -> None:
+        run("gh", "issue", "close", key, "--reason", "not planned", "--comment", why, cwd=self.repo)
 
     def tag(self, key: str, label: str) -> None:
         run("gh", "label", "create", label, "--force", cwd=self.repo)
@@ -212,7 +220,7 @@ class JiraSource:
 
     def __init__(self, repo_name: str, label: str, skip_statuses: list[str], cfg: dict[str, Any]) -> None:
         self.repo_name, self.label, self.skip = repo_name, label, skip_statuses
-        self.moves, self.route = cfg.get("moves", {}), cfg.get("route", [])
+        self.moves, self.route, self.project = cfg.get("moves", {}), cfg.get("route", []), cfg.get("project", "")
         self.base = cfg["base_url"].rstrip("/")
         token = os.environ.get("JIRA_TOKEN") or cfg["token"]
         pair = f"{cfg['email']}:{token}".encode()
@@ -259,6 +267,18 @@ class JiraSource:
 
     def rewrite(self, key: str, text: str) -> None:
         self._call("PUT", f"issue/{key}", {"fields": {"description": text}})
+
+    def create(self, title: str, body: str) -> str:
+        if not self.project:
+            raise KeyError("[jira] needs project to create tickets")
+        fields = {"project": {"key": self.project}, "summary": title, "description": body, "issuetype": {"name": "Task"}, "labels": [self.repo_name]}
+        return self._call("POST", "issue", {"fields": fields})["key"]
+
+    def close(self, key: str, why: str) -> None:
+        if "dropped" not in self.moves:
+            raise ValueError("[jira.moves] needs a dropped status to close tickets")
+        self.report(key, why)
+        self.move(key, "dropped")
 
     def tag(self, key: str, label: str) -> None:
         self._call("PUT", f"issue/{key}", {"update": {"labels": [{"add": label}]}})
@@ -376,6 +396,15 @@ class MarkdownSource:
 
     def rewrite(self, key: str, text: str) -> None:
         self._file(key).write_text(text, encoding="utf-8")
+
+    def create(self, title: str, body: str) -> str:
+        key = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+        (self.folder / f"{key}.md").write_text(f"# {title}\n\n{body}\n", encoding="utf-8")
+        return key
+
+    def close(self, key: str, why: str) -> None:
+        (self.folder / "closed").mkdir(exist_ok=True)
+        self._file(key).rename(self.folder / "closed" / f"{key}.md")
 
     def tag(self, key: str, label: str) -> None:
         pass  # a folder of files has no labels
@@ -562,6 +591,60 @@ class PrepareSource:
 
     def signed(self, key: str, text: str) -> None:
         self.ticket.report(self._key(key), text)
+
+    def ready(self) -> list[str]:
+        return []
+
+    def backlog(self) -> list[Item]:
+        return []
+
+    def comments(self, key: str, since: float) -> list[Comment]:
+        return []
+
+    def claim(self, key: str) -> None:
+        pass
+
+    def report(self, key: str, text: str) -> None:
+        pass
+
+    def finish(self, key: str) -> None:
+        pass
+
+    def move(self, key: str, move: str) -> None:
+        pass
+
+
+class SweepSource:
+    """A scheduled look at a repo. It has no ticket of its own, so its brief is the backlog, and what it proposes goes through act, on your go."""
+
+    def __init__(self, tickets: EditableSource, name: str, declined: list[str]) -> None:
+        self.tickets, self.name, self.declined = tickets, name, declined
+
+    def _open(self) -> list[Item]:
+        return [item for item in self.tickets.backlog() if not item.queued]  # queued work is yours, so a sweep can't reach it
+
+    def open_keys(self) -> list[str]:
+        return [item.key for item in self._open()]
+
+    def get(self, key: str) -> Ticket:
+        tickets = [f"- {item.key}: {item.title}" for item in self._open()] or ["None."]
+        declined = [f"- {title}" for title in self.declined] or ["None."]
+        return Ticket(key, f"{self.name} sweep", "\n".join(["Open tickets:", *tickets, "", "Declined before:", *declined]))
+
+    def create(self, title: str, body: str) -> str:
+        return self.tickets.create(title, f"{body}\n\nProposed by workshop's {self.name} sweep.")
+
+    def close_ticket(self, key: str, why: str) -> None:
+        self.tickets.close(key, why)
+
+    def comment(self, key: str, text: str) -> None:
+        self.tickets.report(key, text)
+
+    def guard(self, key: str) -> str:
+        return ""
+
+    def closed(self, key: str) -> bool:
+        return False
 
     def ready(self) -> list[str]:
         return []
