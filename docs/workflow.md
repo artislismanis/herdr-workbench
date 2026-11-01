@@ -1,6 +1,6 @@
 # Workflow
 
-How work is meant to move through workshop, from an idea to production, and what you do at each point. The [workshop README](../plugins/workshop/README.md) is the reference for commands and settings.
+How work is meant to move through workshop, from an idea to production and back to the next idea, and what you do at each point. There are three phases: dream it up on the Backlog, build it on Delivery and Review, and operate it on Operate, where deploys and sweeps turn up the next tickets. The [workshop README](../plugins/workshop/README.md) is the reference for commands and settings.
 
 The board is where you work. Open it with `prefix+shift+b`. Agents do the work, and you make the decisions. Nothing goes out in your name without your go.
 
@@ -18,7 +18,7 @@ The board is where you work. Open it with `prefix+shift+b`. Agents do the work, 
 | Deploy | A merge to `dev` or `preprod` shows as `preprod`. A merge to `main` or `master` shows as `in prod` and closes the ticket | Do any listed release steps, then answer |
 | Maintain | Scheduled sweeps look at dependencies, docs, the backlog and logs | Approve or skip what they propose |
 
-Delivery owns a ticket until your self-review lets it go with `prefix+shift+u`. From then the PR is managed on the Review tab, and Delivery keeps one line saying `in review`. A merge brings it back to Delivery as `preprod` or `in prod`.
+Delivery owns a ticket until your self-review lets it go with `prefix+shift+u`. From then the PR is managed on the Review tab, and Delivery keeps one line saying `in review`. A review ends in a merge, and the ticket moves to the Operate tab.
 
 ## Reviewing a PR
 

@@ -23,6 +23,7 @@ AGENT_NAME = 32  # herdr's limit
 STOPS = (ToolError, OSError, KeyError, ValueError, json.JSONDecodeError)
 PROPOSAL_FIELDS = {"create": ("title", "body", "why"), "close": ("key", "why"), "comment": ("key", "text", "why"), "skip": ()}
 SWEEPS = "sweeps.json"  # when each ran, and what you've declined
+SWEEP_EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 
 

@@ -16,7 +16,7 @@ from .backlog import poll
 from .board import show
 from .chat import CHAT, Chat
 from .doctor import doctor
-from .engine import PREFIX, STOPS, SWEEPS, Engine, Park
+from .engine import PREFIX, STOPS, SWEEP_EVERY, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
 from .shell import ToolError, run, run_json
@@ -33,7 +33,6 @@ PATIENCE = 60  # seconds a person's command waits for a tick to finish
 DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see the PR.", "COMMENTED": "Commented, see the PR."}
 TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
-EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 # Each command and how many arguments it needs.
 COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
@@ -162,10 +161,10 @@ def start_sweeps(engine: Engine, cfg: dict[str, Any]) -> None:
     seen = engine.store.read(SWEEPS)
     for name, repo in cfg["repos"].items():
         for sweep, every in repo.get("sweeps", {}).items():
-            if every not in EVERY:
+            if every not in SWEEP_EVERY:
                 raise KeyError(f"{name}'s {sweep} sweep runs weekly or monthly, not {every}")
             waiting = any(r.repo == name and r.sweeping == sweep and not r.landed for r in engine.store.all())
-            if waiting or engine.clock() - seen.get(f"{name}/{sweep}", {}).get("last", 0) < EVERY[every] or no_room(engine, cfg):
+            if waiting or engine.clock() - seen.get(f"{name}/{sweep}", {}).get("last", 0) < SWEEP_EVERY[every] or no_room(engine, cfg):
                 continue
             print(f"{name}: starting the {sweep} sweep")
             try:

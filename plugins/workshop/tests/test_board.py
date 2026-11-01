@@ -11,8 +11,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
-from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, REVIEW, Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pull_story, pulls, run_style, stage_groups, stage_state, to_go, usage_line, usage_view  # noqa: E402
+from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Board  # noqa: E402
+from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, operations, limit_style, pipe, pull, pull_story, pulls, run_style, stage_groups, stage_state, to_go, usage_line, usage_view  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -364,6 +364,21 @@ def pr(url="u", move="you", mine=False, state="needs review", **fields):
     return {"repo": "r", "number": 7, "title": "A change", "url": url, "author": "them", "mine": mine, "move": move, "state": state, "checks": "SUCCESS", "threads": 0, "reviews": {}, "waiting_on": [], "beaten": [], **fields}
 
 
+class Operate(unittest.TestCase):
+    def test_sweeps_say_when_they_ran_and_when_they_run_next(self):
+        row = {"repo": "r", "sweep": "docs", "cadence": "weekly", "every": 7 * 86400, "last": 1000.0}
+        text = joined(operations([], [], lambda r: "", [row], 1000.0 + 86400, WIDE))
+        self.assertIn("ran 1d ago", text)
+        self.assertIn("next in 6d0h", text)
+
+    def test_a_sweep_never_run_is_due(self):
+        row = {"repo": "r", "sweep": "docs", "cadence": "weekly", "every": 7 * 86400, "last": 0}
+        self.assertRegex(joined(operations([], [], lambda r: "", [row], 5000.0, WIDE)), "not run yet +due")
+
+    def test_no_sweeps_says_how_to_add_them(self):
+        self.assertIn("None scheduled", joined(operations([], [], lambda r: "", [], 1.0, WIDE)))
+
+
 class PRs(unittest.TestCase):
     def rows(self, *items):
         return [line for line in pulls({"prs": {"polled_at": 1.0, "error": "", "items": list(items)}}, WIDE) if line.pr]
@@ -569,7 +584,7 @@ class Keys(unittest.TestCase):
         self.board.press(curses.KEY_BTAB)
         self.assertEqual(self.board.tab, 0)
         self.board.press(curses.KEY_BTAB)
-        self.assertEqual(self.board.tab, 3)
+        self.assertEqual(self.board.tab, 4)
 
     def test_a_pr_opens_and_g_finds_its_run(self):
         self.store.save(run("1", pane="w1:p1", pr="u"))
@@ -895,6 +910,20 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.assertEqual(self.board.advice(self.board.run_of(self.board.picked)), "AI: approve")
         self.assertIn(" your turn ", joined(self.board.detail(self.board.picked, WIDE)))
+
+    def test_a_merge_moves_a_ticket_to_operate(self):
+        self.store.save(run("8", status="done", pr="u", deployed="preprod"))
+        self.store.save(run("9", status="done", pr="v", landed="merged"))
+        self.store.save(run("sweep-docs-1", status="waiting", sweeping="docs"))
+        self.store.save(run("3", status="waiting"))
+        self.board.seen = None
+        self.board.reload()
+        self.assertEqual({"3", "8", "9", "sweep-docs-1"} & {r.key for r in self.board.building()}, {"3"})
+        self.board.tab = OPERATE
+        text = joined(self.board.listing(WIDE))
+        self.assertIn("r/8", text)
+        self.assertIn("r/sweep-docs-1", text)
+        self.assertEqual(self.board.counts()[3], 1)
 
     def test_a_delivered_draft_stays_on_delivery_until_you_let_it_go(self):
         self.on_pr()
