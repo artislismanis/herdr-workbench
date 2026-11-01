@@ -651,6 +651,16 @@ class Reviews(unittest.TestCase):
         self.assertEqual((run.worktree, run.pane, run.step_agent), ("", "", ""))
         self.assertEqual(len(self.tools.removed), 1)
 
+    def test_reviewing_again_with_the_workspace_open_lets_the_last_reviewer_go(self):
+        first = self.to_review(self.start())
+        reviewer = first.step_agent
+        with mock.patch.object(PullRequestSource, "details", return_value=self.details):
+            again = self.engine.start("r", "pr-7", self.root, "main", load("review"), PullRequestSource(self.root), commands={"qa": "make test"}, pr=self.URL, restart=True)
+        (self.engine.store.files(again) / "qa.exit").write_text("0\n")
+        again = self.engine.advance(again)
+        self.assertNotEqual(again.step_agent, reviewer)
+        self.assertEqual(again.status, "running")
+
     def test_a_review_after_leaving_starts_a_fresh_checkout_from_where_it_got_to(self):
         run = self.to_review(self.start())
         reviewed = run.reviewed
