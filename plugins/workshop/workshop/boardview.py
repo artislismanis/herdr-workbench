@@ -311,10 +311,6 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
     return lines
 
 
-def owner(pr: dict[str, Any]) -> str:
-    return "yours" if pr["mine"] else f"by {pr['author']}"
-
-
 def facts(pr: dict[str, Any]) -> str:
     checks = {"": "no CI", "SUCCESS": "CI green", "FAILURE": "CI failing", "ERROR": "CI failing", "PENDING": "CI running"}.get(pr["checks"], "")
     threads = f"{pr['threads']} thread(s)" if pr["threads"] else ""
@@ -346,10 +342,9 @@ def pull_group(pr: dict[str, Any], run: Run | None) -> str:
 def pull_row(pr: dict[str, Any], width: int, run: Run | None = None, advice: str = "") -> Line:
     label, colour = pull_status(pr, run)
     dots = pipe(run) if run else [Span(" " * PIPE_WIDTH)]
-    step = step_id(run) if run else ""
-    room = max(width - 70, 30)
+    room = max(width - 73, 30)
     title_width = room * 3 // 5
-    return Line([Span("  "), Span(" " + cell(label, 19), colour), Span(" "), Span(cell(f"{pr['repo']}#{pr['number']}", 22) + " "), *dots, Span(" "), Span(cell(step, 9) + " ", "dim"), Span(cell(pr["title"], title_width) + " "), Span(cell(f"{owner(pr)}  {advice or facts(pr)}".rstrip(), room - title_width - 1), "dim")], pr=pr)
+    return Line([Span("  "), Span(" " + cell(label, 19), colour), Span(" "), Span(cell(f"{pr['repo']}#{pr['number']}", 22) + " "), *dots, Span(" "), Span(cell("yours" if pr["mine"] else pr["author"], 12) + " ", "mine" if pr["mine"] else "others"), Span(cell(pr["title"], title_width) + " "), Span(cell(advice or facts(pr), room - title_width - 1), "dim")], pr=pr)
 
 
 def pull_status(pr: dict[str, Any], run: Run | None) -> tuple[str, str]:
