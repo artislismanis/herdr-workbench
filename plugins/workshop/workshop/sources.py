@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from .chat import Chat
 from .guard import Change, check
 from .pipeline import SECTIONS, STAGES
 from .shell import run, run_json
@@ -453,14 +454,15 @@ CLAIMS = {
     "none": ("", ""),
     "github-reviewer": ("repos/{owner}/{repo}/pulls/%s/requested_reviewers", "reviewers[]"),
     "github-assignee": ("repos/{owner}/{repo}/issues/%s/assignees", "assignees[]"),
+    "chat-reaction": ("", ""),  # the eyes reaction on the message that asked
 }
 
 
 class PullRequestSource:
     """A PR under review. It only reads, except for the claim you chose: what else reaches GitHub is what you post from hunk."""
 
-    def __init__(self, repo: Path, action: str = "none") -> None:
-        self.repo, self.action = repo, action
+    def __init__(self, repo: Path, action: str = "none", chat: Chat | None = None) -> None:
+        self.repo, self.action, self.chat = repo, action, chat
 
     def details(self, key: str) -> dict[str, Any]:
         return run_json("gh", "pr", "view", number_of(key), "--json", "title,body,url,state,isCrossRepository,baseRefName,author", cwd=self.repo)
@@ -492,6 +494,15 @@ class PullRequestSource:
         if path:
             me = run("gh", "api", "user", "--jq", ".login").strip()
             run("gh", "api", "-X", "POST", path % number_of(key), "-f", f"{field_name}={me}", cwd=self.repo)
+        if self.action == "chat-reaction" and self.chat:
+            self.chat.react(self.details(key)["url"])
+
+    def decided(self, key: str, since: float) -> str:
+        """What your own review said, if you've posted one since then."""
+        pr = run_json("gh", "pr", "view", number_of(key), "--json", "reviews", cwd=self.repo)
+        me = run("gh", "api", "user", "--jq", ".login").strip()
+        mine = [r for r in pr["reviews"] if _who(r) == me and r.get("submittedAt") and _stamp(r["submittedAt"]) >= since]
+        return mine[-1]["state"] if mine else ""
 
     def activity(self, key: str, since: float) -> list[str]:
         """What other people did on the PR since then, to flag a review you haven't claimed."""

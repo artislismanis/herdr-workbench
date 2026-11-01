@@ -15,10 +15,23 @@
 # How PR reviews show to others. A repo's table can set its own [repos.<name>.review].
 # Silent shows nothing until you post, then claims just before the review. Claimed claims when the
 # review starts. `a` on the board uses mode, `A` the other one, and `m` claims one already going.
-# claim is none, github-reviewer or github-assignee. Use none where reviewers are assigned for you.
+# claim is none, github-reviewer, github-assignee or chat-reaction. Use none where reviewers are assigned for you.
+# after_post = "chat-reply" offers a thread reply once the review is posted, and waits for your go.
 # [review]
 # mode = "silent"
 # claim = "none"
+# after_post = "none"
+
+# Slack, or any chat with an MCP server set up in Claude Code. Leave it out for no chat at all.
+# Tool names depend on your server: `claude mcp list` shows it, and /mcp in Claude its tools.
+# Give read_tools only read tools, as what's in the messages steers that call.
+# [chat]
+# channels = ["#reviews"]
+# read_tools = ["mcp__slack__search_messages"]
+# react_tool = "mcp__slack__add_reaction"
+# reply_tool = "mcp__slack__post_message"
+# check_minutes = 30         # how often, in working hours only
+# model = "claude-haiku-5-5"
 
 # The board's PRs tab covers everything GitHub shows you. This narrows it, in GitHub search terms.
 # [prs]

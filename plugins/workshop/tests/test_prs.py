@@ -121,6 +121,21 @@ class Fetch(unittest.TestCase):
             found = fetch("", 0.0)
         self.assertEqual([(p["move"], p["state"]) for p in found], [("you", "re-review")])
 
+    def test_a_pr_asked_about_in_chat_shows_as_yours_to_review(self):
+        asked = pr("them") | {"state": "OPEN"}
+        reply = self.data()
+        reply["data"]["asked0"] = asked
+        with mock.patch("workshop.prs.run_json", return_value=reply) as call:
+            found = fetch("", 0.0, (asked["url"],))
+        self.assertIn("resource(url:", call.call_args.args[-1])
+        self.assertEqual([(p["move"], p["state"], p["chat"]) for p in found], [("you", "needs review", True)])
+
+    def test_a_chat_pr_thats_closed_or_gone_doesnt_show(self):
+        reply = self.data()
+        reply["data"]["asked0"], reply["data"]["asked1"] = pr("them") | {"state": "MERGED"}, None
+        with mock.patch("workshop.prs.run_json", return_value=reply):
+            self.assertEqual(fetch("", 0.0, ("a", "b")), [])
+
     def test_merged_ones_are_done(self):
         with mock.patch("workshop.prs.run_json", return_value=self.data(merged_mine=[pr()])):
             self.assertEqual(fetch("", 0.0)[0]["move"], "done")

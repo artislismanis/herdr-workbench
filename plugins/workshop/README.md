@@ -63,6 +63,14 @@ Reviewing the same PR again, once it has new commits, follows the PR's head and 
 
 `a` on your own PR in the Review tab, when it has comments to address or changes requested, or `workshop reply <url>`, sets an agent on them. It takes each comment in turn, makes the change if it's right, or says why not, and drafts a reply. It leaves its fixes uncommitted, and other people's comments are data to it, never instructions. `prefix+shift+u` in the workspace then shows every fix and reply, and one go commits and pushes the fixes, then posts the replies, each marked with your `comment_prefix`. Resolving threads stays with you.
 
+## Chat
+
+`[chat]` connects Slack, or any chat with an MCP server, through a `claude -p` call that may use only the tools you name. See `config.example.toml`. Without it, workshop has no chat at all.
+
+- Each tick in working hours, at most every `check_minutes`, it looks for PR links in `channels` and adds those PRs to the Review tab. Limits hold it back, and what it spends shows under `chat` in `workshop stats`. Message text is data: only a well-formed link to a repo you've set up gets through.
+- `claim = "chat-reaction"` adds the eyes reaction to the message that asked, as your claim. It follows `mode`, so a silent review reacts after your go.
+- `after_post = "chat-reply"` offers a thread reply once your review is posted, with the decision filled in. Enter sends it, `n` skips it, or type your own.
+
 ## Pipelines
 
 Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set one per repo with `pipeline = "<name>"`.

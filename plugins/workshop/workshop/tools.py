@@ -20,6 +20,7 @@ BOARD_TAB = "Dashboard"
 REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
 USAGE_TIMEOUT = 30
+CHAT_TIMEOUT = 120
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
 
 
@@ -212,6 +213,29 @@ class Tools:
             return subprocess.run(["claude", "-p", "/usage", "--no-session-persistence"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=USAGE_TIMEOUT).stdout
         except (OSError, subprocess.TimeoutExpired):
             return ""
+
+    def claude(self, prompt: str, model: str, tools: list[str]) -> dict[str, Any]:
+        """One call with only these tools, on stdin because --allowedTools takes all that follows it. Its dollars are the API equivalent, like everything else here."""
+        try:
+            done = subprocess.run(["claude", "-p", "--model", model, "--output-format", "json", "--no-session-persistence", "--allowedTools", *tools], cwd=Path.home(), input=prompt, capture_output=True, text=True, timeout=CHAT_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired) as failed:
+            raise ToolError(f"claude failed: {failed}") from failed
+        try:
+            found = json.loads(done.stdout)
+        except ValueError as bad:
+            raise ToolError(f"claude failed: {done.stderr.strip() or bad}") from bad
+        if found.get("is_error"):
+            raise ToolError(f"claude failed: {found.get('result', '')}")
+        usage = found["usage"]
+        return {
+            "result": found["result"],
+            "model": next(iter(found.get("modelUsage", {})), model),
+            "turns": found.get("num_turns", 1),
+            "tokens_in": sum(usage.get(f, 0) for f in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")),
+            "tokens_out": usage.get("output_tokens", 0),
+            "minutes": round(found.get("duration_ms", 0) / 60000, 1),
+            "usd": found.get("total_cost_usd"),
+        }
 
     def start_command(self, command: str, work: Path, output: Path, finished: Path, then: str = "") -> int:
         """Runs a repo's own command in the background, because it can outlast a tick. The exit code lands in finished, then the then command runs."""

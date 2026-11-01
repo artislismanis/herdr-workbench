@@ -11,7 +11,7 @@ COMMENTS = 10
 FAILING = ("FAILURE", "ERROR")
 FIELDS = """
 fragment pr on PullRequest {
-  number title url isDraft updatedAt
+  number title url isDraft updatedAt state
   author { login }
   repository { name }
   commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
@@ -137,9 +137,11 @@ def classify(pr: dict[str, Any], me: str, requested: bool = False, merged: bool 
     }
 
 
-def fetch(scope: str, now: float) -> list[dict[str, Any]]:
+def fetch(scope: str, now: float, asked: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    """Asked is PRs someone asked you about elsewhere, which GitHub can't search for."""
     parts = searches(scope, now)
     body = "".join(f"{alias}: search(query: {json.dumps(query)}, type: ISSUE, first: {size}) {{ nodes {{ ...pr }} }}\n" for alias, (query, size) in parts.items())
+    body += "".join(f"asked{n}: resource(url: {json.dumps(url)}) {{ ...pr }}\n" for n, url in enumerate(asked))
     data = run_json("gh", "api", "graphql", "-f", f"query=query {{ viewer {{ login }}\n{body}}}\n{FIELDS}")["data"]
     me = data["viewer"]["login"]
     requested = {pr["url"] for pr in data["requested"]["nodes"]}
@@ -148,4 +150,8 @@ def fetch(scope: str, now: float) -> list[dict[str, Any]]:
         merged = alias.startswith("merged")
         for pr in data[alias]["nodes"]:
             found[pr["url"]] = classify(pr, me, pr["url"] in requested, merged)
+    for n, url in enumerate(asked):
+        pr = data[f"asked{n}"]
+        if pr and pr["state"] == "OPEN":
+            found[pr["url"]] = classify(pr, me, True) | {"chat": True}
     return sorted(found.values(), key=lambda pr: pr["updated"], reverse=True)

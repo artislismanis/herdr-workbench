@@ -264,7 +264,7 @@ def facts(pr: dict[str, Any]) -> str:
     checks = {"": "no CI", "SUCCESS": "CI green", "FAILURE": "CI failing", "ERROR": "CI failing", "PENDING": "CI running"}.get(pr["checks"], "")
     threads = f"{pr['threads']} thread(s)" if pr["threads"] else ""
     first = f"reviewed by {', '.join(pr['beaten'])}" if pr["beaten"] else ""
-    return "  ".join(part for part in (first, threads, checks) if part)
+    return "  ".join(part for part in ("asked in chat" if pr.get("chat") else "", first, threads, checks) if part)
 
 
 def pr_style(pr: dict[str, Any]) -> str:
