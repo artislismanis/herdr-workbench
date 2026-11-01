@@ -380,10 +380,7 @@ class Engine:
         entry["declined"] = list(dict.fromkeys([*entry.get("declined", []), *(p.get("title") or p.get("why", "") for p in (proposals[n - 1] for n in numbers))]))
         self.store.write(SWEEPS, seen)
         self.store.event(run, "skipped", proposals=numbers)
-        if len(run.skipped) == len(proposals):
-            return self.approve(run)
-        self.store.save(run)
-        return run
+        return self.approve(run)  # one answer settles the list: these no, the rest yes
 
     def _apply(self, run: Run) -> None:
         """Your go. Done ones are counted, so a retry after a failure doesn't repeat them. A ticket that's since gained a run or been queued is left alone."""

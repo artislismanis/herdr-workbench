@@ -39,13 +39,26 @@ Anything stopped for you has two keys on the bottom row.
 - **`a` answer:** a box opens and says what happens here. Press enter to carry on, or type what you want instead.
 - **`d` drop:** stop working on this.
 
-Carrying on means the obvious next thing: start building, write it to the ticket, do what a sweep listed, or run a failed step again. Whatever you type goes to the agent as what to change. There are two small differences: an agent's question needs a typed answer, and a sweep's box takes the numbers to skip, or `all`, then you press `a` again for the rest.
+Carrying on means the obvious next thing: start building, write it to the ticket, do what a sweep listed, or run a failed step again. Whatever you type goes to the agent as what to change. There are two small differences: an agent's question needs a typed answer, and a sweep's box takes the numbers to skip, then does the rest. `all` skips everything.
 
 To treat a failed step as passed without running it again, use `workshop pass <key>`. It's a rare override, so it isn't on the board.
 
 After a delivery is dropped, the ticket stays open with a comment and a `dropped` state, so you can close it or start over with `workshop start <repo> <key> --restart`. Its worktree and branch stay too, for you to keep or remove. Prepare and sweeps hold no work, so dropping one removes its checkout, and the ticket is left as it was.
 
 In delivery, everything you do leaves a comment on the ticket, so the ticket is the full history. Prepare and sweeps touch a ticket only on your go.
+
+## What a sweep looks at
+
+Nothing is searched for. A sweep only sees what its `[repos.<name>]` table in the config points at, and a repo has no sweeps until you list them with `sweeps = { docs = "monthly" }`.
+
+| Sweep | Looks at | Set by |
+|---|---|---|
+| `deps` | That repo's dependabot alerts and PRs, and its lock files | The repo's `path` |
+| `docs` | That repo's docs against its code, and its last 30 days of commits | The repo's `path` |
+| `backlog` | That repo's open tickets. On GitHub, its issues. On Jira, tickets with the repo's label that aren't done | The repo's `source` and `label` |
+| `logs` | Whatever the repo's `logs` command prints, such as a Databricks or `az` query. Without one it proposes nothing | `[repos.<name>.commands]` |
+
+Every sweep also gets the repo's open tickets, so it doesn't propose what's already there. Tickets in the delivery queue or being worked on are left out, and can't be touched.
 
 ## From outside the board
 
