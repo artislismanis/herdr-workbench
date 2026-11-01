@@ -29,6 +29,14 @@ class Prepared(unittest.TestCase):
         body = prepared("## Design\n\nmine", "Requirements", "Do X")
         self.assertEqual(prepared(body, "Design", "Like so"), "## Requirements\n\nDo X\n\n## Design\n\nLike so\n\n## Original ticket\n\n## Design\n\nmine")
 
+    def test_a_web_edit_doesnt_nest_it(self):
+        edited = prepared("Old", "Requirements", "Do X").replace("\n", "\r\n")
+        self.assertEqual(prepared(edited, "Requirements", "Do Y"), "## Requirements\n\nDo Y\n\n## Original ticket\n\nOld")
+
+    def test_an_empty_original_with_its_newline_trimmed_doesnt_nest_it(self):
+        once = prepared("", "Requirements", "Do X").rstrip()
+        self.assertEqual(prepared(once, "Requirements", "Do Y"), "## Requirements\n\nDo Y\n\n## Original ticket\n")
+
     def test_an_empty_ticket_still_has_its_shape(self):
         self.assertEqual(prepared("", "Requirements", "Do X"), "## Requirements\n\nDo X\n\n## Original ticket\n")
 

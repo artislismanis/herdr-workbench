@@ -45,6 +45,7 @@ class Item:
 # Where a ticket has got to. Each source shows these its own way.
 TICKET_MOVES = ("working", "blocked", "review", "approved", "merged", "dropped")
 ORIGINAL = "## Original ticket"
+ORIGINAL_LINE = re.compile(rf"^{ORIGINAL}[ \t]*$", re.MULTILINE)
 PREPARED = re.compile(rf"^## ({'|'.join(SECTIONS)})$", re.MULTILINE)
 
 
@@ -70,9 +71,9 @@ class EditableSource(Source, Protocol):
 
 def prepared(body: str, section: str, text: str) -> str:
     """A ticket with one section written. What's prepared sits on top, so a rerun replaces it and the original stays once."""
-    top, found, original = body.partition(f"{ORIGINAL}\n")
-    if not found:
-        top, original = "", body
+    # GitHub hands back a web edit with CRLF, which would hide the headings and nest the sections.
+    parts = ORIGINAL_LINE.split(body.replace("\r\n", "\n"), maxsplit=1)
+    top, original = parts if len(parts) == 2 else ("", parts[0])
     parts = PREPARED.split(top)
     sections = dict(zip(parts[1::2], (part.strip() for part in parts[2::2]), strict=True)) | {section: text.strip()}
     written = [f"## {name}\n\n{sections[name]}" for name in SECTIONS if name in sections]
