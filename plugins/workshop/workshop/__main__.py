@@ -24,7 +24,7 @@ from .sources import CLAIMS, PrepareSource, PullRequestSource, ReplySource, Sour
 from .stats import stats
 from .store import Run, Store
 from .throttle import Throttle, usage_path
-from .system import Meter
+from .system import Meter, sessions
 from .tools import Tools
 from .usage import sample
 
@@ -500,7 +500,7 @@ def main(argv: list[str]) -> int:
                 waited(root, lambda: print(engine.explain(begin_prepare(engine, cfg, argv[1]))))
             case "sample":
                 read_limits(engine)
-                sample(root, engine.throttle.snapshot(), sum(r.status == "running" for r in engine.store.all()), Meter())
+                sample(root, engine.throttle.snapshot(), sessions(), Meter())
             case "sweep":
                 waited(root, lambda: print(engine.explain(begin_sweep(engine, cfg, argv[1], argv[2]))))
             case "review":

@@ -223,13 +223,13 @@ def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine
     lines = [plain(f"  {machine['cores']} cores, {machine['memory']:.0f}G of memory", "dim"), plain()] if machine else []
     if not rows and not spent:
         return [*lines, plain("  No samples yet. One arrives every 5 minutes.", "dim")]
-    lines += [rule("Last hours", width), plain(f"  {'hour':8}{'cpu peak':>10}{'ram peak':>10}{'5h':>6}{'agents':>8}{'spend':>9}", "dim")]
+    lines += [rule("Last hours", width), plain(f"  {'hour':8}{'cpu peak':>10}{'ram peak':>10}{'5h':>6}{'sessions':>10}{'agents':>8}{'runs':>6}{'spend':>9}", "dim")]
     for row in by_hour(rows, spent, now):
-        lines.append(Line([Span(f"  {row['hour'].strftime('%H:%M'):8}"), Span(f"{row['cpu']:>9.0f}%", calm(machine_style(row["cpu"]))), Span(f"{row['ram']:>9.0f}%", calm(machine_style(row["ram"]))), Span(f"{row['five']:>5.0f}%"), Span(f"{row['agents']:>8.0f}"), Span(f"{'$' + format(row['spend'], '.2f'):>9}")]))
-    lines += [plain(), rule("Totals", width)]
+        lines.append(Line([Span(f"  {row['hour'].strftime('%H:%M'):8}"), Span(f"{row['cpu']:>9.0f}%", calm(machine_style(row["cpu"]))), Span(f"{row['ram']:>9.0f}%", calm(machine_style(row["ram"]))), Span(f"{row['five']:>5.0f}%"), Span(f"{row['sessions']:>10.0f}"), Span(f"{row['agents']:>8.0f}"), Span(f"{row['runs']:>6.0f}"), Span(f"{'$' + format(row['spend'], '.2f'):>9}")]))
+    lines += [plain("  Sessions: Claude open on this machine. Agents: workshop steps working at once. Runs: tickets and reviews worked.", "dim"), plain(), rule("Totals", width)]
     for label, days in (("Today", 1), ("Week", 7), ("Month", KEEP_DAYS)):
         found = totals(rows, spent, now, days)
-        lines.append(plain(f"  {label:8}peak cpu {found['cpu']:.0f}%   ram {found['ram']:.0f}%   {found['agents']:.0f} agents at once   ${found['spend']:.2f}"))
+        lines.append(plain(f"  {label:8}peak cpu {found['cpu']:.0f}%   ram {found['ram']:.0f}%   {found['sessions']:.0f} sessions   {found['agents']:.0f} agents at once   {found['runs']:.0f} runs   ${found['spend']:.2f}"))
     model, step = top(spent, now)
     return lines + ([plain(), plain(f"  Most of this week's spend: {model}, on {step}", "dim")] if model else [])
 
