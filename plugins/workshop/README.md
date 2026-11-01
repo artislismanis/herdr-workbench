@@ -49,6 +49,8 @@ A `waiting` run stopped as planned, at a gate or with a question. A `parked` run
 
 `a` on a PR in the Review tab, or `workshop pr <url>`, reviews it with AI. The repo needs a `[repos]` table with its path, found by its origin. Workshop checks out the PR's own branch and runs the repo's `qa` command, then a fresh read-only agent writes a report and a draft review, and hunk opens with those notes against where the PR branched. A failing `qa` becomes a finding. Shape the review in hunk, then `prefix+shift+u` posts it, with the choice of comment, approve, request changes or draft.
 
+When a run's PR merges or closes, its worktree and workspace go too, and `wt` deletes the branch if it merged. A worktree with uncommitted changes, or commits that aren't on the PR, stays, and the event log says why.
+
 That key is the only way anything reaches GitHub: a review run posts nothing, moves nothing, and never commits or pushes, whatever its pipeline says. PRs from forks are refused. The repo's checks run the PR's code on your machine, as a repo's own branch would, so leave `qa` out of the repo's commands if you don't want that. `REVIEW.md` in a repo guides the reviewer. `review_pipeline` in a repo's table picks another pipeline, `review` by default.
 
 Reviewing the same PR again, once it has new commits, follows the PR's head and looks only at what changed since the last review: are the flagged issues fixed, and do the changes add new bugs. It doesn't go back over code nobody flagged, unless the new code raises a major concern. A force-push makes it a full review. A step's `again` names the prompt for those rounds. People's threads load into hunk beside the agent's notes, and aren't posted again.

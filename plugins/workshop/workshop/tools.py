@@ -111,7 +111,14 @@ class Tools:
         return cost.spent(work, since, until)
 
     def pr_state(self, url: str) -> dict[str, Any]:
-        return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision")
+        return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid")
+
+    def remove_worktree(self, repo: Path, work: Path) -> None:
+        # No --force: wt refuses a dirty worktree and keeps an unmerged branch, the same as the key.
+        run("wt", "remove", "--foreground", "--yes", "-C", str(repo), str(work))
+
+    def close_workspace(self, pane: str) -> None:
+        run("herdr", "workspace", "close", pane.split(":")[0])
 
     def close_pane(self, pane: str) -> None:
         subprocess.run(["herdr", "pane", "close", pane], capture_output=True)

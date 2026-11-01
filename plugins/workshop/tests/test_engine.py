@@ -168,6 +168,31 @@ class Reviews(unittest.TestCase):
         self.to_review(self.start())
         self.assertEqual(self.tools.threads_loaded, 1)
 
+    def landed(self, head="one"):
+        run = self.to_review(self.start())
+        self.tools.pr = {"state": "MERGED", "isDraft": False, "reviewDecision": "", "headRefOid": head}
+        return self.engine.land(run)
+
+    def test_a_landed_run_takes_its_worktree_and_workspace_with_it(self):
+        work = self.tools.work
+        run = self.landed()
+        self.assertEqual(self.tools.removed, [work])
+        self.assertEqual(self.tools.closed_workspaces, ["p1"])
+        self.assertEqual((run.worktree, run.pane, run.landed), ("", "", "merged"))
+
+    def test_commits_not_on_the_pr_keep_the_worktree(self):
+        run = self.landed("someone-elses")
+        self.assertEqual(self.tools.removed, [])
+        self.assertTrue(run.worktree)
+        self.assertEqual(run.landed, "merged")
+
+    def test_uncommitted_work_keeps_the_worktree_and_the_workspace(self):
+        self.tools.remove_fails = True
+        run = self.landed()
+        self.assertEqual(self.tools.closed_workspaces, [])
+        self.assertTrue(run.worktree)
+        self.assertIn("uncommitted", [e for e in self.engine.store.events(run) if e["type"] == "kept_worktree"][0]["reason"])
+
     def test_what_to_do_next(self):
         run = self.to_review(self.start())
         self.assertIn("prefix+shift+u", self.engine.next_action(run))
@@ -296,6 +321,7 @@ class FakeTools:
         self.worktrees = 0
         self.tracked = []
         self.reloads, self.threads_loaded, self.followed = [], 0, 0
+        self.removed, self.closed_workspaces, self.remove_fails = [], [], False
         self.heads, self.ancestor = ["one", "two"], True
 
 
@@ -315,6 +341,14 @@ class FakeTools:
 
     def fork_point(self, work, base):
         return "abc123"
+
+    def remove_worktree(self, repo, work):
+        if self.remove_fails:
+            raise ToolError("wt: worktree has uncommitted changes")
+        self.removed.append(work)
+
+    def close_workspace(self, pane):
+        self.closed_workspaces.append(pane)
 
     def load_threads(self, work):
         self.threads_loaded += 1
@@ -912,7 +946,7 @@ class Review(Case):
     def test_ready_pushes_fixes_then_opens_the_pr(self):
         run = self.finished()
         pushes = self.tools.pushes
-        self.tools.pr = {"state": "OPEN", "isDraft": False, "reviewDecision": ""}
+        self.tools.pr = {"state": "OPEN", "isDraft": False, "reviewDecision": "", "headRefOid": "one"}
         run = self.engine.ready(run)
         self.assertEqual(self.tools.pushes, pushes + 1)
         self.assertEqual(self.tools.readied, run.pr)
@@ -1071,7 +1105,7 @@ class Rework(Case):
         run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         cases = (("OPEN", True, "", "working"), ("OPEN", False, "", "review"), ("OPEN", False, "CHANGES_REQUESTED", "review"), ("OPEN", False, "APPROVED", "approved"), ("MERGED", False, "APPROVED", "merged"))
         for state, draft, decision, stage in cases:
-            self.tools.pr = {"state": state, "isDraft": draft, "reviewDecision": decision}
+            self.tools.pr = {"state": state, "isDraft": draft, "reviewDecision": decision, "headRefOid": "one"}
             self.engine.land(run)
             self.assertEqual(self.source.moves[-1], stage)
         self.assertEqual(run.landed, "merged")
@@ -1080,10 +1114,10 @@ class Rework(Case):
         run = self.to_verify()
         run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
         moved = len(self.source.moves)
-        self.tools.pr = {"state": "OPEN", "isDraft": True, "reviewDecision": ""}
+        self.tools.pr = {"state": "OPEN", "isDraft": True, "reviewDecision": "", "headRefOid": "one"}
         self.engine.land(run)
         self.assertEqual(len(self.source.moves), moved)
-        self.tools.pr = {"state": "CLOSED", "isDraft": False, "reviewDecision": ""}
+        self.tools.pr = {"state": "CLOSED", "isDraft": False, "reviewDecision": "", "headRefOid": "one"}
         self.assertEqual(self.engine.land(run).landed, "closed")
         self.assertEqual(len(self.source.moves), moved)
 
