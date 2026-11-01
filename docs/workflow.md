@@ -39,7 +39,7 @@ Anything stopped for you has two keys on the bottom row.
 - **`a` answer:** a box opens and says what happens here. Press enter to carry on, or type what you want instead.
 - **`d` drop:** stop working on this.
 
-Carrying on means the obvious next thing: start building, write it to the ticket, do what a sweep listed, or run a failed step again. Whatever you type goes to the agent as what to change. There are two small differences: an agent's question needs a typed answer, and a sweep's box takes the numbers to skip, then does the rest. `all` skips everything.
+Carrying on means the obvious next thing: start building, write it to the ticket, do what a sweep listed, or run a failed step again. Whatever you type goes to the agent as what to change. An agent's question needs a typed answer. A sweep asks about its proposals one at a time: enter does that one, `n` skips it and it won't be proposed again, and anything else you type goes to the agent, which reworks it and asks again.
 
 To treat a failed step as passed without running it again, use `workshop pass <key>`. It's a rare override, so it isn't on the board.
 

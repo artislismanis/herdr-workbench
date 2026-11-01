@@ -129,6 +129,8 @@ class Board:
         if (run.status not in ("parked", "waiting") and run.landed != "dropped") or run.current is None:
             return "", ""
         step = run.current
+        if step.get("proposals"):
+            return "proposals.json", self.engine.proposal(run)
         if step["kind"] == "gate":  # what you're deciding on is the report it names
             step = run.pipeline["steps"][run.index_of(step["report"])]
         name = files_name(step)

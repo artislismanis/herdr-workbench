@@ -56,7 +56,6 @@ class Run:
     environments: dict[str, str] = field(default_factory=dict)  # the repo's, branch to environment, if it names its own
     deployed: str = ""  # the furthest environment its PR has reached
     sweeping: str = ""  # which scheduled look at the repo this is
-    skipped: list[int] = field(default_factory=list)  # proposals you said no to, numbered from 1
 
     @property
     def current(self) -> dict[str, Any] | None:

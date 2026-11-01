@@ -106,23 +106,33 @@ class Sweeps(unittest.TestCase):
         run = self.swept([self.CREATE, self.CLOSE])
         self.assertEqual((run.status, run.current["id"]), ("waiting", "decide"))
         self.ticket.create.assert_not_called()
+
+    def test_it_asks_about_one_at_a_time(self):
+        run = self.swept([self.CLOSE, self.CREATE])
+        self.assertEqual(run.reason, "1 of 2: Close 1?")
+        self.assertIn("Done already", self.engine.proposal(run))
         self.ticket.close.assert_not_called()
 
-    def test_the_gate_numbers_what_it_proposes(self):
-        run = self.swept([self.CREATE, self.CLOSE])
-        report = (self.engine.store.files(run) / "sweep.md").read_text()
-        self.assertIn("1. create: Add docs", report)
-        self.assertIn("2. close 1: Done already", report)
+    def test_your_go_does_that_one_and_asks_the_next(self):
+        run = self.engine.approve(self.swept([self.CLOSE, self.COMMENT]))
+        self.ticket.close.assert_called_once_with("1", f"{PREFIX} Done already")
+        self.ticket.report.assert_not_called()
+        self.assertEqual((run.status, run.reason), ("waiting", "2 of 2: Comment on 2?"))
 
-    def test_dropping_one_takes_its_checkout(self):
-        run = self.engine.drop(self.swept([self.CREATE]), "Not now")
-        self.assertEqual((run.landed, len(self.tools.removed)), ("dropped", 1))
-        self.ticket.create.assert_not_called()
+    def test_the_last_go_ends_it(self):
+        run = self.engine.approve(self.swept([self.CREATE]))
+        self.assertEqual((run.status, run.landed), ("done", "swept"))
+        self.assertIn("docs sweep", self.ticket.create.call_args.args[1])
 
     def test_nothing_to_propose_ends_quietly(self):
         run = self.swept([])
         self.assertEqual((run.status, run.landed, run.label), ("done", "swept", "swept"))
         self.assertEqual(len(self.tools.removed), 1)
+
+    def test_dropping_one_takes_its_checkout(self):
+        run = self.engine.drop(self.swept([self.CREATE]), "Not now")
+        self.assertEqual((run.landed, len(self.tools.removed)), ("dropped", 1))
+        self.ticket.create.assert_not_called()
 
     def test_a_broken_file_is_a_stop_not_a_quiet_nothing(self):
         run = self.start()
@@ -132,42 +142,47 @@ class Sweeps(unittest.TestCase):
         self.tools.statuses[run.step_agent] = "idle"
         self.assertEqual(self.engine.advance(run).status, "parked")
 
-    def test_your_go_applies_them_and_ends_it(self):
-        run = self.engine.approve(self.swept([self.CREATE, self.CLOSE, self.COMMENT]))
-        self.ticket.create.assert_called_once()
-        self.assertIn("docs sweep", self.ticket.create.call_args.args[1])
-        self.ticket.close.assert_called_once_with("1", f"{PREFIX} Done already")
-        self.ticket.report.assert_called_once_with("2", f"{PREFIX} Which one?")
-        self.assertEqual((run.status, run.landed), ("done", "swept"))
-
     def test_a_sweep_never_queues_anything(self):
         self.engine.approve(self.swept([{**self.CREATE, "labels": ["ai"]}]))
         self.assertEqual(len(self.ticket.create.call_args.args), 2)
         self.ticket.tag.assert_not_called()
 
-    def test_skipping_by_number_does_the_rest_in_one_go(self):
-        run = self.engine.reject(self.swept([self.CREATE, self.CLOSE]), "2")
-        self.assertEqual((run.landed, run.skipped), ("swept", [2]))
-        self.ticket.create.assert_called_once()
-        self.ticket.close.assert_not_called()
+    def test_n_skips_it_and_asks_the_next(self):
+        run = self.engine.reject(self.swept([self.CREATE, self.CLOSE]), "n")
+        self.ticket.create.assert_not_called()
+        self.assertEqual(run.reason, "2 of 2: Close 1?")
 
     def test_skipped_proposals_are_remembered(self):
-        self.engine.reject(self.swept([self.CREATE]), "all")
+        self.engine.reject(self.swept([self.CREATE]), "n")
         self.assertEqual(self.engine.store.read("sweeps.json")["r/docs"]["declined"], ["Add docs"])
 
-    def test_skipping_them_all_ends_it(self):
-        run = self.engine.reject(self.swept([self.CREATE, self.CLOSE]), "all")
-        self.assertEqual(run.landed, "swept")
-        self.ticket.create.assert_not_called()
+    def test_skipping_the_last_ends_it(self):
+        self.assertEqual(self.engine.reject(self.swept([self.CREATE]), "N").landed, "swept")
 
-    def test_a_number_that_isnt_there_is_refused(self):
-        with self.assertRaises(KeyError):
-            self.engine.reject(self.swept([self.CREATE]), "4")
+    def test_guidance_goes_to_the_agent_and_doesnt_act(self):
+        run = self.engine.reject(self.swept([self.CLOSE, self.COMMENT]), "Keep it open, ask them first")
+        self.assertEqual((run.status, run.current["id"]), ("running", "sweep"))
+        self.assertIn("Proposal 1: Keep it open", (self.engine.store.files(run) / "feedback.md").read_text())
+        self.assertIn("gave you guidance", self.tools.prompts[-1][1])
+        self.assertNotIn("five at most", self.tools.prompts[-1][1])
+        self.ticket.close.assert_not_called()
+
+    def test_after_guidance_it_asks_about_the_same_one_again(self):
+        run = self.engine.approve(self.swept([self.CLOSE, self.COMMENT]))
+        run = self.engine.reject(run, "Ask something sharper")
+        files = self.engine.store.files(run)
+        (files / "sweep.md").write_text("Revised.\n\nVERDICT: DONE\n")
+        (files / "proposals.json").write_text(json.dumps([self.CLOSE, {**self.COMMENT, "text": "Sharper?"}]))
+        self.tools.statuses[run.step_agent] = "idle"
+        run = self.engine.advance(run)
+        self.assertEqual((run.status, run.reason), ("waiting", "2 of 2: Comment on 2?"))
+        self.assertIn("Sharper?", self.engine.proposal(run))
+        self.ticket.close.assert_called_once()
 
     def test_a_ticket_out_of_reach_isnt_touched(self):
         queued = {**self.CLOSE, "key": "3"}
-        unknown = {**self.COMMENT, "key": "77"}
-        self.engine.approve(self.swept([queued, unknown]))
+        run = self.engine.approve(self.swept([queued, {**self.COMMENT, "key": "77"}]))
+        self.engine.approve(run)
         self.ticket.close.assert_not_called()
         self.ticket.report.assert_not_called()
 
@@ -177,8 +192,8 @@ class Sweeps(unittest.TestCase):
         self.engine.approve(run)
         self.ticket.close.assert_not_called()
 
-    def test_a_failure_halfway_doesnt_repeat_what_went_through(self):
-        run = self.swept([self.CREATE, self.CLOSE])
+    def test_a_failure_doesnt_lose_your_place(self):
+        run = self.engine.approve(self.swept([self.CREATE, self.CLOSE]))
         self.ticket.close.side_effect = ToolError("gh down")
         with self.assertRaises(ToolError):
             self.engine.approve(run)
