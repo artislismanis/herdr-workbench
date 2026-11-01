@@ -12,6 +12,7 @@ from .backlog import COLUMNS
 from .review import section
 from .store import Run
 from .throttle import ahead
+from .usage import KEEP_DAYS, by_hour, top, totals
 
 Usage = dict[str, tuple[float, float]]
 
@@ -184,26 +185,45 @@ def limit_style(window: str, used: float, left: float) -> str:
     return "red" if used >= 100 or over > PACE_RED else "yellow" if over > PACE_AMBER else "green"
 
 
-def tiles(runs: list[Run], usage: Usage) -> Line:
+def tiles(runs: list[Run]) -> Line:
     waiting = [("parked", "waiting"), ("running",), ("done",)]
     labels = ("on-red", "needs you"), ("on-green", "with agents"), ("on-others", "with people")
     spans = []
     for statuses, (style, label) in zip(waiting, labels, strict=True):
         spans += [Span(f" {sum(r.status in statuses and not r.landed for r in runs)} ", style), Span(f" {label}    ")]
-    for window, (used, left) in usage.items():
-        spans += [Span(f"{window} ", "dim"), Span(bar(used, 100, 10), limit_style(window, used, left)), Span(f" {used:.0f}%" + (f", {ago(left)} left   " if left else "   "), "dim")]
     return Line(spans)
+
+
+def calm(style: str) -> str:
+    """Colour means something needs a look, so all's well is quiet."""
+    return "dim" if style == "green" else style
+
+
+def usage_line(usage: Usage, machine: dict[str, Any] | None) -> Line:
+    parts = [(f"{window} {used:.0f}%" + (f" {ago(left)}" if left else ""), calm(limit_style(window, used, left))) for window, (used, left) in usage.items()]
+    parts += [(f"{name} {machine[name]:.0f}%", calm(machine_style(machine[name]))) for name in ("cpu", "ram")] if machine else []
+    return Line([span for text, style in parts for span in (Span(text, style), Span("   "))])
 
 
 def machine_style(value: float) -> str:
     return "red" if value > MACHINE_RED else "yellow" if value > MACHINE_AMBER else "green"
 
 
-def machine_line(found: dict[str, Any]) -> Line:
-    return Line([
-        Span("cpu ", "dim"), Span(bar(found["cpu"], 100, 10), machine_style(found["cpu"])), Span(f" {found['cpu']:.0f}% of {found['cores']} cores, peak {found['cpu_peak']:.0f}%   ", "dim"),
-        Span("ram ", "dim"), Span(bar(found["ram"], 100, 10), machine_style(found["ram"])), Span(f" {found['ram']:.0f}% of {found['memory']:.0f}G, peak {found['ram_peak']:.0f}%", "dim"),
-    ])
+def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine: dict[str, Any] | None, now: float, width: int = 120) -> list[Line]:
+    """Machine, limits and work side by side, to show whether WSL needs more and what uses the limits."""
+    spent = [e for e in events if e["type"] == "spent"]
+    lines = [plain(f"  {machine['cores']} cores, {machine['memory']:.0f}G of memory", "dim"), plain()] if machine else []
+    if not rows and not spent:
+        return [*lines, plain("  No samples yet. One arrives every 5 minutes.", "dim")]
+    lines += [rule("Last hours", width), plain(f"  {'hour':8}{'cpu peak':>10}{'ram peak':>10}{'5h':>6}{'agents':>8}{'spend':>9}", "dim")]
+    for row in by_hour(rows, spent, now):
+        lines.append(Line([Span(f"  {row['hour'].strftime('%H:%M'):8}"), Span(f"{row['cpu']:>9.0f}%", calm(machine_style(row["cpu"]))), Span(f"{row['ram']:>9.0f}%", calm(machine_style(row["ram"]))), Span(f"{row['five']:>5.0f}%"), Span(f"{row['agents']:>8.0f}"), Span(f"{'$' + format(row['spend'], '.2f'):>9}")]))
+    lines += [plain(), rule("Totals", width)]
+    for label, days in (("Today", 1), ("Week", 7), ("Month", KEEP_DAYS)):
+        found = totals(rows, spent, now, days)
+        lines.append(plain(f"  {label:8}peak cpu {found['cpu']:.0f}%   ram {found['ram']:.0f}%   {found['agents']:.0f} agents at once   ${found['spend']:.2f}"))
+    model, step = top(spent, now)
+    return lines + ([plain(), plain(f"  Most of this week's spend: {model}, on {step}", "dim")] if model else [])
 
 
 def delivery(run: Run, title: str, width: int) -> Line:
@@ -218,7 +238,7 @@ def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[R
     last = {(e["repo"], e["key"]): e["at"] for e in events}
     landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
     active = sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index(r.status))
-    lines = [tiles(runs, usage or {}), *([machine_line(machine)] if machine else []), plain()]
+    lines = [tiles(runs), usage_line(usage or {}, machine), plain()]
     for heading in dict.fromkeys(HEADINGS[r.status] for r in active):
         group = [r for r in active if HEADINGS[r.status] == heading]
         lines += [rule(f"{heading} {len(group)}", width), *(delivery(r, title(r), width) for r in group), plain()]

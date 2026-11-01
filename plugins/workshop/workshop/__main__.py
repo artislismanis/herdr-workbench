@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -24,7 +24,9 @@ from .sources import CLAIMS, PrepareSource, PullRequestSource, ReplySource, Sour
 from .stats import stats
 from .store import Run, Store
 from .throttle import Throttle, usage_path
+from .system import Meter
 from .tools import Tools
+from .usage import sample
 
 
 PATIENCE = 60  # seconds a person's command waits for a tick to finish
@@ -33,7 +35,7 @@ TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
 EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 def config_path() -> Path:
@@ -451,7 +453,7 @@ def main(argv: list[str]) -> int:
     if command not in COMMANDS or len(argv) <= COMMANDS[command]:
         print(__doc__, file=sys.stderr)
         return 2
-    if command == "advance" and not config_path().exists():
+    if command in ("advance", "sample") and not config_path().exists():
         return 0  # herdr fires this for everyone who has the plugin, configured or not
     if command == "finish" and not config_path().exists():
         return post_review(here())  # no runs here, so it's a plain PR review
@@ -496,6 +498,9 @@ def main(argv: list[str]) -> int:
                 waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
             case "prepare":
                 waited(root, lambda: print(engine.explain(begin_prepare(engine, cfg, argv[1]))))
+            case "sample":
+                read_limits(engine)
+                sample(root, engine.throttle.snapshot(), sum(r.status == "running" for r in engine.store.all()), Meter())
             case "sweep":
                 waited(root, lambda: print(engine.explain(begin_sweep(engine, cfg, argv[1], argv[2]))))
             case "review":
