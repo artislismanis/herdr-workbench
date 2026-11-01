@@ -30,7 +30,6 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop retry <key> [note]` | Runs a stopped step again, with guidance if given |
 | `workshop pass <key> [note]` | Accepts a stopped agent or command step and moves on |
 | `workshop drop <key> [reason]` | Ends a stopped run. The worktree and branch stay |
-| `workshop comment <key> <text>` | Posts your comment on the ticket and acts on it now |
 | `workshop list` | Ready tickets |
 | `workshop schedule [<every>\|off]` | Shows, sets or stops the tick timer |
 | `workshop stats` | Tokens, cost, first-pass rate and stops across all runs |
@@ -130,7 +129,7 @@ Delivery, where it opens, shows counts and usage meters, then runs by who they w
 
 A run's detail is built around what to do next. A stopped run starts with Needs you, taken from the `## Needs you` section of the report that stopped it, with its actions underneath. The Workflow section comes next, as a tree under stage headings that carry the stage's colour, status and total, each with its verdict, rounds, cost and latest report, and the stopped step shows its findings in place. `▸` marks the report to read first. Older rounds sit behind `+2 older`, or press `e`: `ai-review.md` is always the latest, and `ai-review-1.md` is the first round, counting up. Enter or a click opens a report, and `esc` goes back.
 
-Colours are the terminal's own, so the board follows its colour scheme. Use herdr's `terminal` theme to match. On a stopped run, the bottom row offers comment, retry, pass and drop, or approve, reject and drop at a gate. Each asks for its text, then runs the matching `workshop` command and leaves a comment on the ticket.
+Colours are the terminal's own, so the board follows its colour scheme. Use herdr's `terminal` theme to match. Anything stopped for you has the same three keys on the bottom row: `a` accepts it and moves on, `x` redoes it, and `d` drops it. A note on `x` steers the next round, and at a gate it's required, because it says what to change. A sweep's `x` skips the numbers you give. Each key runs the matching `workshop` command and leaves a comment on the ticket.
 
 Each run works in a linked worktree, grouped under its repo's workspace in herdr, which opens if it isn't already. A finished run opens hunk beside its agent, with the reviewer's notes on the diff. A note that can't sit on a changed line waits on the first change as `PR-level:`, and goes in the PR-level comment if you post the review. The detail shows the reviewer's handover: what changed, and a recommendation to approve, or to approve after named checks. The ticket's Draft PR comment carries the same text. Comment in hunk and send those to the agent with `prefix+shift+s` if it needs changes.
 
@@ -138,7 +137,7 @@ Each run works in a linked worktree, grouped under its repo's workspace in herdr
 
 ## Concluding a stopped run
 
-A stopped run always has a way out, from the terminal or the ticket:
+A stopped run always has a way out: `a`, `x` or `d` on the board, or from the terminal or the ticket:
 
 | Terminal | Your own ticket comment | Does |
 |---|---|---|
@@ -146,7 +145,7 @@ A stopped run always has a way out, from the terminal or the ticket:
 | `workshop pass` | `/ai pass [note]` | Takes the step as good enough, even over a reviewer, and moves on. Parked or waiting agent and command steps only |
 | `workshop drop` | `/ai drop [reason]`, or close the ticket | Ends the run. It moves to Landed as `dropped` |
 
-Terminal actions happen at once. `workshop comment <key> "text"` posts a real comment and acts on it straight away, and takes `/ai` commands too. Comments made on the ticket itself are read on the next `tick` or `workshop refresh`, because nothing tells workshop about them sooner. Everything leaves a comment, so the ticket holds the full history. Guidance from a person gives the step a fresh set of review rounds, and every step can read it. `/ai` follows `comment_prefix`. Only your own unedited comment counts, and gates still need `approve` or `reject` from the terminal.
+Terminal actions happen at once. Comments made on the ticket itself are read on the next `tick` or `workshop refresh`, because nothing tells workshop about them sooner. Everything leaves a comment, so the ticket holds the full history. Guidance from a person gives the step a fresh set of review rounds, and every step can read it. `/ai` follows `comment_prefix`. Only your own unedited comment counts, and gates still need `approve` or `reject` from the terminal.
 
 ## Deploy
 

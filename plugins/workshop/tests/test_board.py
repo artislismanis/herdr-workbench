@@ -578,17 +578,34 @@ class Keys(unittest.TestCase):
 
     def test_a_stopped_run_offers_them(self):
         self.stopped()
-        self.assertIn("c comment", self.board.footer().text)
+        footer = self.board.footer().text
+        self.assertIn("a accept", footer)
+        self.assertIn("x redo", footer)
+        self.assertIn("d drop", footer)
 
-    def test_a_comment_sends_what_you_typed(self):
+    def test_a_stop_has_only_the_three_keys(self):
         self.stopped()
-        self.board.press(ord("c"))
+        self.assertEqual([a[1] for a in self.board.run_actions(self.board.runs[0])], ["a accept", "x redo", "d drop"])
+
+    def test_a_redo_sends_what_you_typed(self):
+        self.stopped()
+        self.board.press(ord("x"))
         self.type_in("use q and r")
-        self.assertEqual(self.sent(), ("comment", "1", "use q and r"))
+        self.assertEqual(self.sent(), ("retry", "1", "use q and r"))
+
+    def test_a_redo_needs_no_note(self):
+        self.stopped()
+        self.board.press(ord("x"))
+        self.assertEqual(self.sent(), ("retry", "1"))
+
+    def test_accepting_a_stop_passes_it(self):
+        self.stopped()
+        self.board.press(ord("a"))
+        self.assertEqual(self.sent(), ("pass", "1"))
 
     def test_typing_takes_backspace_and_esc_cancels(self):
         self.stopped()
-        self.board.press(ord("c"))
+        self.board.press(ord("x"))
         self.type_in("ab")
         self.board.press(127)
         self.assertEqual(self.board.typed, "a")
@@ -596,22 +613,22 @@ class Keys(unittest.TestCase):
         self.assertIsNone(self.board.asking)
         self.tools.workshop.assert_not_called()
 
-    def test_a_comment_needs_words_but_a_drop_doesnt(self):
-        self.stopped()
-        self.board.press(ord("c"))
+    def test_sending_a_gate_back_needs_words(self):
+        gated = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "check", "kind": "gate", "report": "plan"}]}
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))
+        self.board.seen = None
+        self.board.reload()
+        self.board.press(ord("x"))
         self.board.press(10)
         self.assertIsNotNone(self.board.asking)
-        self.board.press(27)
-        self.board.press(ord("d"))
-        self.assertEqual(self.sent(), ("drop", "1"))
 
     def test_enter_during_another_command_keeps_your_words(self):
         self.stopped()
-        self.board.press(ord("c"))
+        self.board.press(ord("x"))
         self.type_in("keep me")
         self.board.refreshing = True
         self.board.press(10)
-        self.assertEqual((self.board.asking.command, self.board.typed), ("comment", "keep me"))
+        self.assertEqual((self.board.asking.command, self.board.typed), ("retry", "keep me"))
 
     def reported(self):
         self.board.press(10)
@@ -784,7 +801,7 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.assertIn("x skip", self.board.footer().text)
-        self.assertIn("a approve", self.board.footer().text)
+        self.assertIn("a accept", self.board.footer().text)
         self.board.press(ord("x"))
         self.type_in("2 3")
         self.assertEqual(self.sent(), ("reject", "1", "2 3"))
@@ -795,8 +812,9 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         footer = self.board.footer().text
-        self.assertIn("a approve", footer)
-        self.assertNotIn("p pass", footer)
+        self.assertIn("a accept", footer)
+        self.assertIn("x redo", footer)
+        self.assertNotIn("pass", footer)
         self.board.press(ord("a"))
         self.type_in("ignored")
         self.assertEqual(self.sent(), ("approve", "1"))
