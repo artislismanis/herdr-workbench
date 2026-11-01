@@ -52,6 +52,8 @@ class Engine:
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
             run.worktree, run.branch, run.pane, run.agent = old.worktree, old.branch, old.pane, old.agent
+            run.step_pane, run.step_agent = old.step_pane, old.step_agent  # still open if nothing was posted, for the next fresh step to let go of
+            run.loops = {step: used for step, used in old.loops.items() if step.endswith("#")}
             if run.replying:
                 self.store.save(run)
                 self._write_brief(run)  # the comments have moved on
