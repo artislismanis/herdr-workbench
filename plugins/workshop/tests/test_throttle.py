@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.throttle import STALE_AFTER, WEEK, Throttle, live_windows  # noqa: E402
+from workshop.throttle import STALE_AFTER, WEEK, Throttle, ahead, live_windows  # noqa: E402
 
 NOW = 10_000_000.0
 LATER = NOW + 3600
@@ -142,6 +142,20 @@ class Live(unittest.TestCase):
         path.write_text('{"at": 1}', encoding="utf-8")
         Throttle(path, {}, clock=lambda: self.NOW).update("Usage is shown in the app\n")
         self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"at": 1})
+
+
+
+class Pace(unittest.TestCase):
+    def test_ahead_is_measured_against_an_even_pace_to_the_reset(self):
+        self.assertEqual(ahead("5h", 50, 2.5 * 3600), 0)
+        self.assertEqual(ahead("5h", 50, 4.5 * 3600), 40)
+        self.assertEqual(ahead("7d", 50, WEEK), 50)
+
+    def test_pace_gives_use_and_time_left(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "u.json"
+            path.write_text(json.dumps({"five_hour": {"used_percentage": 40, "resets_at": 1600}, "seven_day": {"used_percentage": 9, "resets_at": 900}}))
+            self.assertEqual(Throttle(path, {}, lambda: 1000).pace(), {"5h": (40, 600), "7d": (0, 0)})
 
 
 if __name__ == "__main__":

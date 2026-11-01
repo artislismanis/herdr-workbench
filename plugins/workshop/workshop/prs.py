@@ -7,6 +7,7 @@ from typing import Any
 from .shell import run_json
 
 RECENT_DAYS = 7
+COMMENTS = 10
 FAILING = ("FAILURE", "ERROR")
 FIELDS = """
 fragment pr on PullRequest {
@@ -14,9 +15,10 @@ fragment pr on PullRequest {
   author { login }
   repository { name }
   commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
-  reviews(last: 50) { nodes { state author { login __typename } commit { oid } } }
+  reviews(last: 50) { nodes { state body createdAt author { login __typename } commit { oid } } }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
-  reviewThreads(first: 100) { nodes { isResolved } }
+  reviewThreads(first: 100) { nodes { isResolved path line comments(first: 5) { nodes { body author { login } } } } }
+  comments(last: 10) { nodes { body createdAt author { login } } }
 }
 """
 
@@ -48,6 +50,21 @@ def latest_reviews(pr: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def waiting_on(pr: dict[str, Any]) -> list[str]:
     asked = [n["requestedReviewer"] or {} for n in pr["reviewRequests"]["nodes"]]
     return [person.get("login") or person.get("name", "") for person in asked]
+
+
+def note(node: dict[str, Any]) -> dict[str, str]:
+    return {"who": (node["author"] or {}).get("login", "ghost"), "text": node["body"]}  # an account can be deleted
+
+
+def threads_of(pr: dict[str, Any]) -> list[dict[str, Any]]:
+    found = [{"path": t["path"], "line": t["line"], "resolved": t["isResolved"], "said": [note(c) for c in t["comments"]["nodes"]]} for t in pr["reviewThreads"]["nodes"]]
+    return sorted(found, key=lambda t: t["resolved"])
+
+
+def comments_of(pr: dict[str, Any]) -> list[dict[str, str]]:
+    """The conversation on the PR itself: its comments and what reviews said overall, newest last."""
+    spoken = [n for n in pr["comments"]["nodes"] + pr["reviews"]["nodes"] if n["body"].strip()]
+    return [note(n) for n in sorted(spoken, key=lambda n: n["createdAt"])[-COMMENTS:]]
 
 
 def reviewed_commit(review: dict[str, Any]) -> str:
@@ -114,6 +131,8 @@ def classify(pr: dict[str, Any], me: str, requested: bool = False, merged: bool 
         "reviews": {who: r["state"] for who, r in reviews.items()},
         "waiting_on": waiting_on(pr),
         "beaten": beaten,
+        "discussion": threads_of(pr),
+        "comments": comments_of(pr),
         "updated": pr["updatedAt"],
     }
 

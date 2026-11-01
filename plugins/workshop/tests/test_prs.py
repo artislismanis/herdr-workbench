@@ -5,16 +5,16 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.prs import classify, fetch, searches  # noqa: E402
+from workshop.prs import COMMENTS, classify, fetch, searches  # noqa: E402
 
 ME = "me"
 
 
 def review(who, state, commit="head", kind="User"):
-    return {"state": state, "author": {"login": who, "__typename": kind}, "commit": {"oid": commit} if commit else None}
+    return {"state": state, "body": "", "createdAt": "2026-10-31T00:00:00Z", "author": {"login": who, "__typename": kind}, "commit": {"oid": commit} if commit else None}
 
 
-def pr(author=ME, reviews=(), draft=False, checks="SUCCESS", waiting=(), threads=(), url="u"):
+def pr(author=ME, reviews=(), draft=False, checks="SUCCESS", waiting=(), threads=(), url="u", comments=()):
     return {
         "number": 1,
         "title": "A change",
@@ -26,13 +26,32 @@ def pr(author=ME, reviews=(), draft=False, checks="SUCCESS", waiting=(), threads
         "commits": {"nodes": [{"commit": {"oid": "head", "statusCheckRollup": {"state": checks} if checks else None}}]},
         "reviews": {"nodes": list(reviews)},
         "reviewRequests": {"nodes": [{"requestedReviewer": {"login": w}} for w in waiting]},
-        "reviewThreads": {"nodes": [{"isResolved": t} for t in threads]},
+        "reviewThreads": {"nodes": [{"isResolved": t, "path": "a.py", "line": 3, "comments": {"nodes": [{"body": "why?", "author": {"login": "them"}}]}} for t in threads]},
+        "comments": {"nodes": list(comments)},
     }
 
 
 def move(*args, requested=False, **fields):
     found = classify(pr(*args, **fields), ME, requested)
     return found["move"], found["state"]
+
+
+class Discussion(unittest.TestCase):
+    def test_open_threads_come_first(self):
+        found = classify(pr(threads=[True, False]), ME)["discussion"]
+        self.assertEqual([t["resolved"] for t in found], [False, True])
+        self.assertEqual(found[0]["said"], [{"who": "them", "text": "why?"}])
+
+    def test_comments_and_what_reviews_said_read_in_order(self):
+        said = review("them", "APPROVED") | {"body": "Looks good", "createdAt": "2026-10-31T02:00:00Z"}
+        comment = {"body": "First", "createdAt": "2026-10-31T01:00:00Z", "author": {"login": "sam"}}
+        self.assertEqual(classify(pr(reviews=[said, review("x", "APPROVED")], comments=[comment]), ME)["comments"], [{"who": "sam", "text": "First"}, {"who": "them", "text": "Looks good"}])
+
+    def test_only_the_latest_comments_stay_and_a_deleted_account_is_fine(self):
+        many = [{"body": str(n), "createdAt": f"2026-10-31T00:{n:02}:00Z", "author": None} for n in range(COMMENTS + 2)]
+        found = classify(pr(comments=many), ME)["comments"]
+        self.assertEqual(len(found), COMMENTS)
+        self.assertEqual(found[-1], {"who": "ghost", "text": str(COMMENTS + 1)})
 
 
 class MyPRs(unittest.TestCase):

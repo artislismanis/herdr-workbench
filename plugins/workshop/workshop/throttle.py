@@ -19,6 +19,7 @@ WEEK = 7 * 24 * 60 * 60
 STALE_AFTER = 30 * 60
 DEFAULTS = {"pause_new_at": 60, "pause_steps_at": 85, "weekly_pace_margin": 5, "weekly_reserve": 25}
 WINDOWS = {"session": "five_hour", "week (all models)": "seven_day"}
+LENGTHS = {"5h": 5 * 60 * 60, "7d": WEEK}
 USAGE_LINE = re.compile(r"^Current (session|week \(all models\)): (\d+)% used\b.*?resets (?:(\w{3}) (\d+), )?(\d+)(?::(\d+))?(am|pm) \(([^)]+)\)", re.MULTILINE)
 
 
@@ -49,6 +50,11 @@ def live_windows(text: str, now: float) -> dict[str, dict[str, float]]:
     return windows
 
 
+def ahead(window: str, used: float, left: float) -> float:
+    """Points of the window used beyond an even pace to its reset. At or below zero, it lasts."""
+    return used - 100 * (1 - left / LENGTHS[window])
+
+
 class Throttle:
     def __init__(self, path: Path, settings: dict[str, int], clock: Callable[[], float] = time.time) -> None:
         self.path, self.limits, self.clock = path, DEFAULTS | settings, clock
@@ -72,6 +78,12 @@ class Throttle:
     def snapshot(self) -> dict[str, float]:
         data = self._read()
         return {"5h": self._used(data, "five_hour"), "7d": self._used(data, "seven_day")}
+
+    def pace(self) -> dict[str, tuple[float, float]]:
+        """Each window's use, and the seconds left until it resets."""
+        data = self._read()
+        windows = {"5h": "five_hour", "7d": "seven_day"}
+        return {name: (self._used(data, key), max(0.0, (data.get(key) or {}).get("resets_at", 0) - self.clock())) for name, key in windows.items()}
 
     def hold_steps(self) -> str:
         """Why no new agent step may start, or nothing. Running steps always finish."""

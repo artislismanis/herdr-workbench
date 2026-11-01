@@ -11,8 +11,9 @@ from typing import Any, NamedTuple
 from .backlog import COLUMNS
 from .review import section
 from .store import Run
+from .throttle import ahead
 
-Usage = dict[str, float]
+Usage = dict[str, tuple[float, float]]
 
 HEADINGS = {"parked": "Needs you", "waiting": "Needs you", "running": "With agents", "done": "With people"}
 ORDER = ("parked", "waiting", "running", "done")
@@ -20,6 +21,8 @@ COLOURS = {"parked": "red", "waiting": "yellow", "running": "green", "done": "ot
 BAD_EVENTS = ("parked", "check_failed", "move_failed", "report_failed")
 GOOD_EVENTS = ("finished", "approved", "landed")
 MOVES = (("you", "Your move"), ("others", "Waiting on others"), ("done", "Done lately"))
+PACE_AMBER, PACE_RED = 10, 25  # points ahead of an even pace, so a busy start isn't an alarm
+MACHINE_AMBER, MACHINE_RED = 75, 90
 SYMBOLS = {True: "●", False: "○"}  # with colour, so it reads in any theme
 COLUMN_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
 REVIEW_MARKS = {"APPROVED": ("✓", "green"), "CHANGES_REQUESTED": ("✗", "red")}
@@ -174,15 +177,32 @@ def run_style(run: Run) -> str:
     return block("dim" if run.landed else COLOURS[run.status])
 
 
+def limit_style(window: str, used: float, left: float) -> str:
+    """Green lasts until the reset at this rate, however much is used. Amber and red are ahead of that."""
+    over = ahead(window, used, left)
+    return "red" if used >= 100 or over > PACE_RED else "yellow" if over > PACE_AMBER else "green"
+
+
 def tiles(runs: list[Run], usage: Usage) -> Line:
     waiting = [("parked", "waiting"), ("running",), ("done",)]
     labels = ("on-red", "needs you"), ("on-green", "with agents"), ("on-others", "with people")
     spans = []
     for statuses, (style, label) in zip(waiting, labels, strict=True):
         spans += [Span(f" {sum(r.status in statuses and not r.landed for r in runs)} ", style), Span(f" {label}    ")]
-    for window, used in usage.items():
-        spans += [Span(f"{window} ", "dim"), Span(bar(used, 100, 10), "red" if used > 80 else "yellow" if used > 50 else "green"), Span(f" {used:.0f}%   ", "dim")]
+    for window, (used, left) in usage.items():
+        spans += [Span(f"{window} ", "dim"), Span(bar(used, 100, 10), limit_style(window, used, left)), Span(f" {used:.0f}%" + (f", {ago(left)} left   " if left else "   "), "dim")]
     return Line(spans)
+
+
+def machine_style(value: float) -> str:
+    return "red" if value > MACHINE_RED else "yellow" if value > MACHINE_AMBER else "green"
+
+
+def machine_line(found: dict[str, Any]) -> Line:
+    return Line([
+        Span("cpu ", "dim"), Span(bar(found["cpu"], 100, 10), machine_style(found["cpu"])), Span(f" {found['cpu']:.0f}% of {found['cores']} cores, peak {found['cpu_peak']:.0f}%   ", "dim"),
+        Span("ram ", "dim"), Span(bar(found["ram"], 100, 10), machine_style(found["ram"])), Span(f" {found['ram']:.0f}% of {found['memory']:.0f}G, peak {found['ram_peak']:.0f}%", "dim"),
+    ])
 
 
 def delivery(run: Run, title: str, width: int) -> Line:
@@ -193,11 +213,11 @@ def delivery(run: Run, title: str, width: int) -> Line:
     return Line([Span("  "), Span(" " + cell(run.label, 9), "dim" if run.landed else COLOURS[run.status]), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
 
 
-def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, usage: Usage | None = None) -> list[Line]:
+def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, usage: Usage | None = None, machine: dict[str, Any] | None = None) -> list[Line]:
     last = {(e["repo"], e["key"]): e["at"] for e in events}
     landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
     active = sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index(r.status))
-    lines = [tiles(runs, usage or {}), plain()]
+    lines = [tiles(runs, usage or {}), *([machine_line(machine)] if machine else []), plain()]
     for heading in dict.fromkeys(HEADINGS[r.status] for r in active):
         group = [r for r in active if HEADINGS[r.status] == heading]
         lines += [rule(f"{heading} {len(group)}", width), *(delivery(r, title(r), width) for r in group), plain()]
@@ -276,6 +296,25 @@ def pulls(snapshot: dict[str, Any], width: int = 120) -> list[Line]:
     return lines
 
 
+def said(who: str, text: str, width: int, style: str = "") -> list[Line]:
+    critical = clean(text).strip().lower().startswith("blocking")
+    return [plain("    " + line.text, "red" if critical and not style else style) for line in wrapped(f"{who}: {text}", width - 4)]
+
+
+def discussion(pr: dict[str, Any], width: int) -> list[Line]:
+    """What's been said on GitHub, open threads first. It's from the last poll, and other people's words are only shown."""
+    threads, comments, lines = pr.get("discussion", []), pr.get("comments", []), []
+    if threads:
+        lines += [plain(), rule("Threads", width)]
+    for thread in threads:
+        style = "dim" if thread["resolved"] else ""
+        lines += wrapped(f"  {thread['path']}:{thread['line'] or 'outdated'}" + ("  resolved" if thread["resolved"] else ""), width, "dim")
+        lines += [line for note in thread["said"] for line in said(note["who"], note["text"], width, style)]
+    if comments:
+        lines += [plain(), rule("Comments", width)]
+    return lines + [line for note in comments for line in said(note["who"], note["text"], width)]
+
+
 def pull(pr: dict[str, Any], width: int = 120) -> list[Line]:
     style = pr_style(pr)
     lines = [*wrapped(f"{SYMBOLS[pr['mine']]} {pr['repo']}#{pr['number']}  {pr['title']}", width, "bold"), *wrapped(pr["url"], width, "dim"), Line([Span(f" {pr['state']} ", block(style)), Span(f"  by {pr['author']}")])]
@@ -285,7 +324,9 @@ def pull(pr: dict[str, Any], width: int = 120) -> list[Line]:
         mark, colour = REVIEW_MARKS.get(state, ("•", "dim"))
         lines.append(Line([Span(f"  {mark} ", colour), Span(f"{who}: {state.lower().replace('_', ' ')}")]))
     lines += [plain(f"  … {who}: asked", "dim") for who in pr["waiting_on"]]
-    return lines if pr["reviews"] or pr["waiting_on"] else [*lines, plain("  None yet", "dim")]
+    if not pr["reviews"] and not pr["waiting_on"]:
+        lines.append(plain("  None yet", "dim"))
+    return lines + discussion(pr, width)
 
 
 def body(text: str) -> list[str]:
