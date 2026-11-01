@@ -89,6 +89,7 @@ class Board:
         self.typed = ""
         self.cursor = 0
         self.choice = 0  # which option the card has selected. Past the last is your own words
+        self.follow = ""  # the run just answered, to carry on with once its command is done
         self.failed = False  # a failure stays until a key, so it can be read
         self.drafts: dict[tuple[str, str], str] = {}  # what esc left, for when you come back
         self.regions: list[tuple[int, int, int, Action]] = []
@@ -148,9 +149,8 @@ class Board:
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:
             return []
-        action = self.engine.next_action(run) if run.status in ("parked", "waiting") else ""
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
-        return drill(run, events, self.title(run), action, str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run))
+        return drill(run, events, self.title(run), "", str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run))
 
     def panel(self, width: int) -> list[Line]:
         """The selected item beside the list. Its actions are on the bottom row, as everywhere."""
@@ -302,7 +302,22 @@ class Board:
         options, typed, command = self.engine.choices(run)
         report = self.stop_report(run)[1]
         context = section(report, "summary") or [line for line in report.splitlines() if line.strip() and not line.startswith(("#", "VERDICT:"))]
-        return Ask(run.key, f"{run.key}: {run.reason}", tuple(context), tuple(options), typed, command)
+        return Ask(run.key, run.reason, tuple(context), tuple(options), typed, command)
+
+    def carry_on(self) -> None:
+        """An answer doesn't end the conversation: the same run's next question opens by itself. When it's done, you're told, and left on what needs you next, but never answering for another run on a stray enter."""
+        if not self.follow or self.refreshing:
+            return
+        run = next((r for r in self.runs if r.key == self.follow), None)
+        self.follow = ""
+        if run is None or self.failed:
+            return
+        if self.run_actions(run).get(ANSWER):
+            self.begin_note(self.answer(run))
+            return
+        self.say(f"{run.key}: {run.label}")
+        if waiting := next((r for r in self.runs if self.run_actions(r).get(ANSWER)), None):
+            self.picked = (waiting.repo, waiting.key)
 
     def begin_note(self, asking: Ask) -> None:
         self.asking, self.typed = asking, self.drafts.get(asking.key + asking.command, "")
@@ -333,6 +348,7 @@ class Board:
             if (words or not typing) and not self.refreshing:
                 self.asking = None
                 self.drafts.pop(asking.key + asking.command, None)
+                self.follow = asking.key
                 self.send(*filter(None, (command, asking.key, words)))
         elif key in (curses.KEY_UP, curses.KEY_DOWN):
             self.choice = max(0, min(self.choice + (1 if key == curses.KEY_DOWN else -1), len(asking.options)))
@@ -446,8 +462,8 @@ class Board:
         asking, room = self.asking, max(width - 4, 20)
         typing = self.choice == len(asking.options)
         context = [part.text for line in asking.context for part in wrapped(line, room)]
-        lines = [rule("Answer", width), *wrapped(asking.question, width - 1, "bold")]
-        lines += [plain(f" {text}", "dim") for text in context[:CARD_CONTEXT]]
+        lines = [rule(cell(asking.key or "Answer", width - 6).rstrip(), width), *wrapped(asking.question, width - 1, "bold")]
+        lines += [plain(f" {text}") for text in context[:CARD_CONTEXT]]
         lines += [plain(f" ... {len(context) - CARD_CONTEXT} more lines above", "dim")] * (len(context) > CARD_CONTEXT)
         lines += [plain()]
         lines += [plain(f" {'›' if i == self.choice else ' '} {label}", "bold" if i == self.choice else "") for i, (label, _, _) in enumerate(asking.options)]
@@ -617,6 +633,8 @@ class Board:
         screen.timeout(1000)
         while True:
             self.reload()
+            self.carry_on()
+            screen.timeout(100 if self.follow else 1000)  # the next question shouldn't wait for the redraw
             self.draw(screen, styles)
             key, width = screen.getch(), screen.getmaxyx()[1]
             if key == ESCAPE and self.asking:

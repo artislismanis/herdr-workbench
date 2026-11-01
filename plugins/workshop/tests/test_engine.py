@@ -127,16 +127,20 @@ class Sweeps(unittest.TestCase):
         run = self.engine.reject(self.swept([self.CLOSE]), "Comment instead")
         self.assertEqual((run.current["id"], self.tools.worktrees), ("sweep", 2))
 
+    def test_the_answer_says_what_it_does(self):
+        run = self.swept([self.CLOSE])
+        self.assertEqual(self.engine.choices(run)[0][0][0], "Close it")
+
     def test_it_asks_about_one_at_a_time(self):
         run = self.swept([self.CLOSE, self.CREATE])
-        self.assertEqual(run.reason, "1 of 2: Close 1?")
+        self.assertEqual(run.reason, "1 of 2: Close 1, Old?")
         self.assertIn("Done already", self.engine.proposal(run))
         self.ticket.close.assert_not_called()
 
     def test_nothing_happens_until_every_answer_is_in(self):
         run = self.engine.approve(self.swept([self.CLOSE, self.COMMENT]))
         self.ticket.close.assert_not_called()
-        self.assertEqual((run.status, run.reason), ("waiting", "2 of 2: Comment on 2?"))
+        self.assertEqual((run.status, run.reason), ("waiting", "2 of 2: Comment on 2, Stale?"))
         run = self.engine.approve(run)
         self.ticket.close.assert_called_once_with("1", f"{PREFIX} Done already")
         self.ticket.report.assert_called_once_with("2", f"{PREFIX} Which one?")
@@ -172,7 +176,7 @@ class Sweeps(unittest.TestCase):
 
     def test_n_skips_it_and_asks_the_next(self):
         run = self.engine.reject(self.swept([self.CREATE, self.CLOSE]), "n")
-        self.assertEqual(run.reason, "2 of 2: Close 1?")
+        self.assertEqual(run.reason, "2 of 2: Close 1, Old?")
         self.engine.approve(run)
         self.ticket.create.assert_not_called()
         self.ticket.close.assert_called_once()
@@ -197,7 +201,7 @@ class Sweeps(unittest.TestCase):
 
     def test_guidance_waits_for_every_answer_then_goes_to_the_agent(self):
         run = self.engine.reject(self.swept([self.CLOSE, self.COMMENT]), "Keep it open")
-        self.assertEqual((run.status, run.reason), ("waiting", "2 of 2: Comment on 2?"))
+        self.assertEqual((run.status, run.reason), ("waiting", "2 of 2: Comment on 2, Stale?"))
         run = self.engine.approve(run)
         self.assertEqual((run.status, run.current["id"]), ("running", "sweep"))
         self.assertIn("Proposal 1: Keep it open", (self.engine.store.files(run) / "feedback.md").read_text())

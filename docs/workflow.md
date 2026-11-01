@@ -34,7 +34,7 @@ The board shows the reason and the report, so you shouldn't need to open the wor
 
 ## Answering
 
-Press `a` on anything stopped for you. A card opens at the bottom with the question, what you need to answer it, the options, and room to write your own. Up and down choose, or just start typing, and enter confirms. `d` drops the run.
+Press `a` on anything stopped for you. A card opens at the bottom with the question, what you need to answer it, the options, and room to write your own. Up and down choose, or just start typing, and enter confirms. If that run has another question, it follows straight away. When it's done, the board tells you and moves to the next thing that needs you, for `a` to pick up. `d` drops the run.
 
 An agent's question has no options, only your answer. A sweep asks about its proposals one at a time, and nothing happens until you've answered them all. Your own words are guidance: the agent acts on them and everything goes ahead, and you're only asked again if it has a real question. A skipped proposal isn't proposed again.
 

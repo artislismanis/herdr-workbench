@@ -985,15 +985,74 @@ class Keys(unittest.TestCase):
         steps = [{"id": "sweep", "kind": "agent"}, {"id": "decide", "kind": "gate", "report": "sweep", "proposals": True, "go": "Do it", "change": "Tell the agent what to do instead"}]
         self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": steps}, status="waiting", step=1, reason="1 of 2: Close 3?"))
         self.board.engine.proposal.return_value = "Already done."
+        self.board.engine._proposals.return_value = [{"action": "close", "key": "3", "why": "Already done."}]
         self.board.seen = None
         self.board.reload()
         self.board.press(ord("a"))
         text = joined(self.board.note(100))
         self.assertIn("1 of 2: Close 3?", text)
         self.assertIn("Already done.", text)
+        self.assertIn("Close it", text)
         self.assertIn("Skip it", text)
         self.board.press(curses.KEY_DOWN)
         self.assertEqual(self.sent(), ("reject", "1", "n"))
+
+    def question(self, reason="1 of 2: Close 3?"):
+        steps = [{"id": "sweep", "kind": "agent"}, {"id": "decide", "kind": "gate", "report": "sweep", "proposals": True}]
+        found = Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": steps}, status="waiting", step=1, reason=reason)
+        self.store.save(found)
+        self.board.engine.proposal.return_value = "Why."
+        self.board.engine._proposals.return_value = [{"action": "close", "key": "3", "why": "Why."}] * 2
+        self.board.seen = None
+        self.board.reload()
+        return found
+
+    def test_the_next_question_opens_by_itself(self):
+        self.question()
+        self.board.press(ord("a"))
+        self.sent()
+        self.question("2 of 2: Close 4?")
+        self.board.carry_on()
+        self.assertEqual(self.board.asking.question, "2 of 2: Close 4?")
+        self.assertEqual(self.board.typed, "")
+
+    def test_it_waits_for_the_command_to_finish(self):
+        self.question()
+        self.board.press(ord("a"))
+        self.sent()
+        self.board.refreshing = True
+        self.board.carry_on()
+        self.assertIsNone(self.board.asking)
+        self.assertEqual(self.board.follow, "1")
+
+    def test_a_run_thats_done_says_so_and_moves_to_what_needs_you(self):
+        self.question()
+        self.board.press(ord("a"))
+        self.sent()
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=PIPELINE, status="done", landed="swept"))
+        self.store.save(Run(repo="r", key="2", repo_path="/", base="main", pipeline=PIPELINE, status="waiting", reason="Next"))
+        self.board.seen = None
+        self.board.reload()
+        self.board.carry_on()
+        self.assertIsNone(self.board.asking)
+        self.assertEqual(self.board.picked, ("r", "2"))
+        self.assertIn("swept", self.board.footer().text)
+
+    def test_a_failed_answer_stays_on_screen_rather_than_asking_on(self):
+        self.question()
+        self.tools.workshop.side_effect = ToolError("gh down")
+        self.board.press(ord("a"))
+        self.sent()
+        self.board.carry_on()
+        self.assertIsNone(self.board.asking)
+        self.assertIn("gh down", joined(self.board.note(80)))
+
+    def test_the_card_names_the_run_and_doesnt_dim_what_you_read(self):
+        self.question()
+        self.board.press(ord("a"))
+        card = self.board.note(80)
+        self.assertTrue(card[0].text.startswith("─ 1 "))
+        self.assertEqual(next(line for line in card if "Why." in line.text).style, "")
 
     def test_no_workspace_means_no_g(self):
         self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=PIPELINE, status="waiting", reason="x"))
