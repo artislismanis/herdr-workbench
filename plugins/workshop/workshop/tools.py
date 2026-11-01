@@ -7,6 +7,7 @@ import re
 import signal
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -176,6 +177,14 @@ class Tools:
 
     def tracked_changes(self, work: Path) -> list[str]:
         return run("git", "status", "--porcelain", "--untracked-files=no", cwd=work).splitlines()
+
+    def snapshot(self, work: Path) -> str:
+        """The worktree as a git tree, new files included, touching nothing. Agents leave their work uncommitted, so there's no commit to compare with."""
+        excludes = [f":(exclude,glob)**/{g}/**" for g in GENERATED]
+        with tempfile.TemporaryDirectory() as folder:
+            index = {**os.environ, "GIT_INDEX_FILE": f"{folder}/index"}
+            run("git", "add", "-A", "--", ".", *excludes, cwd=work, env=index)
+            return run("git", "write-tree", cwd=work, env=index).strip()
 
     def stage(self, work: Path) -> None:
         excludes = [f":(exclude,glob)**/{g}/**" for g in GENERATED]

@@ -557,8 +557,10 @@ class Engine:
             agent = run.agent
             if self.tools.agent_status(agent) == "gone":
                 self.tools.start_agent(agent, run.pane, self.store.files(run), step.get("model", ""))
+        if step.get("again") and not run.on_a_pr:
+            run.checking = self.tools.snapshot(work)
         prompt = run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
-        text = prompt_text(prompt).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{pr}", run.pr)
+        text = prompt_text(prompt).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()
@@ -590,6 +592,8 @@ class Engine:
             if verdict not in allowed:
                 raise Park(f"{step['id']} gave no valid verdict.")
         self.store.event(run, "step", step=step["id"], state="done", verdict=verdict, usage=self.throttle.snapshot())
+        if run.checking:
+            run.reviewed, run.checking = run.checking, ""  # only now: a step that stopped hasn't reviewed anything
         rule = step.get("then", {}).get(verdict)
         if rule is None:
             if step.get("publish") == "ticket":

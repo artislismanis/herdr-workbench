@@ -44,7 +44,8 @@ class Run:
     replying: bool = False  # comments on your own PR: fixes and replies wait for your go
     replied: bool = False  # those went out
     sent: int = 0  # how many replies have, should a send stop halfway
-    reviewed: str = ""  # the commit the last review looked at
+    reviewed: str = ""  # what the last review looked at, a commit on a PR, otherwise a snapshot
+    checking: str = ""  # the snapshot this review is looking at
     begun: float = 0.0
     claimed: bool = False  # others can see this review is yours
     noticed: list[str] = field(default_factory=list)  # what others did on the PR, once told

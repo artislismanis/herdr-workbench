@@ -224,6 +224,68 @@ class Reviews(unittest.TestCase):
         self.assertIn("prefix+shift+u", self.engine.next_action(run))
 
 
+class DeliveryRounds(unittest.TestCase):
+    STEPS = {"name": "x", "steps": [{"id": "build", "kind": "agent", "prompt": "implement.md"}, {"id": "ai-review", "kind": "agent", "prompt": "ai-review.md", "again": "ai-re-review.md", "fresh": True, "read_only": True, "verdict": ["PASS", "CHANGES_NEEDED"], "then": {"CHANGES_NEEDED": {"goto": "build", "max": 2, "prompt": "fix.md"}}}]}
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.tools, self.source = FakeTools(self.root), FakeSource()
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: 1000.0)
+        self.run = self.engine.start("r", "1", self.root, "main", self.STEPS, self.source)
+
+    def built(self):
+        (self.engine.store.files(self.run) / "build.md").write_text("Done\n")
+        self.tools.statuses[self.run.agent] = "idle"
+        self.run = self.engine.advance(self.run)
+
+    def reviewed(self, verdict):
+        (self.engine.store.files(self.run) / "ai-review.md").write_text(f"VERDICT: {verdict}\n")
+        self.tools.statuses[self.run.step_agent] = "idle"
+        self.run = self.engine.advance(self.run)
+
+    def test_the_second_review_looks_only_at_what_changed(self):
+        self.built()
+        self.assertIn("Check every requirement", self.tools.prompts[-1][1])
+        self.reviewed("CHANGES_NEEDED")
+        self.assertEqual(self.run.reviewed, "tree1")
+        self.built()
+        self.assertIn("git diff tree1 tree2", self.tools.prompts[-1][1])
+        self.assertNotIn("Check every requirement", self.tools.prompts[-1][1])
+
+    def test_a_review_that_stopped_hasnt_reviewed_anything(self):
+        self.built()
+        self.tools.statuses[self.run.step_agent] = "idle"
+        self.run = self.engine.advance(self.run)
+        self.assertEqual((self.run.status, self.run.reviewed), ("parked", ""))
+        self.engine.resume(self.run)
+        self.assertIn("Check every requirement", self.tools.prompts[-1][1])
+
+
+class Snapshots(unittest.TestCase):
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp())
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.test"]
+        subprocess.run(["git", "init", "-q", str(self.work)], check=True)
+        (self.work / "a.txt").write_text("one\n")
+        subprocess.run([*git, "add", "-A"], cwd=self.work, check=True)
+        subprocess.run([*git, "commit", "-qm", "one"], cwd=self.work, check=True)
+
+    def diff(self, *refs):
+        return subprocess.run(["git", "diff", "--name-only", *refs], cwd=self.work, capture_output=True, text=True, check=True).stdout.split()
+
+    def test_changes_between_snapshots_include_new_files_and_touch_nothing(self):
+        tools = Tools()
+        (self.work / "a.txt").write_text("two\n")
+        first = tools.snapshot(self.work)
+        (self.work / "b.txt").write_text("new\n")
+        (self.work / "__pycache__").mkdir()
+        (self.work / "__pycache__" / "c.pyc").write_text("x\n")
+        second = tools.snapshot(self.work)
+        self.assertEqual(self.diff(first, second), ["b.txt"])
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=self.work, capture_output=True, text=True).stdout.splitlines()
+        self.assertEqual(status[0], " M a.txt")
+
+
 class Replies(unittest.TestCase):
     URL = "https://example.test/o/r/pull/7"
 
@@ -417,6 +479,7 @@ class FakeTools:
         self.worktrees = 0
         self.tracked = []
         self.reloads, self.threads_loaded, self.followed = [], 0, 0
+        self.snapshots = 0
         self.removed, self.closed_workspaces, self.remove_fails = [], [], False
         self.heads, self.ancestor = ["one", "two"], True
 
@@ -448,6 +511,10 @@ class FakeTools:
 
     def unpushed(self, work, branch):
         return self.behind
+
+    def snapshot(self, work):
+        self.snapshots += 1
+        return f"tree{self.snapshots}"
 
     def load_threads(self, work):
         self.threads_loaded += 1
