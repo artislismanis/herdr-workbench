@@ -179,7 +179,7 @@ class Preparing(unittest.TestCase):
 
     def test_a_ticket_past_requirements_starts_at_design(self):
         self.source.stages.return_value = ["planned"]
-        self.assertEqual(self.begin("r/7").kwargs["at"], 2)
+        self.assertEqual(self.begin("r/7").kwargs["at"], 1)
 
     def test_a_fully_prepared_ticket_starts_over(self):
         self.source.stages.return_value = ["planned", "designed"]

@@ -9,7 +9,7 @@ The board is where you work. Open it with `prefix+shift+b`. Agents do the work, 
 | Stage | What happens | Your part |
 |---|---|---|
 | Capture | An idea becomes a ticket, by hand or with `p` on the Backlog tab. Sweeps can propose tickets too | Type the idea |
-| Prepare | Two fresh agents grill you, on the requirements and then the design | Answer, then approve each one. It's written to the ticket |
+| Prepare | One talk on the requirements, then one on the design, each with a fresh agent | Answer in the agent's pane. When it plays back a summary, your yes puts it on the ticket, with nothing to approve on the board |
 | Queue | You add the delivery label, which puts the ticket in the queue | Read the ticket, then add the label |
 | Build | An agent plans the tasks and implements them | Nothing, unless it stops |
 | Test | The repo's checks run, then a fresh agent reviews the work | Nothing, unless it stops |

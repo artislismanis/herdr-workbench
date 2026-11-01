@@ -957,6 +957,12 @@ class Keys(unittest.TestCase):
         draft.opened = True
         self.assertEqual(draft.label, "in review")
 
+    def test_a_talk_waiting_for_you_needs_you(self):
+        talking = run("prep-5", "running", your_turn=True, preparing=True)
+        text = joined(deliveries([talking], [], lambda r: "", WIDE))
+        self.assertIn("Needs you 1", text)
+        self.assertNotIn("With agents", text)
+
     def test_a_merge_moves_a_ticket_to_operate(self):
         self.store.save(run("8", status="done", pr="u", deployed="preprod"))
         self.store.save(run("9", status="done", pr="v", landed="merged"))
@@ -1070,7 +1076,8 @@ class Keys(unittest.TestCase):
         self.assertEqual([label for label, _, _ in self.board.asking.options], ["one", "two"])
         self.board.press(curses.KEY_DOWN)
         self.board.press(10)
-        self.assertEqual(self.board.typed, "two/")
+        self.assertEqual(self.board.typed, "")
+        self.assertIn("in two?", joined(self.board.note(100)))
         self.type_in("7")
         self.assertEqual(self.sent(), ("prepare", "two/7"))
 
