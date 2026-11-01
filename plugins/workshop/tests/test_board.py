@@ -10,7 +10,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
-from workshop.board import BACKLOG, DELIVERY, REVIEW, Board  # noqa: E402
+from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, REVIEW, Board  # noqa: E402
 from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -26,6 +26,19 @@ def run(key="1", status="running", **fields):
 
 def event(kind, key="1", **fields):
     return {"at": "2026-10-31T12:30:00Z", "type": kind, "repo": "r", "key": key, **fields}
+
+
+class Pasted:
+    """Keys waiting to be read, as curses hands them over."""
+
+    def __init__(self, data):
+        self.data = list(data)
+
+    def getch(self):
+        return self.data.pop(0) if self.data else curses.ERR
+
+    def timeout(self, delay):
+        pass
 
 
 def texts(lines):
@@ -608,6 +621,108 @@ class Keys(unittest.TestCase):
         self.board.press(ord("a"))
         self.assertEqual(self.sent(), ("pass", "1"))
 
+    def noted(self, text, width=40):
+        self.stopped()
+        self.board.press(ord("x"))
+        self.type_in(text)
+        return texts(self.board.note(width))
+
+    def test_a_long_note_wraps_and_stays_in_view(self):
+        shown = self.noted("word " * 30)
+        self.assertGreater(len(shown), 3)
+        self.assertTrue(all(columns(line) <= 40 for line in shown))
+        self.assertIn("▌", "".join(shown))
+
+    def test_a_very_long_note_stops_growing_and_follows_the_cursor(self):
+        shown = self.noted("word " * 200)
+        self.assertLessEqual(len(shown), NOTE_ROWS + 2)
+        self.assertIn("▌", "".join(shown))
+        for _ in range(900):
+            self.board.press(curses.KEY_LEFT)
+        self.assertIn("▌", joined(self.board.note(40)))
+
+    def test_a_note_keeps_the_report_in_view(self):
+        self.noted("short")
+        self.assertLess(len(self.board.note(100)), NOTE_ROWS)
+
+    def test_the_cursor_moves_and_typing_goes_there(self):
+        self.noted("helo")
+        self.board.press(curses.KEY_LEFT)
+        self.type_in("l")
+        self.assertEqual(self.board.typed, "hello")
+        self.board.press(curses.KEY_HOME)
+        self.type_in("o")
+        self.board.press(curses.KEY_END)
+        self.type_in("!")
+        self.assertEqual(self.board.typed, "ohello!")
+
+    def test_delete_takes_the_next_letter(self):
+        self.noted("abc")
+        self.board.press(curses.KEY_HOME)
+        self.board.press(curses.KEY_DC)
+        self.assertEqual(self.board.typed, "bc")
+
+    def test_backspace_works_mid_note(self):
+        self.noted("abc")
+        self.board.press(curses.KEY_LEFT)
+        self.board.press(127)
+        self.assertEqual(self.board.typed, "ac")
+
+    def test_ctrl_w_takes_a_word_and_ctrl_u_the_rest(self):
+        self.noted("one two three")
+        self.board.press(23)
+        self.assertEqual(self.board.typed, "one two ")
+        self.board.press(21)
+        self.assertEqual(self.board.typed, "")
+
+    def test_esc_keeps_a_draft_for_that_key_and_run(self):
+        self.noted("half a thought")
+        self.board.press(27)
+        self.board.press(ord("x"))
+        self.assertEqual(self.board.typed, "half a thought")
+        self.type_in(" done")
+        self.board.press(27)
+        self.board.press(ord("a"))
+        self.assertEqual(self.board.typed, "")
+
+    def test_sending_clears_the_draft(self):
+        self.noted("words")
+        self.assertEqual(self.sent(), ("retry", "1", "words"))
+        self.board.press(ord("x"))
+        self.assertEqual(self.board.typed, "")
+
+    def test_a_gates_accept_takes_no_note_so_nothing_is_lost(self):
+        gated = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "check", "kind": "gate", "report": "plan"}]}
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))
+        self.board.seen = None
+        self.board.reload()
+        self.board.press(ord("a"))
+        self.type_in("words")
+        self.assertEqual(self.board.typed, "")
+        self.assertIn("enter confirms", joined(self.board.note(80)))
+
+    def test_a_paste_goes_in_whole_even_with_line_breaks(self):
+        self.noted("start ")
+        self.board.paste(Pasted(b"[200~one\r\ntwo\xc2\xa3\033[201~"))
+        self.assertEqual(self.board.typed, "start one\ntwo£")
+        self.assertIsNotNone(self.board.asking)
+
+    def test_a_pasted_note_shows_its_lines(self):
+        self.noted("")
+        self.board.paste(Pasted(b"[200~one\ntwo\033[201~"))
+        self.assertIn(" one", texts(self.board.note(80)))
+
+    def test_a_plain_escape_is_still_an_escape(self):
+        self.noted("x")
+        with mock.patch("workshop.board.curses.ungetch"):
+            self.assertEqual(self.board.paste(Pasted(b"")), 27)
+
+    def test_keys_after_an_escape_arent_lost(self):
+        self.noted("x")
+        with mock.patch("workshop.board.curses.ungetch") as back:
+            self.assertEqual(self.board.paste(Pasted(b"ab")), 27)
+        self.assertEqual([c.args[0] for c in back.call_args_list], [ord("b"), ord("a")])
+
     def test_typing_takes_backspace_and_esc_cancels(self):
         self.stopped()
         self.board.press(ord("x"))
@@ -784,7 +899,7 @@ class Keys(unittest.TestCase):
         self.board.tab = BACKLOG
         self.assertIn("p prepare", self.board.footer().text)
         self.board.press(ord("p"))
-        self.assertIn("idea", self.board.footer().text)
+        self.assertIn("idea", joined(self.board.note(100)))
         self.type_in("7")
         self.assertEqual(self.sent(), ("prepare", "7"))
 

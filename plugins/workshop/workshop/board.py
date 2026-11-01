@@ -2,15 +2,17 @@
 
 import curses
 import locale
+import re
 import sys
+import textwrap
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls
+from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls, rule
 from .engine import STOPS, Engine
 from .store import Run
 from .system import Meter
@@ -23,6 +25,12 @@ WHEEL = 3
 MESSAGE_SECONDS = 5
 CLICKS = curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED | curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED | curses.REPORT_MOUSE_POSITION
 DRAGS_ON, DRAGS_OFF = "\033[?1002h", "\033[?1002l"
+PASTES_ON, PASTES_OFF = "\033[?2004h", "\033[?2004l"  # marks a paste, so a line break in one isn't enter
+PASTE_START, PASTE_END = b"[200~", b"\033[201~"
+PASTE_LIMIT = 100_000
+NOTE_ROWS = 6
+CURSOR = "▌"
+CTRL_U, CTRL_W = 21, 23
 JITTER = 2  # a press that moves less than this along a row is still a click
 PAGE = 10
 PANEL_WIDTH = 130  # below this a window can't hold a list and a detail side by side
@@ -38,6 +46,11 @@ RENEWED = ("re-review", "new commits")
 ENTERS = (10, 13, curses.KEY_ENTER)
 BACKSPACES = (8, 127, curses.KEY_BACKSPACE)
 Action = str | tuple[str, str]
+
+
+class Keys(Protocol):
+    def getch(self) -> int: ...
+    def timeout(self, delay: int) -> None: ...
 
 
 class Ask(NamedTuple):
@@ -74,6 +87,8 @@ class Board:
         self.edge, self.right, self.rows = 0, 0, 0
         self.asking: Ask | None = None
         self.typed = ""
+        self.cursor = 0
+        self.drafts: dict[tuple[str, str], str] = {}  # what esc left, for when you come back
         self.regions: list[tuple[int, int, int, Action]] = []
         self.reload()
 
@@ -192,7 +207,7 @@ class Board:
             self.send("claim", found.key)
             return True
         if key == PREPARE and self.tab == BACKLOG and not self.open:
-            self.asking, self.typed = Ask("prepare", "", "Ticket number, or an idea to make into a ticket", True), ""
+            self.begin_note(Ask("prepare", "", "Ticket number, or an idea to make into a ticket", True))
             return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
@@ -282,24 +297,72 @@ class Board:
     def ask(self, action: tuple[int, str, str, str, bool], lines: list[Line]) -> None:
         run = self.target(lines)
         if run is not None:
-            self.asking, self.typed = Ask(action[2], run.key, f"{run.key}: {action[3]}", action[4]), ""
+            self.begin_note(Ask(action[2], run.key, f"{run.key}: {action[3]}", action[4]))
+
+    def begin_note(self, asking: Ask) -> None:
+        self.asking, self.typed = asking, self.drafts.get(asking[:2], "")
+        self.cursor = len(self.typed)
+
+    def insert(self, text: str) -> None:
+        """A gate's accept takes no note, so nothing typed there could be quietly lost."""
+        if self.asking and self.asking.command != "approve":
+            self.typed = self.typed[: self.cursor] + text + self.typed[self.cursor :]
+            self.cursor += len(text)
+
+    def cut(self, start: int, end: int) -> None:
+        self.typed = self.typed[:start] + self.typed[end:]
+        self.cursor = start
 
     def type_key(self, key: int) -> None:
         asking = self.asking
         if asking is None:
             return
         if key == ESCAPE:
+            self.drafts[asking[:2]] = self.typed
             self.asking = None
         elif key in ENTERS:
             # While another command runs, the words stay put for a second enter.
             if not self.refreshing and (self.typed.strip() or not asking.required):
                 self.asking = None
-                words = [self.typed.strip()] if self.typed.strip() and asking.command != "approve" else []
-                self.send(*filter(None, (asking.command, asking.key, *words)))
+                self.drafts.pop(asking[:2], None)
+                self.send(*filter(None, (asking.command, asking.key, self.typed.strip())))
         elif key in BACKSPACES:
-            self.typed = self.typed[:-1]
+            self.cut(max(self.cursor - 1, 0), self.cursor)
+        elif key == curses.KEY_DC:
+            self.cut(self.cursor, self.cursor + 1)
+        elif key == CTRL_U:
+            self.cut(0, self.cursor)
+        elif key == CTRL_W:
+            self.cut(len(re.sub(r"\S*\s*$", "", self.typed[: self.cursor])), self.cursor)
+        elif key == curses.KEY_LEFT:
+            self.cursor = max(self.cursor - 1, 0)
+        elif key == curses.KEY_RIGHT:
+            self.cursor = min(self.cursor + 1, len(self.typed))
+        elif key == curses.KEY_HOME:
+            self.cursor = 0
+        elif key == curses.KEY_END:
+            self.cursor = len(self.typed)
         elif 32 <= key < curses.KEY_MIN and key != 127:
-            self.typed += chr(key)
+            self.insert(chr(key))
+
+    def paste(self, screen: Keys) -> int:
+        """Reads what follows an escape. A paste goes in whole, and anything else is an escape, plus keys to handle next."""
+        screen.timeout(0)
+        seen = bytearray()
+        while len(seen) < len(PASTE_START) and (key := screen.getch()) != curses.ERR:
+            seen.append(key & 0xFF)
+        if bytes(seen) != PASTE_START:
+            screen.timeout(1000)
+            for key in reversed(seen):
+                curses.ungetch(key)
+            return ESCAPE
+        pasted = bytearray()
+        while not pasted.endswith(PASTE_END) and len(pasted) < PASTE_LIMIT:
+            if (key := screen.getch()) != curses.ERR and 0 <= key < 256:
+                pasted.append(key)
+        screen.timeout(1000)
+        self.insert(pasted.removesuffix(PASTE_END).decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n"))
+        return curses.ERR
 
     def send(self, *args: str) -> None:
         """Commands can take a while on GitHub or Jira, so the board keeps drawing."""
@@ -348,8 +411,6 @@ class Board:
         return Line([*tabs, Span(f" {age}", "dim"), Span(f"   held: {held}" if held else "", "yellow")])
 
     def footer(self, width: int = 120) -> Line:
-        if self.asking:
-            return Line([Span(f"{self.asking.label}: ", "bold"), Span(self.typed + "▌"), Span("   enter sends, esc cancels", "dim")])
         if self.refreshing:
             return Line([Span("Working...", "dim")])
         if self.message and self.clock() - self.said < MESSAGE_SECONDS:
@@ -364,6 +425,18 @@ class Board:
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
+
+    def note(self, width: int) -> list[Line]:
+        """Grows upward as you type, so what you're answering stays in view."""
+        if self.asking is None:
+            return [self.footer(width)]
+        room = max(width - 2, 20)
+        marked = self.typed[: self.cursor] + CURSOR + self.typed[self.cursor :]
+        rows = [part for line in marked.split("\n") for part in textwrap.wrap(clean(line), room, drop_whitespace=False, replace_whitespace=False, break_on_hyphens=False) or [""]]
+        here = next(i for i, row in enumerate(rows) if CURSOR in row)
+        first = max(0, min(here - NOTE_ROWS + 1, len(rows) - NOTE_ROWS))
+        hint = "enter confirms, esc cancels" if self.asking.command == "approve" else "enter sends, esc keeps a draft"
+        return [rule(cell(self.asking.label, width - 6).rstrip(), width), *(plain(f" {row}") for row in rows[first : first + NOTE_ROWS]), plain(f" {hint}", "dim")]
 
     def wheel(self, by: int, width: int) -> None:
         lines = self.lines(width)
@@ -470,7 +543,8 @@ class Board:
         self.right, self.rows = width - 1, rows
         screen.erase()
         self.put(screen, TOP, self.header(), styles, width)
-        height = rows - TOP - 3
+        foot = self.note(width - 1)
+        height = rows - TOP - 2 - len(foot)
         panelled = self.panelled(width - 1)
         edge = self.list_width(width - 1) + 1 if panelled else width
         self.edge = edge if panelled else 0
@@ -483,7 +557,8 @@ class Board:
                 screen.addnstr(y, edge, "│", 1, styles["dim"])
             for y, line in enumerate(side[self.side : self.side + height], TOP + 2):
                 self.put(screen, y, line, styles, width, left=edge + 2)
-        self.put(screen, rows - 1, self.footer(width - 1), styles, width)
+        for y, line in enumerate(foot, rows - len(foot)):
+            self.put(screen, y, line, styles, width)
         if self.grab and self.reach:
             for y, left, right in self.selection(self.grab, self.reach):
                 screen.chgat(y, left, max(right - left, 0), curses.A_REVERSE)
@@ -516,13 +591,15 @@ class Board:
         styles = self.colours()
         curses.mousemask(CLICKS)
         curses.mouseinterval(0)
-        sys.stdout.write(DRAGS_ON)  # curses' own mouse mode reports presses, not movement
+        sys.stdout.write(DRAGS_ON + PASTES_ON)  # curses' own mouse mode reports presses, not movement
         sys.stdout.flush()
         screen.timeout(1000)
         while True:
             self.reload()
             self.draw(screen, styles)
             key, width = screen.getch(), screen.getmaxyx()[1]
+            if key == ESCAPE and self.asking:
+                key = self.paste(screen)
             if key == curses.KEY_MOUSE:
                 try:
                     _, x, y, _, state = curses.getmouse()
@@ -540,5 +617,5 @@ def show(engine: Engine, cfg: dict[str, Any]) -> None:
     try:
         curses.wrapper(Board(engine, cfg).loop)
     finally:
-        sys.stdout.write(DRAGS_OFF)
+        sys.stdout.write(DRAGS_OFF + PASTES_OFF)
         sys.stdout.flush()
