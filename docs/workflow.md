@@ -24,14 +24,14 @@ Delivery owns a ticket until your self-review lets it go with `prefix+shift+u`. 
 
 The Review tab works like Delivery: Needs you, With agents, With people, and Done lately.
 
-1. `a` on someone else's PR runs the repo's checks and a fresh AI review. The row shows `reviewing` with its stages, under With agents.
-2. When it's done, the row moves to Needs you as `your turn`, with the AI's recommendation. Its detail says what to do next, then gives a four line briefing to read before the diff: the intent, what the code delivers against it, the challenges, and the recommendation.
+1. `a` on someone else's PR runs the repo's checks and a fresh AI review. The row shows `working`, under With agents, and its detail shows the stages.
+2. When it's done, the row moves to Needs you as `your turn`. Its detail gives the AI's recommendation and what to do next, then a four line briefing to read before the diff: the intent, what the code delivers against it, the challenges, and the recommendation.
 3. `g` opens hunk with the AI's notes on the diff, and the reviewer beside it. Ask it anything. It changes nothing and posts nothing.
-4. Keep, change or drop the notes, then post with `prefix+shift+u`. What you post is the review, and it's all on GitHub, so the workspace and checkout go whatever you chose, and you're back on the board. The row shows `posted` until the PR moves on.
+4. Keep, change or drop the notes, then post with `prefix+shift+u`. What you post is the review, and it's all on GitHub, so the workspace and checkout go whatever you chose, and you're back on the board. The row goes back to the PR's own status.
 
 New commits offer `a` again, in a fresh checkout, for a review of what's changed.
 
-`a` on your own PR with comments has an agent draft the fixes and replies. Nothing goes out yet: the row moves to Needs you, and its detail shows each reply. `g` opens the fix in hunk beside the agent, so you can tell it what to change. `prefix+shift+u` then pushes the fix and sends the replies, and a reply about a fix names its commit. That also re-requests review from whoever asked for changes, on GitHub, and the workspace and checkout go, as with a posted review. If you push fixes some other way, the row says `re-review`, because GitHub keeps showing changes requested until it's reviewed again, and `a` asks for another look. A reply to an inline comment joins that thread. Comments in a review's summary have no thread on GitHub, so those replies are general comments that quote what they answer.
+`a` on your own PR with comments has an agent draft the fixes and replies. Nothing goes out yet: the row moves to Needs you, and its detail shows each reply. `g` opens the fix in hunk beside the agent, so you can tell it what to change. `prefix+shift+u` then pushes the fix and sends the replies, and a reply about a fix names its commit. That also re-requests review from whoever asked for changes, on GitHub, and the workspace and checkout go, as with a posted review. If you push fixes some other way, the row says `re-review`, under Needs you, because GitHub keeps showing changes requested until it's reviewed again, and `a` asks for another look. A reply to an inline comment joins that thread. Comments in a review's summary have no thread on GitHub, so those replies are general comments that quote what they answer.
 
 Posting asks what the review should be. These are GitHub's own review types, and your inline comments and PR comment go with whichever you choose:
 

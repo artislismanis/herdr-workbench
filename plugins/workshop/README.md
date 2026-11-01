@@ -100,7 +100,7 @@ Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh
 | Stage | A group of steps, such as Build, and nothing else |
 | Step | One piece of work in a pipeline, by an agent, a person or workshop |
 | Round | One attempt at a step. A failed review sends the work round again |
-| Status | Where a run stands: `running`, `decide`, `fix`, `your turn` or `in review`, then what became of it, such as `merged` or `dropped` |
+| Status | Where a run stands: `working`, `decide`, `fix`, `your turn` or `in review`, then what became of it, such as `merged` or `dropped` |
 | Column | Where a ticket sits on Backlog: New, Planned, Designed or Queued |
 | Move | What workshop does to the ticket as a run goes on: `working`, `blocked`, `review`, `approved` or `merged` |
 | Self-review | You reading the change in hunk, before anyone else sees it |
@@ -128,7 +128,7 @@ When a run stops on a question or a problem, the ticket moves to `blocked`. Comm
 
 Tab and Shift+Tab switch views. Tabs, rows and the buttons along the bottom work with the mouse as well as the keys, and the wheel scrolls. Clicking a row opens it. Dragging selects text inside the list or the panel and copies it on release, with `wl-copy`. Shift+drag is your terminal's own selection, across the whole window.
 
-Delivery, where it opens, shows counts and usage meters, then runs by who they wait on, each with a strip of its stages (`●─◐─○`), and recent events below. Green is fine, amber waits on a person or had to go round again, and red has stopped. A pipeline without stages shows each step. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Operate holds what comes after the merge: tickets waiting to reach `preprod` or `in prod`, release steps that need you, and sweeps, with when each last ran and runs next. What they turn up becomes new tickets on the Backlog. Backlog shows a bar per column, then the columns as cards on a wide enough window. Review lists PRs, yours and others', in the same groups and layout as Delivery, with a run's status and stages on its PR. Each row has a column for whose it is, `yours` in blue or the author in cyan, and says if someone else has already reviewed it. Reviews and replies live here, and a delivered draft stays on Delivery until your self-review lets it go. Enter shows the next move, the agent's briefing, the workflow, then reviews, threads and comments from the last refresh, with open threads first and `blocking:` comments in red. `g` goes to a run's workspace, with hunk open on a draft PR, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. Anything you do, from the board or a finish popup, does the same once and quietly, and if GitHub's hourly limit runs out it waits 10 minutes. On a window 130 wide or more, Delivery, Review and Operate show the selected item's detail in a panel beside the list, with its actions at the top. Clicking a row selects it, the wheel over the panel scrolls it, and so do Page Up and Page Down. Enter still opens the detail full width.
+Delivery, where it opens, shows counts and usage meters, then runs by who they wait on, each with a strip of its stages (`●─◐─○`), and recent events below. Green is fine, amber waits on a person or had to go round again, and red has stopped. A pipeline without stages shows each step. Opening one shows its steps as a timeline, with rounds, verdicts, cost, the log and what to run next. Operate holds what comes after the merge: tickets waiting to reach `preprod` or `in prod`, release steps that need you, and sweeps, with when each last ran and runs next. What they turn up becomes new tickets on the Backlog. Backlog shows a bar per column, then the columns as cards on a wide enough window. Review lists PRs in review, yours and others', in the same groups as Delivery. A row is a mark, `●` for yours and `○` for others', then the status, the PR, the title, the author, in the mark's colour, and a CI dot: green passing, red failing, amber running, grey no CI. A status says where a PR is in review, `review`, `changes`, `re-review`, `approved` or `merged`, and the group above says whose move it is. While a run is live, its status shows instead, with the words Delivery uses. A yellow title means someone else reviewed it before you. The detail gives the same word with the reason beside it, and the stages are under Workflow. Reviews and replies live here. Drafts aren't in review, so a delivered one stays on Delivery until your self-review lets it go, and a hand-made one shows once it's ready. Enter shows the next move, the agent's briefing, the workflow, then reviews, threads and comments from the last refresh, with open threads first and `blocking:` comments in red. `g` goes to a run's workspace, with hunk open on a draft PR, and `r` refreshes the backlog and PRs, which makes API calls but uses no tokens. Anything you do, from the board or a finish popup, does the same once and quietly, and if GitHub's hourly limit runs out it waits 10 minutes. On a window 130 wide or more, Delivery, Review and Operate show the selected item's detail in a panel beside the list, with its actions at the top. Clicking a row selects it, the wheel over the panel scrolls it, and so do Page Up and Page Down. Enter still opens the detail full width.
 
 A run's detail is built around what to do next. A stopped run starts with Needs you, taken from the `## Needs you` section of the report that stopped it, with its actions underneath. The Workflow section comes next, as a tree under stage headings that carry the stage's colour, status and total, each with its verdict, rounds, cost and latest report, and the stopped step shows its findings in place. `▸` marks the report to read first. Older rounds sit behind `+2 older`, or press `e`: `ai-review.md` is always the latest, and `ai-review-1.md` is the first round, counting up. Enter or a click opens a report, and `esc` goes back.
 
@@ -191,12 +191,14 @@ Nothing reaches the ticket before your yes. Each go puts its section at the top 
 
 The same poll saves your open PRs, PRs you're asked to review or have reviewed, and those merged in the last week, in one GitHub call. Each gets whose move it is. `[prs] search` narrows them, in GitHub search terms.
 
-| Needs you | With people |
-|---|---|
-| Yours: draft, checks failing, changes requested, `re-review`, once fixed, comments to address, approved | Yours: awaiting review, re-review requested |
-| Theirs: needs review, re-review | Theirs: draft, waiting for fixes, new commits, approved |
+| Status | Needs you | With people |
+|---|---|---|
+| `review`: nobody has reviewed it yet | Theirs, when you're asked | Yours, or theirs when you're not asked |
+| `changes`: something must change first, whoever raised it | Yours: changes requested, comments to address, CI failing | Theirs: waiting for fixes, new commits |
+| `re-review`: it's been addressed | Yours, fixed, where `a` asks. Theirs, when they ask you | Yours, once requested |
+| `approved`: ready to merge | Yours | Theirs, once you approved |
 
-A push to someone's PR stays with them until they ask again, since it may be work in progress. Bots' reviews don't count.
+`merged` shows under Done lately. A push to someone's PR stays with them until they ask again, since it may be work in progress. Bots' reviews don't count.
 
 ## Run files
 

@@ -25,6 +25,10 @@ MOVES = {"you": "Needs you", "others": "With people", "done": "Done lately"}
 REVIEW_GROUPS = ("Needs you", "With agents", "With people", "Done lately")
 RESPOND = ("changes requested", "comments to address")
 ASK_AGAIN = "re-review"  # on your own PR, where it's yours to ask for
+STATUS = {"needs review": "review", "awaiting review": "review", "open": "review", "changes requested": "changes", "waiting for fixes": "changes", "comments to address": "changes", "checks failing": "changes", "new commits": "changes", "re-review requested": "re-review", "you approved": "approved"}  # where a PR is. The group above says whose move it is
+REASONS = {"needs review": "asked of you", "open": "not asked of you", "checks failing": ""}  # the facts beside it say CI failing
+MARKS = {True: ("●", "bold"), False: ("○", "others")}
+CI_DOTS = {"SUCCESS": "green", "FAILURE": "red", "ERROR": "red", "PENDING": "yellow", "EXPECTED": "yellow"}
 PACE_AMBER, PACE_RED = 10, 25  # points ahead of an even pace, so a busy start isn't an alarm
 MACHINE_AMBER, MACHINE_RED = 75, 90
 COLUMN_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
@@ -152,7 +156,7 @@ def stage_state(run: Run, indexes: list[int]) -> tuple[str, str, str]:
     if here and run.status == "waiting":
         return "◐", "yellow", "decide"
     if here:
-        return "◐", "yellow" if reworked else "green", "reworking" if reworked else "running"
+        return "◐", "yellow" if reworked else "green", "reworking" if reworked else "working"
     return "●", "yellow" if reworked else "green", "done after rework" if reworked else "done"
 
 
@@ -321,10 +325,6 @@ def facts(pr: dict[str, Any]) -> str:
 def pr_style(pr: dict[str, Any]) -> str:
     if pr["move"] == "done":
         return "dim"
-    if pr["beaten"]:
-        return "yellow"
-    if pr["state"] == "checks failing":
-        return "red"
     return "yellow" if pr["move"] == "you" else "others"
 
 
@@ -339,17 +339,24 @@ def pull_group(pr: dict[str, Any], run: Run | None) -> str:
     return "With agents" if run.status == "running" else "Needs you"
 
 
-def pull_row(pr: dict[str, Any], width: int, run: Run | None = None, advice: str = "") -> Line:
+def pr_name(pr: dict[str, Any]) -> str:
+    return f"{pr['repo']}#{pr['number']}"
+
+
+def author(pr: dict[str, Any]) -> str:
+    return "you" if pr["mine"] else pr["author"]
+
+
+def pull_row(pr: dict[str, Any], width: int, name_width: int, author_width: int, run: Run | None = None) -> Line:
     label, colour = pull_status(pr, run)
-    dots = pipe(run) if run else [Span(" " * PIPE_WIDTH)]
-    room = max(width - 73, 30)
-    title_width = room * 3 // 5
-    return Line([Span("  "), Span(" " + cell(label, 19), colour), Span(" "), Span(cell(f"{pr['repo']}#{pr['number']}", 22) + " "), *dots, Span(" "), Span(cell("yours" if pr["mine"] else pr["author"], 12) + " ", "mine" if pr["mine"] else "others"), Span(cell(pr["title"], title_width) + " "), Span(cell(advice or facts(pr), room - title_width - 1), "dim")], pr=pr)
+    mark, tone = MARKS[pr["mine"]]
+    room = max(width - name_width - author_width - 20, 10)  # the title gives way, so the CI dot stays on a narrow panel
+    return Line([Span(" "), Span(mark + " ", tone), Span(cell(label, 10) + " ", colour), Span(cell(pr_name(pr), name_width) + " "), Span(cell(pr["title"], room) + " ", "yellow" if pr["beaten"] else ""), Span(cell(author(pr), author_width) + " ", tone), Span("●", CI_DOTS.get(pr["checks"], "dim"))], pr=pr)
 
 
 def pull_status(pr: dict[str, Any], run: Run | None) -> tuple[str, str]:
     """The same word and colour in the row and the detail."""
-    return (run.label, "yellow" if run.with_you else COLOURS[run.status]) if live(run) else (pr["state"], pr_style(pr))
+    return (run.label, "yellow" if run.with_you else COLOURS[run.status]) if live(run) else (STATUS.get(pr["state"], pr["state"]), pr_style(pr))
 
 
 def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
@@ -366,6 +373,10 @@ def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
         return "Check the fix and the replies below. g opens the fix in hunk, beside the agent: tell it what to change. prefix+shift+u there pushes the fix and sends the replies."
     if pr["mine"] and pr["state"] in RESPOND:
         return "a has an agent draft the fixes and replies, for you to check."
+    if pr["mine"] and pr["state"] == "checks failing":
+        return "CI is failing. The PR's checks say why."
+    if pr["mine"] and pr["state"] == "approved":
+        return "It's approved, so it's ready to merge."
     if pr["move"] == "you" and not pr["mine"] and pr["state"] != "draft":
         return "a starts the AI review: a brief to read first, then notes on the diff to keep or drop, with the reviewer beside you."
     return ""
@@ -386,17 +397,18 @@ def pull_story(pr: dict[str, Any], run: Run | None, advice: str, handover: str, 
     return lines + drafted(replies or [], width) + briefing(handover, width) + ([plain(), rule("Workflow", width), *workflow] if workflow else [])
 
 
-def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str, Any]], tuple[Run | None, str]] = lambda pr: (None, ""), band: Line | None = None) -> list[Line]:
+def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str, Any]], Run | None] = lambda pr: None, band: Line | None = None) -> list[Line]:
     found = snapshot.get("prs")
     if not found:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
     limited = "rate limit" in found["error"]
     lines = [plain(LIMITED, "yellow")] if limited else [plain(f"Couldn't update: {first_line(found['error'])}", "red")] if found["error"] else []
-    grouped = {heading: [(p, *linked(p)) for p in found["items"] if pull_group(p, linked(p)[0]) == heading] for heading in REVIEW_GROUPS}
+    grouped = {heading: [(p, linked(p)) for p in found["items"] if pull_group(p, linked(p)) == heading] for heading in REVIEW_GROUPS}
+    name_width, author_width = max(map(columns, map(pr_name, found["items"])), default=0), max(map(columns, map(author, found["items"])), default=0)  # one width across the groups, and authors in full
     lines = [*([band, plain()] if band else []), *lines, tally(*(len(grouped[heading]) for heading in REVIEW_GROUPS[:3])), plain()]
     for heading, items in grouped.items():
         if items:
-            lines += [rule(f"{heading} {len(items)}", width), *(pull_row(p, width, run, advice) for p, run, advice in items), plain()]
+            lines += [rule(f"{heading} {len(items)}", width), *(pull_row(p, width, name_width, author_width, run) for p, run in items), plain()]
     return lines
 
 
@@ -421,8 +433,10 @@ def discussion(pr: dict[str, Any], width: int) -> list[Line]:
 
 def pull(pr: dict[str, Any], width: int = 120, story: list[Line] | None = None, run: Run | None = None) -> list[Line]:
     label, colour = pull_status(pr, run)
-    lines = [*wrapped(f"{pr['repo']}#{pr['number']}  {pr['title']}", width, "bold"), *wrapped(f"PR: {pr['url']}", width), *wrapped(f"Author: {'you' if pr['mine'] else pr['author']}", width)]
-    lines += [Line([Span(f" {label} ", block(colour)), Span(f"   {facts(pr)}" if facts(pr) else "", "dim")])]
+    why = REASONS.get(pr["state"], pr["state"])
+    beside = "   ".join(part for part in ("" if why == STATUS.get(pr["state"], pr["state"]) else why, facts(pr)) if part)
+    lines = [*wrapped(f"{pr_name(pr)}  {pr['title']}", width, "bold"), *wrapped(f"PR: {pr['url']}", width), *wrapped(f"Author: {author(pr)}", width)]
+    lines += [Line([Span(f" {label} ", block(colour)), Span(f"   {beside}" if beside else "", "dim")])]
     lines += [*(story or []), plain(), rule("Reviews", width)]
     for who, state in pr["reviews"].items():
         mark, tone = REVIEW_MARKS.get(state, ("•", "dim"))

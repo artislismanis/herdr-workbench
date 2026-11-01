@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Board  # noqa: E402
-from workshop.boardview import ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, operations, limit_style, pipe, pull, pull_story, pulls, run_style, stage_groups, stage_state, timeline, to_go, usage_line, usage_view  # noqa: E402
+from workshop.boardview import Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, operations, limit_style, pipe, pull, pull_status, pull_story, pulls, run_style, stage_groups, stage_state, timeline, to_go, usage_line, usage_view  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -386,21 +386,66 @@ class PRs(unittest.TestCase):
 
     def test_a_row_says_whose_it_is(self):
         mine, theirs = self.rows(pr("a", mine=True), pr("b"))
-        self.assertIn("yours", mine.text)
-        self.assertIn("them", theirs.text)
-        self.assertEqual(next(span for span in mine.spans if "yours" in span.text).style, "mine")
-        self.assertEqual(next(span for span in theirs.spans if "them" in span.text).style, "others")
+        self.assertEqual(mine.text[1], "●")
+        self.assertEqual(theirs.text[1], "○")
+        self.assertEqual(next(span for span in mine.spans if "you" in span.text.split()).style, mine.spans[1].style)
+        self.assertEqual(next(span for span in theirs.spans if "them" in span.text).style, theirs.spans[1].style)
+        self.assertNotEqual(mine.spans[1].style, theirs.spans[1].style)
+
+    def test_a_row_is_mark_status_pr_title_author_ci(self):
+        row = self.rows(pr(state="comments to address", mine=True))[0]
+        self.assertRegex(row.text, r"^ ● changes    r#7 A change +you ●$")
+        self.assertEqual(columns(row.text), WIDE - 2)
+
+    def test_a_row_at_panel_width_keeps_long_names_whole(self):
+        long = pr(title="T" * 90, repo="herdr-workbench", number=125, author="artislismanis-ai")
+        row = next(line for line in pulls({"prs": {"error": "", "items": [long]}}, 84) if line.pr)
+        self.assertIn("herdr-workbench#125", row.text)
+        self.assertIn("artislismanis-ai", row.text)
+        self.assertEqual(columns(row.text), 82)
+
+    def test_the_title_gives_way_before_the_ci_dot(self):
+        long = pr(repo="herdr-workbench", number=125, author="artislismanis-ai")
+        row = next(line for line in pulls({"prs": {"error": "", "items": [long]}}, 71) if line.pr)
+        self.assertEqual(columns(row.text), 69)
+
+    def test_a_status_says_where_a_pr_is(self):
+        words = {"review": ("needs review", "awaiting review", "open"), "changes": ("changes requested", "waiting for fixes", "comments to address", "checks failing", "new commits"), "re-review": ("re-review", "re-review requested"), "approved": ("approved", "you approved"), "merged": ("merged",)}
+        for word, states in words.items():
+            for state in states:
+                self.assertEqual(pull_status(pr(state=state), None)[0], word)
+
+    def test_every_status_of_yours_under_needs_you_says_what_next(self):
+        for state in ("changes requested", "comments to address", "checks failing", "re-review", "approved"):
+            self.assertIn("▌ Next", joined(pull_story(pr(mine=True, state=state), None, "", "", "", [], WIDE)))
+
+    def test_the_ci_dot_goes_by_the_checks(self):
+        dots = {"SUCCESS": "green", "FAILURE": "red", "ERROR": "red", "PENDING": "yellow", "EXPECTED": "yellow", "": "dim"}
+        for checks, style in dots.items():
+            self.assertEqual(self.rows(pr(checks=checks))[0].spans[-1], Span("●", style))
+
+    def test_a_status_keeps_its_colour_when_ci_fails(self):
+        self.assertEqual(pull_status(pr(state="checks failing", mine=True, checks="FAILURE"), None)[1], "yellow")
+
+    def test_the_detail_gives_the_reason_beside_the_word(self):
+        comments = pull(pr(state="comments to address", mine=True, checks=""), WIDE)
+        self.assertIn(" changes    comments to address   no CI", joined(comments))
+        failing = pull(pr(state="checks failing", mine=True, checks="FAILURE"), WIDE)
+        self.assertIn(" changes    CI failing", joined(failing))
+        self.assertNotIn(" re-review    re-review", joined(pull(pr(state="re-review"), WIDE)))
 
     def test_the_detail_keeps_status_author_and_reviewer_apart(self):
         lines = pull(pr(state="you approved", move="others", reviews={"me": "APPROVED"}, me="me"), WIDE)
         text = joined(lines)
         self.assertIn("Author: them", text)
-        self.assertIn(" you approved ", text)
+        self.assertIn(" approved    you approved", text)
         self.assertIn("you: approved", text)
 
     def test_someone_getting_there_first_stands_out(self):
         row = self.rows(pr(beaten=["sam"]))[0]
-        self.assertIn("reviewed by sam", row.text)
+        self.assertEqual(next(span for span in row.spans if "A change" in span.text).style, "yellow")
+        self.assertEqual(self.rows(pr())[0].spans[4].style, "")
+        self.assertIn("reviewed by sam", joined(pull(pr(beaten=["sam"]), WIDE)))
 
     def test_a_used_up_limit_reads_as_a_wait_not_a_failure(self):
         lines = pulls({"prs": {"error": "API rate limit already exceeded", "items": []}})
@@ -412,20 +457,19 @@ class PRs(unittest.TestCase):
         self.assertIn("Press r", pulls({})[0].text)
 
     def test_a_review_at_work_shows_with_agents(self):
-        lines = pulls({"prs": {"error": "", "items": [pr()]}}, WIDE, lambda p: (run("pr-7", pr="u", reviewing=True), ""))
+        lines = pulls({"prs": {"error": "", "items": [pr()]}}, WIDE, lambda p: run("pr-7", pr="u", reviewing=True))
         self.assertIn("With agents 1", joined(lines))
-        self.assertIn("reviewing", next(line for line in lines if line.pr).text)
+        self.assertIn("working", next(line for line in lines if line.pr).text)
 
-    def test_a_finished_review_needs_you_with_its_advice_in_the_row(self):
-        lines = pulls({"prs": {"error": "", "items": [pr(move="others")]}}, WIDE, lambda p: (run("pr-7", "done", pr="u", reviewing=True), "AI: approve"))
+    def test_a_finished_review_needs_you(self):
+        lines = pulls({"prs": {"error": "", "items": [pr(move="others")]}}, WIDE, lambda p: run("pr-7", "done", pr="u", reviewing=True))
         self.assertIn("Needs you 1", joined(lines))
-        row = next(line for line in lines if line.pr).text
-        self.assertIn("your turn", row)
-        self.assertIn("AI: approve", row)
+        self.assertIn("your turn", next(line for line in lines if line.pr).text)
 
     def test_a_posted_review_goes_by_whose_move_it_is(self):
         posted = run("pr-7", "done", pr="u", reviewing=True, reviewed="abc", posted="abc")
-        self.assertIn("With people 1", joined(pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: (posted, ""))))
+        self.assertIn("With people 1", joined(pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: posted)))
+        self.assertIn("changes", next(line for line in pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: posted) if line.pr).text)
 
     def test_the_detail_leads_with_the_next_move_then_the_briefing(self):
         done = run("pr-7", "done", pr="u", reviewing=True)
@@ -982,11 +1026,11 @@ class Keys(unittest.TestCase):
         self.store.save(run("pr-7", status="running", pr=self.board.picked[1], reviewing=True))
         self.board.seen = None
         self.board.reload()
-        self.assertIn("reviewing", joined(self.board.listing(WIDE)))
+        self.assertIn("working", joined(self.board.listing(WIDE)))
         self.board.tab = DELIVERY
         self.assertNotIn("pr-7", joined(self.board.listing(WIDE)))
 
-    def test_the_row_gives_the_recommendation_and_the_detail_says_why(self):
+    def test_the_detail_gives_the_recommendation(self):
         self.on_pr()
         self.store.save(run("pr-7", status="done", pr=self.board.picked[1], reviewing=True))
         self.board.engine.handover.return_value = "Intent: x\nRecommendation: approve. It only adds a file."
@@ -1029,6 +1073,14 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.assertEqual(self.board.pr_items(), [])
+
+    def test_drafts_arent_in_review_unless_a_run_is_on_one(self):
+        self.on_pr(state="draft")
+        self.assertEqual(self.board.pr_items(), [])
+        self.store.save(run("pr-7", status="running", pr=self.board.picked[1], reviewing=True))
+        self.board.seen = None
+        self.board.reload()
+        self.assertEqual(len(self.board.pr_items()), 1)
 
     def test_a_used_up_limit_backs_off(self):
         self.board.snapshot = {"prs": {"error": "API rate limit already exceeded"}}
