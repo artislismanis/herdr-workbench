@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 WEEK = 7 * 24 * 60 * 60
 STALE_AFTER = 30 * 60
-DEFAULTS = {"pause_new_at": 60, "pause_steps_at": 85, "weekly_pace_margin": 5, "weekly_reserve": 25}
+DEFAULTS = {"pause_new_at": 80, "pause_steps_at": 90, "work_hours": [8, 18], "five_hour_pace_margin": 5, "five_hour_pace_stop": 15, "weekly_pace_margin": 5, "weekly_pace_stop": 15}
 WINDOWS = {"session": "five_hour", "week (all models)": "seven_day"}
 LENGTHS = {"5h": 5 * 60 * 60, "7d": WEEK}
 USAGE_LINE = re.compile(r"^Current (session|week \(all models\)): (\d+)% used\b.*?resets (?:(\w{3}) (\d+), )?(\d+)(?::(\d+))?(am|pm) \(([^)]+)\)", re.MULTILINE)
@@ -56,7 +56,7 @@ def ahead(window: str, used: float, left: float) -> float:
 
 
 class Throttle:
-    def __init__(self, path: Path, settings: dict[str, int], clock: Callable[[], float] = time.time) -> None:
+    def __init__(self, path: Path, settings: dict[str, Any], clock: Callable[[], float] = time.time) -> None:
         self.path, self.limits, self.clock = path, DEFAULTS | settings, clock
 
     def _read(self) -> dict[str, Any]:
@@ -85,27 +85,34 @@ class Throttle:
         windows = {"5h": "five_hour", "7d": "seven_day"}
         return {name: (self._used(data, key), max(0.0, (data.get(key) or {}).get("resets_at", 0) - self.clock())) for name, key in windows.items()}
 
+    def working(self) -> bool:
+        """The hours you want some of the 5h window left for your own use."""
+        now, (start, end) = datetime.fromtimestamp(self.clock()), self.limits["work_hours"]
+        return now.weekday() < 5 and start <= now.hour < end
+
+    def _ahead(self, window: str, margin: int) -> str:
+        used, left = self.pace()[window]
+        if used < 100 and ahead(window, used, left) <= margin:
+            return ""
+        return f"{window} usage is {used}%, ahead of the {100 * (1 - left / LENGTHS[window]):.0f}% of the window gone."
+
+    def _hold(self, at: str, five_margin: str, week_margin: str) -> str:
+        """Which rule the 5h window follows depends on the hour. The week always has to last to its reset, so running short means a break."""
+        if self.working():
+            five = self.pace()["5h"][0]
+            held = f"5h usage is {five}%, and {self.limits[at]}% is the most in working hours." if five >= self.limits[at] else ""
+        else:
+            held = self._ahead("5h", self.limits[five_margin])
+        return held or self._ahead("7d", self.limits[week_margin])
+
     def hold_steps(self) -> str:
         """Why no new agent step may start, or nothing. Running steps always finish."""
-        used = self.snapshot()
-        if used["5h"] > self.limits["pause_steps_at"]:
-            return f"5h usage is {used['5h']}%, above {self.limits['pause_steps_at']}%."
-        if used["7d"] > 100 - self.limits["weekly_reserve"]:
-            return f"7d usage is {used['7d']}%, inside the {self.limits['weekly_reserve']}% reserve."
-        return ""
+        return self._hold("pause_steps_at", "five_hour_pace_stop", "weekly_pace_stop")
 
     def hold_new(self, active: int) -> str:
         """Why no new ticket may start, or nothing."""
-        if held := self.hold_steps():
+        if held := self._hold("pause_new_at", "five_hour_pace_margin", "weekly_pace_margin"):
             return held
-        data = self._read()
-        five, week = self._used(data, "five_hour"), self._used(data, "seven_day")
-        if five > self.limits["pause_new_at"]:
-            return f"5h usage is {five}%, above {self.limits['pause_new_at']}%."
-        if week:
-            gone = 100 * (1 - (data["seven_day"]["resets_at"] - self.clock()) / WEEK)
-            if week > gone + self.limits["weekly_pace_margin"]:
-                return f"7d usage is {week}%, ahead of the {gone:.0f}% of the week gone."
-        if active and self.clock() - data.get("at", 0) > STALE_AFTER:
+        if active and self.clock() - self._read().get("at", 0) > STALE_AFTER:
             return "Usage data is missing or old, so one ticket runs at a time."
         return ""

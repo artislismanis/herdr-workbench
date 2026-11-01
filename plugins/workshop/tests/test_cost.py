@@ -44,6 +44,13 @@ class Spent(unittest.TestCase):
         s = self.spent()
         self.assertEqual((s["turns"], s["tokens_in"], s["tokens_out"]), (2, 1301, 100))
 
+    def test_records_the_model_most_turns_used(self):
+        folder = Path(tempfile.mkdtemp())
+        lines = [{"type": "assistant", "timestamp": "2026-10-31T12:00:00+00:00", "message": {"id": str(n), "model": model, "usage": {}}} for n, model in enumerate(("claude-haiku-5-5", "claude-opus-5-5", "claude-opus-5-5"))]
+        (folder / "s.jsonl").write_text("\n".join(json.dumps(line) for line in lines))
+        with unittest.mock.patch.object(cost, "transcripts", return_value=folder):
+            self.assertEqual(cost.spent(Path("/w"), 0, 2e10)["model"], "claude-opus-5-5")
+
     def test_prices_each_kind_of_token(self):
         # 1 in, 100 out, 200 5m writes, 100 1h writes, 1000 reads, at Sonnet 5.5 rates.
         self.assertAlmostEqual(self.spent()["usd"], round((1 * 2 + 100 * 10 + 200 * 2.5 + 100 * 4 + 1000 * 0.1) / 1e6, 4))

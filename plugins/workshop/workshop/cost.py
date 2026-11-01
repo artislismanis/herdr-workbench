@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from collections import Counter
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
@@ -60,6 +61,7 @@ def spent(work: Path, since: float, until: float) -> dict[str, Any]:
     fields = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
     return {
         "turns": len(sent),
+        "model": most[0][0] if (most := Counter(m.get("model", "") for m in sent).most_common(1)) else "",
         "tokens_in": sum(m.get("usage", {}).get(f, 0) for m in sent for f in fields),
         "tokens_out": sum(m.get("usage", {}).get("output_tokens", 0) for m in sent),
         "minutes": round((until - since) / 60, 1),

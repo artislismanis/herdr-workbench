@@ -2,13 +2,16 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.throttle import STALE_AFTER, WEEK, Throttle, ahead, live_windows  # noqa: E402
 
-NOW = 10_000_000.0
+NOW = datetime(2026, 11, 2, 10).timestamp()  # a Monday morning, here
+EVENING = datetime(2026, 11, 2, 18).timestamp()
+SATURDAY = datetime(2026, 11, 7, 10).timestamp()
 LATER = NOW + 3600
 HALF_WEEK_LEFT = NOW + WEEK / 2
 
@@ -31,16 +34,24 @@ class Case(unittest.TestCase):
 
 class Steps(Case):
     def test_clear_at_the_limit(self):
-        self.usage(five=85, week=75)
+        self.usage(five=89, week=65)
         self.assertEqual(self.throttle.hold_steps(), "")
 
-    def test_held_above_the_5h_limit(self):
-        self.usage(five=86)
-        self.assertIn("5h usage is 86%", self.throttle.hold_steps())
+    def test_working_hours_keep_a_tenth_of_the_5h_window_for_you(self):
+        self.usage(five=90)
+        self.assertIn("5h usage is 90%", self.throttle.hold_steps())
 
-    def test_held_inside_the_weekly_reserve(self):
-        self.usage(week=76)
-        self.assertIn("25% reserve", self.throttle.hold_steps())
+    def test_held_well_ahead_of_the_weekly_pace(self):
+        self.usage(week=66)
+        self.assertIn("ahead of the 50%", self.throttle.hold_steps())
+
+    def test_a_high_week_close_to_its_reset_is_fine(self):
+        self.usage(week=90, week_resets=NOW + 3600)
+        self.assertEqual(self.throttle.hold_steps(), "")
+
+    def test_a_week_used_up_holds_even_at_the_reset(self):
+        self.usage(week=100, week_resets=NOW + 60)
+        self.assertNotEqual(self.throttle.hold_steps(), "")
 
     def test_a_window_past_its_reset_counts_as_zero(self):
         self.usage(five=99, week=99, five_resets=NOW - 1, week_resets=NOW - 1)
@@ -68,13 +79,9 @@ class Tickets(Case):
         self.usage(five=10, week=10)
         self.assertEqual(self.throttle.hold_new(1), "")
 
-    def test_held_above_pause_new_at(self):
-        self.usage(five=61)
-        self.assertIn("above 60%", self.throttle.hold_new(0))
-
-    def test_held_when_steps_are_held(self):
-        self.usage(five=90)
-        self.assertIn("above 85%", self.throttle.hold_new(0))
+    def test_held_at_pause_new_at(self):
+        self.usage(five=80)
+        self.assertIn("80%", self.throttle.hold_new(0))
 
     def test_held_ahead_of_the_weekly_pace(self):
         self.usage(week=56)
@@ -98,8 +105,54 @@ class Tickets(Case):
         self.assertIn("one ticket", self.throttle.hold_new(1))
 
     def test_settings_replace_the_defaults(self):
-        self.usage(five=61)
-        self.assertEqual(Throttle(self.path, {"pause_new_at": 70}, lambda: NOW).hold_new(0), "")
+        self.usage(five=81)
+        self.assertEqual(Throttle(self.path, {"pause_new_at": 85}, lambda: NOW).hold_new(0), "")
+
+
+class Outside(Case):
+    """Out of hours nothing is kept back: work just has to last to the reset."""
+
+    def at(self, now):
+        self.throttle = Throttle(self.path, {}, lambda: now)
+
+    def test_working_hours_are_on_weekdays_up_to_the_end(self):
+        hours = [(NOW, True), (EVENING - 60, True), (EVENING, False), (SATURDAY, False), (datetime(2026, 11, 2, 7, 59).timestamp(), False)]
+        for now, working in hours:
+            self.at(now)
+            self.assertEqual(self.throttle.working(), working, now)
+
+    def test_hours_can_be_set(self):
+        self.assertTrue(Throttle(self.path, {"work_hours": [18, 20]}, lambda: EVENING).working())
+
+    def test_a_high_5h_close_to_its_reset_runs(self):
+        self.at(EVENING)
+        self.usage(five=92, five_resets=EVENING + 600)
+        self.assertEqual((self.throttle.hold_steps(), self.throttle.hold_new(0)), ("", ""))
+
+    def test_the_same_reading_in_hours_holds(self):
+        self.usage(five=92, five_resets=NOW + 600)
+        self.assertNotEqual(self.throttle.hold_steps(), "")
+
+    def test_new_tickets_stop_first_when_ahead_of_the_5h_pace(self):
+        self.at(EVENING)
+        self.usage(five=56, five_resets=EVENING + 9000)  # half the window gone
+        self.assertEqual(self.throttle.hold_steps(), "")
+        self.assertIn("ahead of the 50%", self.throttle.hold_new(0))
+
+    def test_steps_stop_too_when_well_ahead_of_the_5h_pace(self):
+        self.at(EVENING)
+        self.usage(five=66, five_resets=EVENING + 9000)
+        self.assertIn("ahead of the 50%", self.throttle.hold_steps())
+
+    def test_a_window_used_up_holds_even_at_the_reset(self):
+        self.at(EVENING)
+        self.usage(five=100, five_resets=EVENING + 60)
+        self.assertNotEqual(self.throttle.hold_steps(), "")
+
+    def test_a_fresh_window_isnt_held_for_its_first_steps(self):
+        self.at(EVENING)
+        self.usage(five=4, five_resets=EVENING + 18000 - 60)
+        self.assertEqual(self.throttle.hold_new(0), "")
 
 
 class Live(unittest.TestCase):
