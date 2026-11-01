@@ -176,7 +176,7 @@ class Engine:
         if run.status not in ("parked", "waiting") and not (word == "drop" and run.your_turn):
             raise KeyError(f"{run.key} isn't stopped")
         kind = run.current["kind"] if run.current else ""
-        if word == "retry" and kind == "gate":
+        if word == "retry" and kind == "gate" and run.status == "waiting":
             raise KeyError(f"{run.key} is at a gate: use workshop approve or reject")
         if word == "pass" and kind not in ("agent", "command"):
             raise KeyError(f"{run.key} has no stopped step to pass")
@@ -203,6 +203,10 @@ class Engine:
         self.store.event(run, "retried", note=note)
         self._fresh_rounds(run)
         step = run.current
+        if step is not None and step["kind"] == "gate":  # back to the question, with its rounds renewed
+            run.status, run.reason, run.blocked_at = "waiting", step.get("ask") or f"{step['report']} needs your approval.", 0.0
+            self.store.save(run)
+            return run
         if note and step is not None and step["kind"] == "agent":
             return self.answer(run, note)
         self._keep_guidance(run, note)
@@ -278,7 +282,7 @@ class Engine:
             self._tidy(run, pr["headRefOid"])
         if place and (steps := self._release_steps(run, pr)):
             (self.store.files(run) / "release.md").write_text("\n".join(["# Release steps", "", *steps, ""]), encoding="utf-8")
-            run.pipeline["steps"].append({"id": "release", "stage": "Deploy", "kind": "gate", "report": "release"})
+            run.pipeline["steps"].append({"id": "release", "stage": "Deploy", "kind": "gate", "report": "release", "go": "say they're done", "change": "what went wrong"})
             run.step = len(run.pipeline["steps"]) - 1
             self._wait(run, "It's in prod, and it has release steps to do by hand.")
             self.store.save(run)
@@ -519,27 +523,26 @@ class Engine:
                 return "\n".join(lines)
         return ""
 
+    def choices(self, run: Run) -> tuple[str, str]:
+        """What a blank answer does, and what words mean, at this stop. No blank answer means only words will do."""
+        step = run.current or {}
+        if run.status == "waiting" and step.get("kind") == "gate":
+            return step.get("go", "accept it"), step.get("change", "what to change")
+        return ("", "your answer") if run.status == "waiting" else ("run it again", "what to change first")
+
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
-        if run.current and run.current["id"] == "release":
-            return "Do the release steps, then a. d drops it"
-        if run.sweeping and run.current and run.current["kind"] == "gate":
-            return "a does what's listed. x skips the numbers you give, or all. d drops it"
         if run.deployed == "preprod":
             return "In preprod. It lands when it reaches prod"
-        if run.preparing and run.current and run.current["kind"] == "gate":
-            return "a writes it to the ticket. x sends it back with what to change. d drops it"
         if run.on_a_pr:
-            return "Post it with prefix+shift+u in the workspace" if run.status == "done" else "x runs it again, with your note if you add one. a accepts it and moves on. d drops it"
+            if run.status == "done":
+                return "Post it with prefix+shift+u in the workspace"
         if self.reviewable(run):
             return "Finish with prefix+shift+u in the workspace"
         if self.delivered(run):
             return "With reviewers. Ask for review if nobody's assigned. It lands when the PR merges, and its worktree goes then"
-        if run.current and run.current["kind"] == "gate":
-            return "a accepts it. x sends it back with what to change. d drops it"
-        if run.status == "waiting":
-            return "x sends your answer. a accepts it and moves on. d drops it"
-        return "x runs it again, with your note if you add one. a accepts it and moves on. d drops it"
+        go, change = self.choices(run)
+        return f"a answers: {' '.join(filter(None, (f'enter to {go},' if go else '', f'or type {change}' if go else f'type {change}')))}. d drops it"
 
     def explain(self, run: Run) -> str:
         step = run.current["id"] if run.current else "finished"

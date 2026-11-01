@@ -259,7 +259,7 @@ class Deploy(unittest.TestCase):
         self.assertEqual((run.status, run.landed, run.deployed, run.current["id"]), ("waiting", "", "prod", "release"))
         self.assertIn("Refresh the data", (self.engine.store.files(run) / "release.md").read_text())
         self.assertNotIn("merged", self.source.moves)
-        self.assertIn("release steps", self.engine.next_action(run).lower())
+        self.assertIn("say they're done", self.engine.next_action(run))
 
     def test_release_steps_in_the_design_count_too(self):
         self.merged("main")
@@ -272,6 +272,13 @@ class Deploy(unittest.TestCase):
         run = self.engine.approve(self.engine.land(self.delivered()))
         self.assertEqual((run.status, run.landed, run.label, self.source.moves[-1]), ("done", "merged", "in prod", "merged"))
         self.assertFalse([r for r in self.source.reports if "Draft PR" in r])
+
+    def test_a_step_that_went_wrong_at_release_can_come_back(self):
+        self.merged("main", "## Release steps\n\n- Refresh the data\n")
+        run = self.engine.reject(self.engine.land(self.delivered()), "The refresh failed")
+        self.assertEqual(run.status, "parked")
+        self.assertEqual(self.engine.retry(run).status, "waiting")
+        self.assertEqual(self.engine.approve(run).landed, "merged")
 
     def test_a_tick_leaves_a_release_gate_alone(self):
         self.merged("main", "## Release steps\n\n- Refresh the data\n")
@@ -1277,7 +1284,7 @@ class Gates(Case):
         self.assertIn("right tasks to build", run.reason)
         self.assertEqual(self.tools.notes, ["Workshop: DE-1 needs you"])
         self.assertIn("waiting", self.source.reports[-1])
-        self.assertIn("a accepts it", self.engine.explain(run))
+        self.assertIn("enter to start building", self.engine.explain(run))
 
     def test_a_waiting_run_doesnt_move_by_itself(self):
         prompts = len(self.tools.prompts)
@@ -1322,7 +1329,7 @@ class Questions(Case):
     def test_a_question_waits_for_a_person(self):
         run = self.asked()
         self.assertEqual((run.status, run.reason), ("waiting", "tasks asks: Which API version?"))
-        self.assertIn("x sends your answer", self.engine.explain(run))
+        self.assertIn("type your answer", self.engine.explain(run))
 
     def test_a_question_beats_a_report(self):
         run = self.start()
@@ -1659,7 +1666,7 @@ class Explain(Case):
         run = self.finish_agent(self.start(), "ws-de-1", "tasks", "VERDICT: BLOCKED\n")
         text = self.engine.explain(run)
         self.assertIn("Why:", text)
-        self.assertIn("x runs it again", text)
+        self.assertIn("enter to run it again", text)
 
 
 if __name__ == "__main__":

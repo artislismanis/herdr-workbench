@@ -37,7 +37,7 @@ PANEL_WIDTH = 130  # below this a window can't hold a list and a detail side by 
 LIST_SHARE = 55  # percent of the window for the list
 ESCAPE = 27
 TAB_KEY = ord("\t")
-AI_REVIEW = ord("a")
+AI_REVIEW = ord("a")  # with nothing stopped under it, where the same key answers
 RESPOND = ("changes requested", "comments to address", "fixed, re-request")
 AI_REVIEW_OTHER = ord("A")  # the mode you don't usually use
 CLAIM = ord("m")
@@ -54,20 +54,17 @@ class Keys(Protocol):
 
 
 class Ask(NamedTuple):
-    """A command waiting for your words. Enter sends it, esc drops it."""
+    """Waiting for your words. Enter sends the command for what's there: blank does one thing, words another. No command for blank means words are needed."""
 
-    command: str
     key: str
     label: str
-    required: bool
+    blank: str
+    words: str
+    hints: tuple[str, ...]
 
 
-# Key, button label, command, what to ask for, and whether it's needed.
-DROP = (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False)
-STOPPED = ((ord("a"), "a accept", "pass", "Accept this and move on, with an optional note", False), (ord("x"), "x redo", "retry", "Run it again, with an optional note to steer it", False), DROP)
-TURN = (DROP,)
-PROPOSED = ((ord("a"), "a accept", "approve", "Do what's left of these? Enter confirms", False), (ord("x"), "x skip", "reject", "Numbers to skip, or all", True), DROP)
-GATE = ((ord("a"), "a accept", "approve", "Accept this? Enter confirms", False), (ord("x"), "x redo", "reject", "Send it back, saying what to change", True), DROP)
+ANSWER = ord("a")
+DROP = ord("d")
 
 
 class Board:
@@ -191,8 +188,8 @@ class Board:
             return True
         lines = self.lines(width)
         self.message = ""
-        if action := next((a for a in self.actions(lines) if a[0] == key), None):
-            self.ask(action, lines)
+        if (run := self.target(lines)) and key in self.run_actions(run):
+            self.begin_note(self.answer(run) if key == ANSWER else Ask(run.key, f"{run.key}: drop this run", "drop", "drop", ("enter drops it", "or type why first")))
             return True
         if key == AI_REVIEW and (pr := self.answerable(lines)):
             self.send("reply", pr)
@@ -207,7 +204,7 @@ class Board:
             self.send("claim", found.key)
             return True
         if key == PREPARE and self.tab == BACKLOG and not self.open:
-            self.begin_note(Ask("prepare", "", "Ticket number, or an idea to make into a ticket", True))
+            self.begin_note(Ask("", "Prepare", "", "prepare", ("type a ticket number, or an idea to make into a ticket",)))
             return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
@@ -282,32 +279,26 @@ class Board:
         run = next((r for r in self.runs if wanted in ((r.repo, r.key), ("#pr", r.pr))), None)
         return run if run and run.reviewing and not run.claimed and not run.landed else None
 
-    def actions(self, lines: list[Line]) -> tuple[tuple[int, str, str, str, bool], ...]:
-        return self.run_actions(self.target(lines))
-
-    def run_actions(self, run: Run | None) -> tuple[tuple[int, str, str, str, bool], ...]:
+    def run_actions(self, run: Run | None) -> dict[int, str]:
+        """The same two keys wherever a run stops. The box says what an answer does there."""
         if run is not None and run.your_turn:
-            return TURN
+            return {DROP: "d drop"}
         if run is None or run.status not in ("parked", "waiting"):
-            return ()
-        if run.current and run.current.get("proposals"):
-            return PROPOSED
-        return GATE if run.current and run.current["kind"] == "gate" else STOPPED
+            return {}
+        return {ANSWER: "a answer", DROP: "d drop"}
 
-    def ask(self, action: tuple[int, str, str, str, bool], lines: list[Line]) -> None:
-        run = self.target(lines)
-        if run is not None:
-            self.begin_note(Ask(action[2], run.key, f"{run.key}: {action[3]}", action[4]))
+    def answer(self, run: Run) -> Ask:
+        go, change = self.engine.choices(run)
+        gate = run.status == "waiting" and bool(run.current) and run.current["kind"] == "gate"
+        return Ask(run.key, f"{run.key}: answer", ("approve" if gate else "retry") if go else "", "reject" if gate else "retry", (f"enter to {go}", f"or type {change}") if go else (f"type {change}",))
 
     def begin_note(self, asking: Ask) -> None:
-        self.asking, self.typed = asking, self.drafts.get(asking[:2], "")
+        self.asking, self.typed = asking, self.drafts.get(asking.key + asking.blank + asking.words, "")
         self.cursor = len(self.typed)
 
     def insert(self, text: str) -> None:
-        """A gate's accept takes no note, so nothing typed there could be quietly lost."""
-        if self.asking and self.asking.command != "approve":
-            self.typed = self.typed[: self.cursor] + text + self.typed[self.cursor :]
-            self.cursor += len(text)
+        self.typed = self.typed[: self.cursor] + text + self.typed[self.cursor :]
+        self.cursor += len(text)
 
     def cut(self, start: int, end: int) -> None:
         self.typed = self.typed[:start] + self.typed[end:]
@@ -318,14 +309,16 @@ class Board:
         if asking is None:
             return
         if key == ESCAPE:
-            self.drafts[asking[:2]] = self.typed
+            self.drafts[asking.key + asking.blank + asking.words] = self.typed
             self.asking = None
         elif key in ENTERS:
+            words = self.typed.strip()
+            command = asking.words if words else asking.blank
             # While another command runs, the words stay put for a second enter.
-            if not self.refreshing and (self.typed.strip() or not asking.required):
+            if command and not self.refreshing:
                 self.asking = None
-                self.drafts.pop(asking[:2], None)
-                self.send(*filter(None, (asking.command, asking.key, self.typed.strip())))
+                self.drafts.pop(asking.key + asking.blank + asking.words, None)
+                self.send(*filter(None, (command, asking.key, words)))
         elif key in BACKSPACES:
             self.cut(max(self.cursor - 1, 0), self.cursor)
         elif key == curses.KEY_DC:
@@ -418,7 +411,7 @@ class Board:
         moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), ("enter open", 10)]
         lines = self.lines(width)
         run = self.target(lines)
-        stopped = moves[:1] * bool(self.open) + [(action[1], action[0]) for action in self.actions(lines)]
+        stopped = moves[:1] * bool(self.open) + [(label, key) for key, label in self.run_actions(run).items()]
         offers = [("a ai review", AI_REVIEW), (f"A ai review, {self.other_mode()}", AI_REVIEW_OTHER)] if self.unreviewed(lines) else []
         offers = [("a ai reply", AI_REVIEW)] if self.answerable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
@@ -435,8 +428,7 @@ class Board:
         rows = [part for line in marked.split("\n") for part in textwrap.wrap(clean(line), room, drop_whitespace=False, replace_whitespace=False, break_on_hyphens=False) or [""]]
         here = next(i for i, row in enumerate(rows) if CURSOR in row)
         first = max(0, min(here - NOTE_ROWS + 1, len(rows) - NOTE_ROWS))
-        hint = "enter confirms, esc cancels" if self.asking.command == "approve" else "enter sends, esc keeps a draft"
-        return [rule(cell(self.asking.label, width - 6).rstrip(), width), *(plain(f" {row}") for row in rows[first : first + NOTE_ROWS]), plain(f" {hint}", "dim")]
+        return [rule(cell(self.asking.label, width - 6).rstrip(), width), *(plain(f" {row}") for row in rows[first : first + NOTE_ROWS]), *(plain(f" {hint}", "dim") for hint in self.asking.hints), plain(" esc keeps a draft", "dim")]
 
     def wheel(self, by: int, width: int) -> None:
         lines = self.lines(width)

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, REVIEW, Board  # noqa: E402
 from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
+from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
@@ -476,6 +477,7 @@ class Keys(unittest.TestCase):
         engine = mock.Mock(store=self.store, tools=self.tools, **{"reviewable.return_value": False, "review_ready.return_value": False, "delivered.return_value": False, "handover.return_value": ""})
         engine.throttle.hold_new.return_value = ""
         engine.throttle.pace.return_value = {"5h": (10, 3600)}
+        engine.choices = lambda found: Engine.choices(engine, found)
         self.board = Board(engine, {"repos": {}}, lambda: 500.0)
 
     def tap(self, x, y, width):
@@ -594,36 +596,28 @@ class Keys(unittest.TestCase):
         self.board.press(ord("d"))
         self.assertIsNone(self.board.asking)
 
-    def test_a_stopped_run_offers_them(self):
+    def test_a_stopped_run_offers_answer_and_drop(self):
         self.stopped()
         footer = self.board.footer().text
-        self.assertIn("a accept", footer)
-        self.assertIn("x redo", footer)
+        self.assertIn("a answer", footer)
         self.assertIn("d drop", footer)
+        self.assertEqual(self.board.run_actions(self.board.runs[0]), {ord("a"): "a answer", ord("d"): "d drop"})
 
-    def test_a_stop_has_only_the_three_keys(self):
+    def test_a_blank_answer_on_a_stop_runs_it_again(self):
         self.stopped()
-        self.assertEqual([a[1] for a in self.board.run_actions(self.board.runs[0])], ["a accept", "x redo", "d drop"])
+        self.board.press(ord("a"))
+        self.assertIn("enter to run it again", joined(self.board.note(80)))
+        self.assertEqual(self.sent(), ("retry", "1"))
 
-    def test_a_redo_sends_what_you_typed(self):
+    def test_words_on_a_stop_steer_the_next_try(self):
         self.stopped()
-        self.board.press(ord("x"))
+        self.board.press(ord("a"))
         self.type_in("use q and r")
         self.assertEqual(self.sent(), ("retry", "1", "use q and r"))
 
-    def test_a_redo_needs_no_note(self):
-        self.stopped()
-        self.board.press(ord("x"))
-        self.assertEqual(self.sent(), ("retry", "1"))
-
-    def test_accepting_a_stop_passes_it(self):
-        self.stopped()
-        self.board.press(ord("a"))
-        self.assertEqual(self.sent(), ("pass", "1"))
-
     def noted(self, text, width=40):
         self.stopped()
-        self.board.press(ord("x"))
+        self.board.press(ord("a"))
         self.type_in(text)
         return texts(self.board.note(width))
 
@@ -635,7 +629,7 @@ class Keys(unittest.TestCase):
 
     def test_a_very_long_note_stops_growing_and_follows_the_cursor(self):
         shown = self.noted("word " * 200)
-        self.assertLessEqual(len(shown), NOTE_ROWS + 2)
+        self.assertLessEqual(len(shown), NOTE_ROWS + 4)
         self.assertIn("▌", "".join(shown))
         for _ in range(900):
             self.board.press(curses.KEY_LEFT)
@@ -678,28 +672,18 @@ class Keys(unittest.TestCase):
     def test_esc_keeps_a_draft_for_that_key_and_run(self):
         self.noted("half a thought")
         self.board.press(27)
-        self.board.press(ord("x"))
+        self.board.press(ord("a"))
         self.assertEqual(self.board.typed, "half a thought")
         self.type_in(" done")
         self.board.press(27)
-        self.board.press(ord("a"))
+        self.board.press(ord("d"))
         self.assertEqual(self.board.typed, "")
 
     def test_sending_clears_the_draft(self):
         self.noted("words")
         self.assertEqual(self.sent(), ("retry", "1", "words"))
-        self.board.press(ord("x"))
-        self.assertEqual(self.board.typed, "")
-
-    def test_a_gates_accept_takes_no_note_so_nothing_is_lost(self):
-        gated = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "check", "kind": "gate", "report": "plan"}]}
-        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))
-        self.board.seen = None
-        self.board.reload()
         self.board.press(ord("a"))
-        self.type_in("words")
         self.assertEqual(self.board.typed, "")
-        self.assertIn("enter confirms", joined(self.board.note(80)))
 
     def test_a_paste_goes_in_whole_even_with_line_breaks(self):
         self.noted("start ")
@@ -725,7 +709,7 @@ class Keys(unittest.TestCase):
 
     def test_typing_takes_backspace_and_esc_cancels(self):
         self.stopped()
-        self.board.press(ord("x"))
+        self.board.press(ord("a"))
         self.type_in("ab")
         self.board.press(127)
         self.assertEqual(self.board.typed, "a")
@@ -733,22 +717,13 @@ class Keys(unittest.TestCase):
         self.assertIsNone(self.board.asking)
         self.tools.workshop.assert_not_called()
 
-    def test_sending_a_gate_back_needs_words(self):
-        gated = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "check", "kind": "gate", "report": "plan"}]}
-        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))
-        self.board.seen = None
-        self.board.reload()
-        self.board.press(ord("x"))
-        self.board.press(10)
-        self.assertIsNotNone(self.board.asking)
-
     def test_enter_during_another_command_keeps_your_words(self):
         self.stopped()
-        self.board.press(ord("x"))
+        self.board.press(ord("a"))
         self.type_in("keep me")
         self.board.refreshing = True
         self.board.press(10)
-        self.assertEqual((self.board.asking.command, self.board.typed), ("retry", "keep me"))
+        self.assertEqual((self.board.asking.words, self.board.typed), ("retry", "keep me"))
 
     def reported(self):
         self.board.press(10)
@@ -913,21 +888,10 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.board.tab = DELIVERY
         self.assertEqual(self.board.counts()[1], 1)
-        self.assertEqual([a[2] for a in self.board.run_actions(self.board.runs[-1])], ["drop"])
-
-    def test_a_sweeps_gate_offers_skip(self):
-        gated = {"name": "x", "steps": [{"id": "sweep", "kind": "agent"}, {"id": "decide", "kind": "gate", "report": "sweep", "proposals": True}]}
-        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))
-        self.board.seen = None
-        self.board.reload()
-        self.assertIn("x skip", self.board.footer().text)
-        self.assertIn("a accept", self.board.footer().text)
-        self.board.press(ord("x"))
-        self.type_in("2 3")
-        self.assertEqual(self.sent(), ("reject", "1", "2 3"))
+        self.assertEqual(list(self.board.run_actions(self.board.runs[-1]).values()), ["d drop"])
 
     def at_gate(self):
-        steps = [{"id": "tasks", "kind": "agent"}, {"id": "approve", "kind": "gate", "report": "tasks", "ask": "Are these the right tasks?"}]
+        steps = [{"id": "tasks", "kind": "agent"}, {"id": "approve", "kind": "gate", "report": "tasks", "ask": "Are these the right tasks?", "go": "start building"}]
         found = Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": steps}, status="waiting", step=1, reason="Are these the right tasks?")
         self.store.save(found)
         (self.store.files(found) / "tasks.md").write_text("Add the flag in main.\n\nVERDICT: READY\n", encoding="utf-8")
@@ -947,18 +911,34 @@ class Keys(unittest.TestCase):
         found = self.at_gate()
         self.assertEqual(joined(self.board.detail((found.repo, found.key), 100)).count("Add the flag in main."), 1)
 
-    def test_a_gate_offers_approve_and_reject_not_pass(self):
-        gated = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "check", "kind": "gate", "report": "plan"}]}
-        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))
+    def test_a_blank_answer_at_a_gate_does_what_the_box_says(self):
+        self.at_gate()
+        self.board.press(ord("a"))
+        self.assertIn("enter to start building", joined(self.board.note(80)))
+        self.assertEqual(self.sent(), ("approve", "1"))
+
+    def test_words_at_a_gate_send_it_back(self):
+        self.at_gate()
+        self.board.press(ord("a"))
+        self.type_in("call it --whisper")
+        self.assertEqual(self.sent(), ("reject", "1", "call it --whisper"))
+
+    def test_a_question_needs_words(self):
+        steps = [{"id": "plan", "kind": "agent"}]
+        self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": steps}, status="waiting", reason="Which one?"))
         self.board.seen = None
         self.board.reload()
-        footer = self.board.footer().text
-        self.assertIn("a accept", footer)
-        self.assertIn("x redo", footer)
-        self.assertNotIn("pass", footer)
         self.board.press(ord("a"))
-        self.type_in("ignored")
-        self.assertEqual(self.sent(), ("approve", "1"))
+        self.assertIn("type your answer", joined(self.board.note(80)))
+        self.board.press(10)
+        self.assertIsNotNone(self.board.asking)
+        self.type_in("the first")
+        self.assertEqual(self.sent(), ("retry", "1", "the first"))
+
+    def test_a_drop_needs_no_reason(self):
+        self.stopped()
+        self.board.press(ord("d"))
+        self.assertEqual(self.sent(), ("drop", "1"))
 
 
 class Mouse(Keys):
@@ -1116,7 +1096,7 @@ class Panel(Mouse):
         self.assertIn("d drop", self.board.footer(width).text)
         spots = [region for region in self.board.regions if region[3] == f"key:{ord('d')}"]
         self.tap(spots[0][1], spots[0][0], width)
-        self.assertEqual(self.board.asking.command, "drop")
+        self.assertEqual(self.board.asking.blank, "drop")
 
     def test_a_report_shows_in_the_panel_and_esc_closes_it(self):
         path = self.store.files(run("1")) / "plan.md"
