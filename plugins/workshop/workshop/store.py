@@ -41,6 +41,9 @@ class Run:
     moved: str = ""  # where the ticket last moved to
     opened: bool = False  # the PR has left draft
     reviewing: bool = False  # someone's PR under review, not a delivery, so workshop only reads it
+    replying: bool = False  # comments on your own PR: fixes and replies wait for your go
+    replied: bool = False  # those went out
+    sent: int = 0  # how many replies have, should a send stop halfway
     reviewed: str = ""  # the commit the last review looked at
     begun: float = 0.0
     claimed: bool = False  # others can see this review is yours
@@ -54,7 +57,12 @@ class Run:
     @property
     def label(self) -> str:
         """A finished run is still with people until its PR lands."""
-        return self.landed or ("in review" if self.status == "done" else self.status)
+        return self.landed or ("replied" if self.replied else "in review" if self.status == "done" else self.status)
+
+    @property
+    def on_a_pr(self) -> bool:
+        """Started from a PR, so its source is that PR and it delivers nothing."""
+        return self.reviewing or self.replying
 
     def index_of(self, step_id: str) -> int:
         return [s["id"] for s in self.pipeline["steps"]].index(step_id)

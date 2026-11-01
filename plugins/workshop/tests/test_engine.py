@@ -224,6 +224,76 @@ class Reviews(unittest.TestCase):
         self.assertIn("prefix+shift+u", self.engine.next_action(run))
 
 
+class Replies(unittest.TestCase):
+    URL = "https://example.test/o/r/pull/7"
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.tools, self.source = FakeTools(self.root), mock.Mock()
+        self.source.get.return_value = Ticket("reply-7", "Mine", "sam: please fix", self.URL)
+        self.source.guard.return_value = ""
+        self.tools.behind = 1
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: 1000.0)
+
+    def start(self, restart=False):
+        return self.engine.start("r", "reply-7", self.root, "main", load("reply"), self.source, restart=restart, pr=self.URL, replying=True)
+
+    def finished(self, replies='[{"comment": 12, "reply": "Fixed"}, {"comment": null, "reply": "Thanks"}]'):
+        run = self.start()
+        files = self.engine.store.files(run)
+        (files / "reply.md").write_text("Done\n")
+        (files / "replies.json").write_text(replies)
+        self.tools.statuses[run.agent] = "idle"
+        return self.engine.advance(run)
+
+    def test_nothing_leaves_until_your_go(self):
+        run = self.finished()
+        self.assertEqual((run.status, run.label, self.tools.pushes, self.tools.commits), ("done", "in review", 0, []))
+        self.source.reply.assert_not_called()
+        self.assertEqual(self.tools.reloads, [True])
+        self.assertFalse(self.engine.delivered(run))
+
+    def test_your_go_pushes_the_fixes_then_posts_marked_replies(self):
+        run = self.engine.send_replies(self.finished())
+        self.assertEqual((self.tools.commits, self.tools.pushes), (["Address review comments on 7"], 1))
+        self.assertEqual([c.args for c in self.source.reply.call_args_list], [("reply-7", 12, f"{PREFIX} Fixed"), ("reply-7", None, f"{PREFIX} Thanks")])
+        self.assertEqual((run.replied, run.label), (True, "replied"))
+
+    def test_a_send_that_stops_halfway_doesnt_repeat_itself(self):
+        run = self.finished()
+        self.source.reply.side_effect = [None, ToolError("gh failed")]
+        with self.assertRaises(ToolError):
+            self.engine.send_replies(run)
+        self.source.reply.reset_mock(side_effect=True)
+        self.engine.send_replies(self.engine.store.load("r", "reply-7"))
+        self.assertEqual([c.args[1] for c in self.source.reply.call_args_list], [None])
+
+    def test_no_fixes_means_no_push(self):
+        self.tools.behind = 0
+        self.engine.send_replies(self.finished())
+        self.assertEqual(self.tools.pushes, 0)
+
+    def test_a_running_reply_cant_be_sent(self):
+        with self.assertRaises(KeyError):
+            self.engine.send_replies(self.start())
+
+    def test_a_bad_replies_file_sends_nothing(self):
+        run = self.finished("not json")
+        self.assertEqual(self.engine.replies(run), [])
+
+    def test_a_new_round_reads_the_comments_again(self):
+        self.finished()
+        self.source.get.return_value = Ticket("reply-7", "Mine", "sam: one more", self.URL)
+        run = self.start(restart=True)
+        self.assertIn("one more", (self.engine.store.files(run) / "brief.md").read_text())
+
+    def test_the_agent_may_change_code_but_not_read_as_a_delivery(self):
+        run = self.finished()
+        self.assertFalse(run.reviewing)
+        self.assertTrue(self.engine.review_ready(run))
+        self.assertIn("prefix+shift+u", self.engine.next_action(run))
+
+
 class Commands(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -375,6 +445,9 @@ class FakeTools:
 
     def close_workspace(self, pane):
         self.closed_workspaces.append(pane)
+
+    def unpushed(self, work, branch):
+        return self.behind
 
     def load_threads(self, work):
         self.threads_loaded += 1

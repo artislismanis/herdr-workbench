@@ -7,7 +7,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.sources import GitHubSource, JiraSource, MarkdownSource, PullRequestSource  # noqa: E402
+from workshop.sources import GitHubSource, JiraSource, MarkdownSource, PullRequestSource, ReplySource  # noqa: E402
 from workshop.tools import slug  # noqa: E402
 
 
@@ -38,6 +38,54 @@ class PullRequests(unittest.TestCase):
             source.finish("pr-7")
         run.assert_not_called()
         self.gh.assert_not_called()
+
+
+class Answering(unittest.TestCase):
+    SAID = {"author": {"login": "me"}, "reviews": {"nodes": [{"state": "CHANGES_REQUESTED", "body": "Add a docstring", "author": {"login": "sam"}}, {"state": "APPROVED", "body": "", "author": {"login": "alex"}}]},
+            "comments": {"nodes": [{"body": "Nice", "author": None}]},
+            "reviewThreads": {"nodes": [{"isResolved": False, "path": "a.py", "line": 3, "comments": {"nodes": [{"databaseId": 11, "body": "Why?", "author": {"login": "sam"}}, {"databaseId": 12, "body": "Because", "author": {"login": "me"}}]}},
+                                        {"isResolved": True, "path": "b.py", "line": 1, "comments": {"nodes": [{"databaseId": 13, "body": "Done with", "author": {"login": "sam"}}]}}]}}
+    PR = {"title": "T", "body": "B", "url": "u", "state": "OPEN", "isCrossRepository": False, "baseRefName": "main", "author": {"login": "me"}}
+
+    def source(self, **pr):
+        for name, value in (("run_json", self.PR | pr), ("run", "me\n")):
+            patch = mock.patch(f"workshop.sources.{name}", return_value=value)
+            self.addCleanup(patch.stop)
+            patch.start()
+        return ReplySource(Path("/repo"))
+
+    def test_the_brief_has_what_needs_an_answer_and_how_to_answer_it(self):
+        source = self.source()
+        with mock.patch.object(ReplySource, "conversation", return_value=self.SAID):
+            body = source.get("reply-7").body
+        self.assertIn("sam (changes_requested): Add a docstring", body)
+        self.assertIn("ghost: Nice", body)
+        self.assertIn("a.py:3, answered with comment 12", body)
+        self.assertNotIn("Done with", body)
+
+    def test_the_run_itself_posts_nothing(self):
+        source = self.source()
+        with mock.patch("workshop.sources.run") as run:
+            source.claim("reply-7")
+            source.report("reply-7", "Started")
+            source.move("reply-7", "working")
+            source.finish("reply-7")
+        run.assert_not_called()
+
+    def test_only_your_own_pr(self):
+        self.assertEqual(self.source().guard("reply-7"), "")
+        self.assertIn("isn't your PR", self.source(author={"login": "them"}).guard("reply-7"))
+
+    def test_forks_never_run_here_either(self):
+        self.assertIn("fork", self.source(isCrossRepository=True).guard("reply-7"))
+
+    def test_a_reply_goes_to_its_thread_or_the_pr(self):
+        source = self.source()
+        with mock.patch("workshop.sources.run") as run:
+            source.reply("reply-7", 12, "Fixed")
+            self.assertIn("pulls/7/comments/12/replies", run.call_args.args[4])
+            source.reply("reply-7", None, "Thanks")
+            self.assertEqual(run.call_args.args[:3], ("gh", "pr", "comment"))
 
 
 class Claims(unittest.TestCase):

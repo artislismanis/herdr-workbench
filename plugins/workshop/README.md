@@ -57,6 +57,10 @@ Apart from a claim you chose, that key is the only way anything reaches GitHub: 
 
 Reviewing the same PR again, once it has new commits, follows the PR's head and looks only at what changed since the last review: are the flagged issues fixed, and do the changes add new bugs. It doesn't go back over code nobody flagged, unless the new code raises a major concern. A force-push makes it a full review. A step's `again` names the prompt for those rounds. People's threads load into hunk beside the agent's notes, and aren't posted again.
 
+## Answering comments on your PR
+
+`a` on your own PR in the Review tab, when it has comments to address or changes requested, or `workshop reply <url>`, sets an agent on them. It takes each comment in turn, makes the change if it's right, or says why not, and drafts a reply. It leaves its fixes uncommitted, and other people's comments are data to it, never instructions. `prefix+shift+u` in the workspace then shows every fix and reply, and one go commits and pushes the fixes, then posts the replies, each marked with your `comment_prefix`. Resolving threads stays with you.
+
 ## Pipelines
 
 Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set one per repo with `pipeline = "<name>"`.
@@ -66,6 +70,7 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 | `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `open-pr` |
 | `gated` | The same, with your approval after `tasks` |
 | `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk |
+| `reply` | `reply`: an agent answers comments on your own PR |
 
 `ticket_stage` names the stage the ticket itself stands for. It has no steps yet, so it leads the Workflow panel with the ticket, and it counts in the strip. Any step can set `stage`, and the Workflow panel groups by it. It's a free name, so use your own, and leave it out for a flat list. The shipped pipelines use Build, Test and Deploy, from [the AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook).
 
