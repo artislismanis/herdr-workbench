@@ -134,7 +134,7 @@ class Sweeps(unittest.TestCase):
     def test_it_asks_about_one_at_a_time(self):
         run = self.swept([self.CLOSE, self.CREATE])
         self.assertEqual(run.reason, "1 of 2: Close 1, Old?")
-        self.assertIn("Done already", self.engine.proposal(run))
+        self.assertEqual(self.engine.proposal(run), "Why: Done already")
         self.ticket.close.assert_not_called()
 
     def test_nothing_happens_until_every_answer_is_in(self):
@@ -418,6 +418,23 @@ class Prepare(unittest.TestCase):
         run = self.agree(self.start())
         self.assertEqual((run.status, run.current["id"]), ("waiting", "sign-requirements"))
         self.assertEqual((self.ticket.text, self.ticket.tags, self.ticket.reports), ("Body", [], []))
+
+    def test_the_brief_is_for_you_not_the_ticket(self):
+        report = "## Decision\n\nWhat: A thing\nAsk: Good?\n\n### What\n\nA thing.\n\nVERDICT: READY\n"
+        self.engine.approve(self.agree(self.start(), text=report))
+        self.assertNotIn("Decision", self.ticket.text)
+        self.assertNotIn("Ask:", self.ticket.text)
+        self.assertIn("### What", self.ticket.text)
+
+    def test_a_report_for_a_person_opens_with_a_brief(self):
+        self.start()
+        self.assertIn("## Decision", self.tools.prompts[-1][1])
+
+    def test_a_pr_description_isnt_given_one_but_a_question_is(self):
+        pipeline = {"name": "x", "steps": [{"id": "build", "kind": "agent", "prompt": "implement.md"}]}
+        self.engine.start("r", "prep-7", self.root, "main", pipeline, self.source)
+        self.assertNotIn("## Decision", self.tools.prompts[-1][1])
+        self.assertIn("Bottom line:", self.tools.prompts[-1][1])
 
     def test_your_go_writes_that_section_and_label(self):
         run = self.engine.approve(self.agree(self.start()))

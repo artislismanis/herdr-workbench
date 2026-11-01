@@ -14,7 +14,7 @@ from typing import Any, NamedTuple, Protocol
 from .backlog import SNAPSHOT
 from .boardview import Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, plain, pull, pulls, rule, wrapped
 from .engine import STOPS, Engine
-from .review import section
+from .review import brief
 from .store import Run
 from .system import Meter
 
@@ -30,7 +30,8 @@ PASTES_ON, PASTES_OFF = "\033[?2004h", "\033[?2004l"  # marks a paste, so a line
 PASTE_START, PASTE_END = b"[200~", b"\033[201~"
 PASTE_LIMIT = 100_000
 NOTE_ROWS = 6
-CARD_CONTEXT = 8
+BRIEF = ("What", "Why", "Background", "Bottom line")
+BRIEF_ROWS = 2  # a line that runs longer is cut, as the report above has it in full
 CURSOR = "▌"
 CTRL_U, CTRL_W = 21, 23
 JITTER = 2  # a press that moves less than this along a row is still a click
@@ -301,8 +302,11 @@ class Board:
     def answer(self, run: Run) -> Ask:
         options, typed, command = self.engine.choices(run)
         report = self.stop_report(run)[1]
-        context = section(report, "summary") or [line for line in report.splitlines() if line.strip() and not line.startswith(("#", "VERDICT:"))]
-        return Ask(run.key, run.reason, tuple(context), tuple(options), typed, command)
+        said = brief(run.reason) or brief(report)
+        if said:
+            return Ask(run.key, said.get("Ask", run.reason.splitlines()[0]), tuple(f"{label}: {said[label]}" for label in BRIEF if label in said), tuple(options), typed, command)
+        # No brief from the agent: the reason, and the report stays above, because a wall of it here helps nobody.
+        return Ask(run.key, run.reason.splitlines()[0], ("The full report is above.",) if report else (), tuple(options), typed, command)
 
     def carry_on(self) -> None:
         """An answer doesn't end the conversation: the same run's next question opens by itself. When it's done, you're told, and left on what needs you next, but never answering for another run on a stray enter."""
@@ -461,10 +465,9 @@ class Board:
             return [self.footer(width)]
         asking, room = self.asking, max(width - 4, 20)
         typing = self.choice == len(asking.options)
-        context = [part.text for line in asking.context for part in wrapped(line, room)]
+        context = [part.text for line in asking.context for part in wrapped(line, room)[:BRIEF_ROWS]]
         lines = [rule(cell(asking.key or "Answer", width - 6).rstrip(), width), *wrapped(asking.question, width - 1, "bold")]
-        lines += [plain(f" {text}") for text in context[:CARD_CONTEXT]]
-        lines += [plain(f" ... {len(context) - CARD_CONTEXT} more lines above", "dim")] * (len(context) > CARD_CONTEXT)
+        lines += [plain(f" {text}") for text in context]
         lines += [plain()]
         lines += [plain(f" {'›' if i == self.choice else ' '} {label}", "bold" if i == self.choice else "") for i, (label, _, _) in enumerate(asking.options)]
         lines += [plain(f" {'›' if typing else ' '} {asking.typed}:", "bold" if typing else "")]
