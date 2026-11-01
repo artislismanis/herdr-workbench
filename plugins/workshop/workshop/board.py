@@ -33,6 +33,7 @@ AI_REVIEW = ord("a")
 RESPOND = ("changes requested", "comments to address", "fixed, re-request")
 AI_REVIEW_OTHER = ord("A")  # the mode you don't usually use
 CLAIM = ord("m")
+PREPARE = ord("p")
 RENEWED = ("re-review", "new commits")
 ENTERS = (10, 13, curses.KEY_ENTER)
 BACKSPACES = (8, 127, curses.KEY_BACKSPACE)
@@ -50,6 +51,7 @@ class Ask(NamedTuple):
 
 # Key, button label, command, what to ask for, and whether it's needed.
 STOPPED = ((ord("c"), "c comment", "comment", "Comment on the ticket", True), (ord("t"), "t retry", "retry", "Retry, with an optional note", False), (ord("p"), "p pass", "pass", "Pass this step, with an optional note", False), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
+TURN = ((ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False),)
 GATE = ((ord("a"), "a approve", "approve", "Approve this gate? Enter confirms", False), (ord("x"), "x reject", "reject", "Reject, saying what to change", True), (ord("d"), "d drop", "drop", "Drop this run, with an optional reason", False))
 
 
@@ -184,6 +186,9 @@ class Board:
         if key == CLAIM and (found := self.claimable(lines)):
             self.send("claim", found.key)
             return True
+        if key == PREPARE and self.tab == BACKLOG and not self.open:
+            self.asking, self.typed = Ask("prepare", "", "Prepare which ticket, as number or repo/number", True), ""
+            return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
         elif key in (curses.KEY_DOWN, ord("j")):
@@ -261,6 +266,8 @@ class Board:
         return self.run_actions(self.target(lines))
 
     def run_actions(self, run: Run | None) -> tuple[tuple[int, str, str, str, bool], ...]:
+        if run is not None and run.your_turn:
+            return TURN
         if run is None or run.status not in ("parked", "waiting"):
             return ()
         return GATE if run.current and run.current["kind"] == "gate" else STOPPED
@@ -281,7 +288,7 @@ class Board:
             if not self.refreshing and (self.typed.strip() or not asking.required):
                 self.asking = None
                 words = [self.typed.strip()] if self.typed.strip() and asking.command != "approve" else []
-                self.send(asking.command, asking.key, *words)
+                self.send(*filter(None, (asking.command, asking.key, *words)))
         elif key in BACKSPACES:
             self.typed = self.typed[:-1]
         elif 32 <= key < curses.KEY_MIN and key != 127:
@@ -320,7 +327,7 @@ class Board:
         self.send("refresh")
 
     def counts(self) -> tuple[int, ...]:
-        waiting = sum(r.status in ("parked", "waiting") for r in self.runs)
+        waiting = sum(r.status in ("parked", "waiting") or r.your_turn for r in self.runs)
         tickets = sum(not self.store.exists(repo, i["key"]) for repo, r in self.snapshot.get("repos", {}).items() for i in r["items"])
         return tickets, waiting, sum(p["move"] == "you" for p in self.snapshot.get("prs", {}).get("items", []))
 
@@ -347,6 +354,7 @@ class Board:
         offers = [("a ai review", AI_REVIEW), (f"A ai review, {self.other_mode()}", AI_REVIEW_OTHER)] if self.unreviewed(lines) else []
         offers = [("a ai reply", AI_REVIEW)] if self.answerable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
+        offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g")), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 

@@ -1,0 +1,41 @@
+# Grills you on a ticket, then writes what you agreed to it. Each go on the Backlog's way to
+# delivery is yours, and nothing reaches the ticket before it. Copy to ~/.config/workshop/pipelines/ to change it.
+name = "prepare"
+
+[[steps]]
+id = "requirements"
+stage = "Plan"
+kind = "agent"
+prompt = "grill-requirements.md"
+interactive = true
+fresh = true
+read_only = true
+verdict = ["READY"]
+
+[[steps]]
+id = "sign-requirements"
+stage = "Plan"
+kind = "gate"
+report = "requirements"
+section = "Requirements"
+label = "planned"
+then.REJECTED = { goto = "requirements", max = 3 }
+
+[[steps]]
+id = "design"
+stage = "Design"
+kind = "agent"
+prompt = "grill-design.md"
+interactive = true
+fresh = true
+read_only = true
+verdict = ["READY"]
+
+[[steps]]
+id = "sign-design"
+stage = "Design"
+kind = "gate"
+report = "design"
+section = "Design"
+label = "designed"
+then.REJECTED = { goto = "design", max = 3 }

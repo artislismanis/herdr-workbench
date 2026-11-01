@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from workshop.engine import PREFIX, STEP_TIMEOUT, Engine, Park  # noqa: E402
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
-from workshop.sources import Comment, PullRequestSource, Ticket  # noqa: E402
+from workshop.sources import Comment, PrepareSource, PullRequestSource, Ticket  # noqa: E402
 from workshop.store import Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
@@ -45,6 +45,139 @@ class FakeSource:
 
     def closed(self, key):
         return self.is_closed
+
+
+class FakeTickets(FakeSource):
+    """A ticket that can be read and written, as Prepare needs."""
+
+    def __init__(self):
+        super().__init__()
+        self.text, self.tags, self.labelled = "Body", [], []
+
+    def body(self, key):
+        return self.text
+
+    def rewrite(self, key, text):
+        self.text = text
+
+    def tag(self, key, label):
+        self.tags.append(label)
+
+    def labels(self, key):
+        return self.labelled
+
+
+class Prepare(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.tools, self.ticket = FakeTools(self.root), FakeTickets()
+        self.source = PrepareSource(self.ticket, {})
+        self.now = [1000.0]
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: self.now[0])
+
+    def start(self, at=0):
+        return self.engine.start("r", "prep-7", self.root, "main", load("prepare"), self.source, preparing=True, at=at)
+
+    def agree(self, run, name="requirements", text="### What\n\nA thing.\n\nVERDICT: READY\n"):
+        (self.engine.store.files(run) / f"{name}.md").write_text(text)
+        self.tools.statuses[run.step_agent] = "idle"
+        return self.engine.advance(run)
+
+    def test_nothing_reaches_the_ticket_while_you_talk(self):
+        run = self.start()
+        self.tools.statuses[run.step_agent] = "idle"
+        self.engine.advance(run)
+        self.assertEqual((self.ticket.reports, self.ticket.moves, self.ticket.claimed, self.ticket.tags, self.ticket.text), ([], [], [], [], "Body"))
+
+    def test_an_agent_going_quiet_is_your_turn_not_a_stop(self):
+        run = self.start()
+        for status in ("idle", "blocked", "done"):
+            self.tools.statuses[run.step_agent] = status
+            run = self.engine.advance(run)
+            self.assertEqual((run.status, run.label), ("running", "your turn"))
+
+    def test_your_turn_is_announced_once(self):
+        run = self.start()
+        for status in ("idle", "working", "idle"):
+            self.tools.statuses[run.step_agent] = status
+            run = self.engine.advance(run)
+        self.assertEqual(len([n for n in self.tools.notes if "prep-7" in n]), 1)
+
+    def test_a_long_conversation_has_no_time_limit(self):
+        run = self.start()
+        self.now[0] += 10 * STEP_TIMEOUT
+        self.assertEqual(self.engine.advance(run).status, "running")
+
+    def test_a_draft_without_a_verdict_is_not_agreed(self):
+        run = self.start()
+        run = self.agree(run, text="Still working this out\n")
+        self.assertEqual((run.status, run.current["id"], run.label), ("running", "requirements", "your turn"))
+
+    def test_an_agent_that_dies_stops_the_run(self):
+        run = self.start()
+        self.tools.statuses[run.step_agent] = "gone"
+        self.assertEqual(self.engine.advance(run).status, "parked")
+
+    def test_agreeing_stops_at_a_go_and_writes_nothing(self):
+        run = self.agree(self.start())
+        self.assertEqual((run.status, run.current["id"]), ("waiting", "sign-requirements"))
+        self.assertEqual((self.ticket.text, self.ticket.tags, self.ticket.reports), ("Body", [], []))
+
+    def test_your_go_writes_that_section_and_label(self):
+        run = self.engine.approve(self.agree(self.start()))
+        self.assertTrue(self.ticket.text.startswith("## Requirements\n\n### What"))
+        self.assertTrue(self.ticket.text.endswith("## Original ticket\n\nBody"))
+        self.assertNotIn("VERDICT", self.ticket.text)
+        self.assertEqual(self.ticket.tags, ["planned"])
+        self.assertEqual(self.ticket.reports, [f"{PREFIX} Signed off the requirements."])
+        self.assertEqual(run.current["id"], "design")
+
+    def test_a_failed_write_keeps_the_go_waiting(self):
+        run = self.agree(self.start())
+        self.ticket.rewrite = mock.Mock(side_effect=ToolError("gh down"))
+        with self.assertRaises(ToolError):
+            self.engine.approve(run)
+        self.assertEqual(self.engine.store.load("r", "prep-7").current["id"], "sign-requirements")
+
+    def test_design_is_a_fresh_agent(self):
+        first = self.start()
+        agent, pane = first.step_agent, first.step_pane
+        run = self.engine.approve(self.agree(first))
+        self.assertNotEqual(run.step_agent, agent)
+        self.assertIn(pane, self.tools.closed)
+
+    def test_rejecting_goes_back_to_the_same_talk(self):
+        run = self.agree(self.start())
+        run = self.engine.reject(run, "Too wide")
+        self.assertEqual((run.current["id"], run.status), ("requirements", "running"))
+        self.assertIn("Too wide", (self.engine.store.files(run) / "feedback.md").read_text())
+        self.assertEqual(self.ticket.text, "Body")
+
+    def finished(self):
+        run = self.engine.approve(self.agree(self.start()))
+        return self.engine.approve(self.agree(run, "design", "### How\n\nLike so.\n\nVERDICT: READY\n"))
+
+    def test_the_last_go_ends_the_run_with_no_pr(self):
+        run = self.finished()
+        self.assertEqual((run.status, run.landed, run.pr, run.label), ("done", "prepared", "", "prepared"))
+        self.assertEqual(self.ticket.tags, ["planned", "designed"])
+        self.assertIn("## Design\n\n### How", self.ticket.text)
+        self.assertEqual(self.tools.reviews, [])
+        self.assertFalse([r for r in self.ticket.reports if "Draft PR" in r])
+
+    def test_the_end_takes_the_checkout(self):
+        run = self.finished()
+        self.assertEqual((len(self.tools.removed), run.worktree), (1, ""))
+
+    def test_a_ticket_past_requirements_starts_at_design(self):
+        run = self.start(at=2)
+        self.assertEqual(run.current["id"], "design")
+
+    def test_you_can_drop_it_mid_talk(self):
+        run = self.start()
+        self.tools.statuses[run.step_agent] = "idle"
+        run = self.engine.drop(self.engine.advance(run), "Not worth it")
+        self.assertEqual((run.landed, len(self.tools.removed)), ("dropped", 1))
 
 
 class Reviews(unittest.TestCase):

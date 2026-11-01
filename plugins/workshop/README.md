@@ -22,6 +22,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop explain <key>` | One run in detail |
 | `workshop resume <key>` | Tries a parked run's stopped step again |
 | `workshop review <key>` | Opens a finished run in hunk, with the reviewer's notes on the diff. A run does this itself when its PR is ready |
+| `workshop prepare <[repo/]key>` | Grills you on a ticket, then writes what you agreed to it: see Backlog |
 | `workshop finish` | Ends a review from its workspace, on `prefix+shift+u`: see Board |
 | `workshop approve <key>`, `workshop reject <key> <note>` | Answers a gate |
 | `workshop answer <key> <text>` | Answers an agent's question |
@@ -71,6 +72,7 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 | `gated` | The same, with your approval after `tasks` |
 | `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk |
 | `reply` | `reply`: an agent answers comments on your own PR |
+| `prepare` | `requirements` and `design`, two fresh agents that grill you, each with your go after it |
 
 `ticket_stage` names the stage the ticket itself stands for. It has no steps yet, so it leads the Workflow panel with the ticket, and it counts in the strip. Any step can set `stage`, and the Workflow panel groups by it. It's a free name, so use your own, and leave it out for a flat list. The shipped pipelines use Build, Test and Deploy, from [the AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook).
 
@@ -139,6 +141,14 @@ Terminal actions happen at once. `workshop comment <key> "text"` posts a real co
 ## Backlog
 
 Each `tick` and `workshop refresh` saves open tickets to `~/.local/state/workshop/board.json`, sorted by label: none is `new`, then `planned`, `designed`, and the delivery label is `queued`. `[backlog]` renames the first two. Claimed tickets leave the list. On Jira the repo's label sets the scope, so a ticket without it doesn't show. A source that fails keeps its last good list and records the error. Polling makes API calls but uses no tokens.
+
+`p` on the Backlog tab, or `workshop prepare <key>`, starts Prepare, which gets a ticket ready before you queue it. It runs in its own read-only checkout, shows on the Delivery tab, and takes no `max_active` slot.
+
+1. A fresh agent grills you on the requirements, one question at a time, in a pane of the `prep-<key>` workspace. `g` on the board goes there. `your turn` means it's waiting for you, which is normal, so there's no time limit.
+2. When you agree, it writes `requirements.md` and stops at a gate. `a` writes it to the ticket and adds `planned`. `x` sends it back with what to change.
+3. Another fresh agent, which knows only what was written, does the same for the design. Your `a` adds `designed`, and the run ends and takes its checkout.
+
+Nothing reaches the ticket before a go. Each go puts its section at the top of the ticket body, above a `## Original ticket` heading that keeps your text, and posts a `Signed off` comment. Delivery treats comments older than that as background. Running it again replaces those sections. A ticket with `planned` starts at the design, and one with `designed` starts over. Queueing stays yours: add the delivery label once you've read it. Jira shows the headings as plain text, as they're Markdown. `prepare_pipeline` on a repo names a different pipeline. A step's `interactive = true` needs a `verdict`, which is how the engine knows you've agreed, and a gate's `section` and `label` set what it writes.
 
 ## PRs
 

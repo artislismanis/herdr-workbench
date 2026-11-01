@@ -10,7 +10,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
-from workshop.board import REVIEW, Board  # noqa: E402
+from workshop.board import BACKLOG, DELIVERY, REVIEW, Board  # noqa: E402
 from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pulls, run_style, stage_groups, stage_state  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -757,6 +757,25 @@ class Keys(unittest.TestCase):
         self.board.press(ord("d"))
         self.sent()
         self.assertIn("no such run", self.board.footer().text)
+
+    def test_p_on_the_backlog_asks_which_ticket_to_prepare(self):
+        self.board.tab = BACKLOG
+        self.assertIn("p prepare", self.board.footer().text)
+        self.board.press(ord("p"))
+        self.type_in("7")
+        self.assertEqual(self.sent(), ("prepare", "7"))
+
+    def test_no_prepare_key_away_from_the_backlog(self):
+        self.board.tab = REVIEW
+        self.assertNotIn("p prepare", self.board.footer().text)
+
+    def test_your_turn_counts_as_waiting_on_you_and_can_be_dropped(self):
+        self.store.save(Run(repo="r", key="prep-7", repo_path="/", base="main", pipeline=PIPELINE, preparing=True, your_turn=True))
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab = DELIVERY
+        self.assertEqual(self.board.counts()[1], 1)
+        self.assertEqual([a[2] for a in self.board.run_actions(self.board.runs[-1])], ["drop"])
 
     def test_a_gate_offers_approve_and_reject_not_pass(self):
         gated = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "check", "kind": "gate", "report": "plan"}]}

@@ -32,7 +32,7 @@ class Engine:
         self.mark = prefix + " "
         self.command = "/" + prefix.strip("[]")  # [ai] gives /ai
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False) -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0) -> Run:
         if self.store.exists(repo, key) and not restart:
             raise Park(f"{key} already has a run. Use workshop resume {key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
@@ -41,7 +41,7 @@ class Engine:
         if reason:
             raise Park(f"{key}: {reason}")
         source.claim(key)
-        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying, replying=replying, begun=self.clock(), claimed=claimed)
+        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying, replying=replying, begun=self.clock(), claimed=claimed, preparing=preparing, step=at)
         if restart and self.store.exists(repo, key):
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
@@ -168,7 +168,7 @@ class Engine:
 
     def _check(self, run: Run, word: str) -> None:
         """Whether this action can apply, asked before anything is posted to the ticket."""
-        if run.status not in ("parked", "waiting"):
+        if run.status not in ("parked", "waiting") and not (word == "drop" and run.your_turn):
             raise KeyError(f"{run.key} isn't stopped")
         kind = run.current["kind"] if run.current else ""
         if word == "retry" and kind == "gate":
@@ -233,9 +233,11 @@ class Engine:
         self._post(run, f"Dropped. {reason}".strip())
         self.store.event(run, "dropped", reason=reason)
         self._let_go(run)
-        run.status, run.landed, run.reason, run.blocked_at = "done", "dropped", reason, 0.0
+        run.status, run.landed, run.reason, run.blocked_at, run.your_turn = "done", "dropped", reason, 0.0, False
         self._move(run, "dropped")
         self.store.save(run)
+        if run.preparing:
+            self._tidy(run)  # it never holds work
         return run
 
     def land(self, run: Run) -> Run:
@@ -256,10 +258,10 @@ class Engine:
             self.store.event(run, "check_failed", reason=str(failed))
         return run
 
-    def _tidy(self, run: Run, landed_head: str) -> None:
+    def _tidy(self, run: Run, landed_head: str = "") -> None:
         """A landed run's checkout goes, unless it holds work: wt refuses uncommitted changes, and a head that isn't the PR's has commits nobody pushed."""
         try:
-            if self.tools.head(Path(run.worktree)) != landed_head:
+            if landed_head and self.tools.head(Path(run.worktree)) != landed_head:
                 raise ToolError("it has commits that aren't on the PR")
             self.tools.remove_worktree(Path(run.repo_path), Path(run.worktree))
             self.tools.close_workspace(run.pane)
@@ -281,13 +283,24 @@ class Engine:
         return self.advance(run)
 
     def approve(self, run: Run) -> Run:
-        self._at_gate(run)
+        step = self._at_gate(run)
+        if "section" in step:
+            self._sign_off(run, step)
         self._post(run, "Approved.")
         run.status, run.reason = "running", ""
         run.step, run.phase = run.step + 1, ""
         self.store.event(run, "approved")
         self.store.save(run)
         return self.advance(run)
+
+    def _sign_off(self, run: Run, step: dict[str, Any]) -> None:
+        """Your go: only now does what you agreed reach the ticket. A failed write leaves the gate waiting, so nothing is lost."""
+        report = self._report(run, run.pipeline["steps"][run.index_of(step["report"])])
+        text = re.sub(r"^VERDICT: [A-Z_]+\s*$", "", report.read_text(encoding="utf-8"), flags=re.MULTILINE)
+        source = self.source_for(run)
+        source.publish(run.key, step["section"], text, step["label"])
+        source.signed(run.key, f"{self.mark}Signed off the {step['section'].lower()}.")
+        self.store.event(run, "signed_off", step=step["id"], section=step["section"])
 
     def reject(self, run: Run, note: str) -> Run:
         step = self._at_gate(run)
@@ -409,6 +422,8 @@ class Engine:
 
     def next_action(self, run: Run) -> str:
         """What a person does now, for a run that's waiting on one."""
+        if run.preparing and run.current and run.current["kind"] == "gate":
+            return f'workshop approve {run.key} writes it to the ticket, workshop reject {run.key} "what to change" sends it back'
         if run.on_a_pr:
             return "Post it with prefix+shift+u in the workspace" if run.status == "done" else f"workshop retry, pass or drop {run.key}"
         if self.reviewable(run):
@@ -427,6 +442,8 @@ class Engine:
         lines = [f"{run.key} on {run.repo}: {run.label} at {step}"]
         if run.status in ("parked", "waiting"):
             lines += [f"Why: {run.reason}", f"Then: {self.next_action(run)}"]
+        elif run.your_turn:
+            lines.append(f"Your turn: it's waiting for you in herdr workspace {run.key}.")
         elif run.held:
             lines.append(f"Held: {run.held} The next tick after it clears carries on.")
         elif run.phase == "prompted":
@@ -482,6 +499,9 @@ class Engine:
             return
         agent = run.step_agent or run.agent
         status = self.tools.agent_status(agent)
+        if step.get("interactive"):
+            self._talk(run, step, agent, status)
+            return
         if status == "working":
             if self.clock() - run.started_at > step.get("minutes", STEP_TIMEOUT / 60) * 60:
                 raise Park(f"{step['id']} ran past its time limit. Look at agent {agent}.")
@@ -491,6 +511,25 @@ class Engine:
         if status == "gone":
             raise Park(f"Agent {agent} has gone, so {step['id']} didn't finish.")
         self._agent_finished(run, step)
+
+    def _talk(self, run: Run, step: dict[str, Any], agent: str, status: str) -> None:
+        """A conversation has no time limit, and an agent going quiet just means it's your turn. Only a report with its verdict ends it."""
+        run.your_turn = False
+        if status == "gone":
+            raise Park(f"Agent {agent} has gone, so {step['id']} didn't finish.")
+        if status == "working":
+            return
+        if self._agreed(run, step):
+            self._agent_finished(run, step)
+            return
+        run.your_turn = True
+        if run.told != step["id"]:
+            run.told = step["id"]
+            self.tools.notify(f"Workshop: {run.key} needs you", f"Your turn on {step['id']}: g on the board goes there.")
+
+    def _agreed(self, run: Run, step: dict[str, Any]) -> bool:
+        report = self._report(run, step)
+        return report.exists() and bool(set(re.findall(r"^VERDICT: ([A-Z_]+)\s*$", report.read_text(encoding="utf-8"), re.MULTILINE)) & set(step["verdict"]))
 
     def _held(self, run: Run) -> bool:
         held = self.throttle.hold_steps()
@@ -630,6 +669,12 @@ class Engine:
         run.step, run.phase = run.step + 1, ""
 
     def _finish(self, run: Run) -> None:
+        if run.preparing:
+            run.status, run.landed = "done", "prepared"
+            self.store.event(run, "prepared")
+            self.store.save(run)
+            self._tidy(run)
+            return
         self._post(run, "\n\n".join(part for part in (f"Draft PR ready: {run.pr}", self.handover(run), summary(self.store.events(run))) if part))
         self.source_for(run).finish(run.key)
         run.status = "done"

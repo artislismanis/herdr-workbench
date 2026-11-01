@@ -9,8 +9,10 @@ from typing import Any
 
 KINDS = ("agent", "gate", "command", "draft_pr")
 PUBLISH = ("pr", "ticket")
-STEP_KEYS = {"id", "stage", "kind", "prompt", "again", "read_only", "fresh", "verdict", "then", "model", "minutes", "output", "publish", "report"}
-GATE_KEYS = {"id", "stage", "kind", "report", "then"}
+SECTIONS = ("Requirements", "Design")  # what a gate can write to a ticket, in the order they read
+STAGES = ("planned", "designed")
+STEP_KEYS = {"id", "stage", "kind", "prompt", "again", "read_only", "fresh", "verdict", "then", "model", "minutes", "output", "publish", "report", "interactive", "section", "label"}
+GATE_KEYS = {"id", "stage", "kind", "report", "section", "label", "then"}
 COMMAND_KEYS = {"id", "stage", "kind", "minutes", "verdict", "then"}
 COMMAND_VERDICTS = ["PASS", "FAILED"]
 RULE_KEYS = {"goto", "max", "prompt", "park"}
@@ -73,11 +75,19 @@ def validate(raw: Any) -> dict[str, Any]:
                 raise PipelineError(f"{where}: output is a plain file name, like spec.md")
             if step.get("publish", "pr") not in PUBLISH:
                 raise PipelineError(f"{where}: publish must be one of {PUBLISH}")
+            if step.get("interactive") and not step.get("verdict"):
+                raise PipelineError(f"{where}: an interactive step needs a verdict, the only sign you've agreed")
         elif step["kind"] == "gate":
             if set(step) - GATE_KEYS:
                 raise PipelineError(f"{where}: a gate takes only {sorted(GATE_KEYS)}")
             if step.get("report") not in ids:
                 raise PipelineError(f"{where}: a gate's report names the step whose report you approve")
+            if ("section" in step) != ("label" in step):
+                raise PipelineError(f"{where}: a gate that writes to the ticket needs a section and a label")
+            if "section" in step and step["section"] not in SECTIONS:
+                raise PipelineError(f"{where}: section must be one of {SECTIONS}")
+            if "label" in step and step["label"] not in STAGES:
+                raise PipelineError(f"{where}: label must be one of {STAGES}")
         elif step["kind"] == "command":
             if set(step) - COMMAND_KEYS:
                 raise PipelineError(f"{where}: a command takes only {sorted(COMMAND_KEYS)}")

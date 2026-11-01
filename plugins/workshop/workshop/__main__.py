@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | prepare <[repo/]key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -19,7 +19,7 @@ from .engine import PREFIX, STOPS, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
 from .shell import ToolError, run, run_json
-from .sources import CLAIMS, PullRequestSource, ReplySource, Source, make_source
+from .sources import CLAIMS, PrepareSource, PullRequestSource, ReplySource, Source, make_source
 from .stats import stats
 from .store import Run, Store
 from .throttle import Throttle, usage_path
@@ -28,7 +28,7 @@ from .tools import Tools
 
 PATIENCE = 60  # seconds a person's command waits for a tick to finish
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 def config_path() -> Path:
@@ -55,6 +55,8 @@ def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
     def find(run: Run) -> Source:
         repo = cfg["repos"][run.repo]
         path = Path(repo["path"]).expanduser()
+        if run.preparing:
+            return PrepareSource(make_source(run.repo, repo, cfg.get("jira", {})), cfg.get("backlog", {}))
         if run.replying:
             return ReplySource(path)
         return PullRequestSource(path, review_settings(cfg, repo)["claim"]) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
@@ -103,6 +105,31 @@ def begin_reply(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
     return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("reply_pipeline", "reply")), source, restart=again, pr=url.rstrip("/"), replying=True)
 
 
+def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
+    name, _, key = ticket.rpartition("/")
+    if not name:
+        if len(cfg["repos"]) != 1:
+            raise KeyError(f"say which repo, as repo/key: {', '.join(cfg['repos'])}")
+        name = next(iter(cfg["repos"]))
+    if engine.store.exists(name, key):
+        raise KeyError(f"{key} is already in delivery, so preparing it would change what's being built")
+    repo = cfg["repos"][name]
+    source = PrepareSource(make_source(name, repo, cfg.get("jira", {})), cfg.get("backlog", {}))
+    pipeline = load(repo.get("prepare_pipeline", "prepare"))
+    prep = f"prep-{key}"
+    stages = source.stages(prep)
+    # A stage already signed off isn't reopened, unless every stage is, which means you want to go again.
+    gates = [i for i, step in enumerate(pipeline["steps"]) if step.get("label") in stages]
+    at = gates[-1] + 1 if gates else 0
+    again = engine.store.exists(name, prep) and bool(engine.store.load(name, prep).landed)
+    return engine.start(name, prep, Path(repo["path"]).expanduser(), repo.get("base", "main"), pipeline, source, restart=again, preparing=True, at=0 if at == len(pipeline["steps"]) else at)
+
+
+def being_prepared(engine: Engine, name: str, key: str) -> bool:
+    prep = f"prep-{key}"
+    return engine.store.exists(name, prep) and not engine.store.load(name, prep).landed
+
+
 def advance_all(engine: Engine) -> None:
     for run in engine.store.all():
         run = engine.answered_in_pane(run)
@@ -121,7 +148,7 @@ def check_tickets(engine: Engine) -> None:
 
 
 def running(engine: Engine) -> list[Run]:
-    return [r for r in engine.store.all() if r.status == "running"]
+    return [r for r in engine.store.all() if r.status == "running" and not r.preparing]  # a talk waits on you, so it takes no slot
 
 
 def read_limits(engine: Engine) -> None:
@@ -145,7 +172,7 @@ def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     for name, repo in cfg["repos"].items():
         source = make_source(name, repo, cfg.get("jira", {}))
         for key in source.ready():
-            if engine.store.exists(name, key):
+            if engine.store.exists(name, key) or being_prepared(engine, name, key):
                 continue
             if reason := source.guard(key):
                 skipped[f"{name}/{key}"] = reason
@@ -366,6 +393,8 @@ def main(argv: list[str]) -> int:
                 waited(root, lambda: print(engine.explain(begin_reply(engine, cfg, argv[1]))))
             case "claim":
                 waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
+            case "prepare":
+                waited(root, lambda: print(engine.explain(begin_prepare(engine, cfg, argv[1]))))
             case "review":
                 waited(root, lambda: print(engine.review(engine.store.find(argv[1]))))
             case "finish":

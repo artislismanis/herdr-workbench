@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop import __main__ as cli  # noqa: E402
 from workshop.__main__ import finish_choices, locked, main, repo_of, review_settings, waited  # noqa: E402
+from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 
 
@@ -58,6 +59,63 @@ class Filling(unittest.TestCase):
 
     def test_limits_are_checked_before_each_start(self):
         self.assertEqual(self.tick(["1", "2"], held=lambda active: "held" if active else ""), ["1"])
+
+
+class Preparing(unittest.TestCase):
+    def setUp(self):
+        self.engine = mock.Mock()
+        self.engine.store.exists.return_value = False
+        self.source = mock.Mock()
+        self.source.stages.return_value = []
+        patches = [mock.patch.object(cli, "make_source"), mock.patch.object(cli, "PrepareSource", return_value=self.source), mock.patch.object(cli, "load", return_value=load("prepare"))]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def begin(self, ticket, repos=("r",)):
+        cli.begin_prepare(self.engine, {"repos": {name: {"path": "/x"} for name in repos}}, ticket)
+        return self.engine.start.call_args
+
+    def test_it_runs_beside_the_ticket_not_as_it(self):
+        call = self.begin("r/7")
+        self.assertEqual(call.args[:2], ("r", "prep-7"))
+        self.assertTrue(call.kwargs["preparing"])
+
+    def test_a_bare_number_means_your_only_repo(self):
+        self.assertEqual(self.begin("7").args[0], "r")
+
+    def test_two_repos_need_naming(self):
+        with self.assertRaisesRegex(KeyError, "repo/key"):
+            self.begin("7", ("a", "b"))
+
+    def test_a_ticket_past_requirements_starts_at_design(self):
+        self.source.stages.return_value = ["planned"]
+        self.assertEqual(self.begin("r/7").kwargs["at"], 2)
+
+    def test_a_fully_prepared_ticket_starts_over(self):
+        self.source.stages.return_value = ["planned", "designed"]
+        self.assertEqual(self.begin("r/7").kwargs["at"], 0)
+
+    def test_a_ticket_in_delivery_is_refused(self):
+        self.engine.store.exists.side_effect = lambda repo, key: key == "7"
+        with self.assertRaisesRegex(KeyError, "already"):
+            self.begin("r/7")
+
+    def test_a_finished_prepare_can_run_again(self):
+        self.engine.store.exists.side_effect = lambda repo, key: key == "prep-7"
+        self.engine.store.load.return_value = mock.Mock(landed="prepared")
+        self.assertTrue(self.begin("r/7").kwargs["restart"])
+
+    def test_preparing_never_takes_a_delivery_slot(self):
+        self.engine.store.all.return_value = [mock.Mock(status="running", preparing=True), mock.Mock(status="running", preparing=False)]
+        self.assertEqual(len(cli.running(self.engine)), 1)
+
+    def test_a_ticket_being_prepared_isnt_started(self):
+        self.engine.store.exists.return_value = True
+        self.engine.store.load.return_value = mock.Mock(landed="")
+        self.assertTrue(cli.being_prepared(self.engine, "r", "7"))
+        self.engine.store.load.return_value = mock.Mock(landed="prepared")
+        self.assertFalse(cli.being_prepared(self.engine, "r", "7"))
 
 
 class ReviewRepo(unittest.TestCase):

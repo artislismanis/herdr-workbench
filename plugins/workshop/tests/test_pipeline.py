@@ -17,6 +17,24 @@ class Validate(unittest.TestCase):
         with self.assertRaisesRegex(PipelineError, text):
             validate(raw)
 
+    def test_prepare_is_two_talks_each_with_a_go(self):
+        steps = load("prepare")["steps"]
+        self.assertEqual([s["id"] for s in steps], ["requirements", "sign-requirements", "design", "sign-design"])
+        self.assertEqual([(s["section"], s["label"]) for s in steps if s["kind"] == "gate"], [("Requirements", "planned"), ("Design", "designed")])
+        self.assertTrue(all(s["fresh"] and s["read_only"] and s["interactive"] for s in steps if s["kind"] == "agent"))
+
+    def test_an_interactive_step_needs_a_verdict_to_know_when_youve_agreed(self):
+        self.rejects({"name": "x", "steps": [agent(interactive=True)]}, "needs a verdict")
+
+    def test_a_gate_that_writes_names_both_section_and_label(self):
+        gate = {"id": "go", "kind": "gate", "report": "build", "section": "Design"}
+        self.rejects({"name": "x", "steps": [agent(), gate]}, "section and a label")
+
+    def test_a_gate_writes_only_known_sections_and_labels(self):
+        gate = {"id": "go", "kind": "gate", "report": "build", "section": "Anything", "label": "planned"}
+        self.rejects({"name": "x", "steps": [agent(), gate]}, "section must be one of")
+        self.rejects({"name": "x", "steps": [agent(), gate | {"section": "Design", "label": "ai"}]}, "label must be one of")
+
     def test_the_shipped_pipeline_is_valid(self):
         self.assertEqual([s["id"] for s in load("ticket")["steps"]], ["tasks", "implement", "qa", "ai-review", "open-pr"])
 

@@ -1,4 +1,4 @@
-Read `{run}/brief.md`. It is the ticket, and any comments in it override the description, newest first.
+Read `{run}/brief.md`. It is the ticket, and any comments in it override the description, newest first. The exception is a ticket with `## Requirements` or `## Design` sections, which are signed off: comments before the last one saying `Signed off` are only background.
 
 Do not edit any file except your report. Explore the code, then write a short task list to `{run}/tasks.md`: what changes and why, how it follows this repo's conventions, the tests, and any decision you made.
 
