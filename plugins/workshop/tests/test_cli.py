@@ -61,6 +61,18 @@ class Filling(unittest.TestCase):
         self.assertEqual(self.tick(["1", "2"], held=lambda active: "held" if active else ""), ["1"])
 
 
+class SweepBrief(unittest.TestCase):
+    def test_what_you_declined_reaches_the_next_sweeps_brief(self):
+        state = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": state}), mock.patch.object(cli, "make_source") as tickets:
+            tickets.return_value.backlog.return_value = []
+            store = cli.Store(cli.state_root())
+            store.write(cli.SWEEPS, {"r/docs": {"declined": ["Add docs"]}})
+            run = mock.Mock(repo="r", sweeping="docs", preparing=False)
+            source = cli.source_for({"repos": {"r": {"path": "/x"}}})(run)
+            self.assertIn("Add docs", source.get("k").body)
+
+
 class Sweeping(unittest.TestCase):
     NOW = 100 * 86400.0
 

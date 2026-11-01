@@ -59,7 +59,8 @@ def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
         if run.preparing:
             return PrepareSource(make_source(run.repo, repo, cfg.get("jira", {})), cfg.get("backlog", {}))
         if run.sweeping:
-            return SweepSource(make_source(run.repo, repo, cfg.get("jira", {})), run.sweeping, [])
+            declined = Store(state_root()).read(SWEEPS).get(f"{run.repo}/{run.sweeping}", {}).get("declined", [])
+            return SweepSource(make_source(run.repo, repo, cfg.get("jira", {})), run.sweeping, declined)
         if run.replying:
             return ReplySource(path)
         return PullRequestSource(path, review_settings(cfg, repo)["claim"]) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
@@ -132,7 +133,7 @@ def begin_sweep(engine: Engine, cfg: dict[str, Any], name: str, sweep: str) -> R
     repo = cfg["repos"][name]
     seen = engine.store.read(SWEEPS)
     entry = seen.setdefault(f"{name}/{sweep}", {})
-    source = SweepSource(make_source(name, repo, cfg.get("jira", {})), sweep, entry.get("declined", []))
+    source = SweepSource(make_source(name, repo, cfg.get("jira", {})), sweep, [])
     entry["last"] = engine.clock()  # before it starts, so one that can't doesn't try again every tick
     engine.store.write(SWEEPS, seen)
     key = f"sweep-{sweep}-{time.strftime('%Y%m%d', time.gmtime(engine.clock()))}"
