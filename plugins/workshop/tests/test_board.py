@@ -975,6 +975,15 @@ class Keys(unittest.TestCase):
         self.tools.workshop.assert_called_once_with("refresh")
         self.assertFalse(self.board.refreshing)
 
+    def test_a_terminal_that_names_focus_keys_counts_too(self):
+        with mock.patch("workshop.board.threading.Thread") as thread, mock.patch("workshop.board.curses.keyname", side_effect=lambda key: {590: b"kxIN", 591: b"kxOUT"}.get(key, b"")):
+            self.assertTrue(self.board.focus_changed(590))
+            thread.return_value.start.assert_called_once()
+            self.assertTrue(self.board.focus_changed(591))
+            self.assertFalse(self.board.focus_changed(curses.KEY_UP))
+            self.assertFalse(self.board.focus_changed(ord("r")))
+            self.assertFalse(self.board.focus_changed(curses.ERR))
+
     def test_leaving_the_board_does_nothing(self):
         with mock.patch("workshop.board.threading.Thread") as thread:
             self.assertEqual(self.board.paste(Pasted(b"[O")), curses.ERR)
