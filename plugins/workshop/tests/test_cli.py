@@ -37,6 +37,7 @@ class Filling(unittest.TestCase):
         started = []
         engine = mock.Mock()
         engine.store.exists.return_value = False
+        engine.in_order.side_effect = lambda repo, keys: keys
         engine.throttle.hold_new.side_effect = held
         source = mock.Mock()
         source.ready.return_value = ready
@@ -187,9 +188,9 @@ class Preparing(unittest.TestCase):
     def test_a_new_ticket_does_only_the_requirements(self):
         self.assertEqual(self.stage(), ["requirements"])
 
-    def test_a_fully_prepared_ticket_starts_over(self):
+    def test_a_designed_ticket_goes_to_the_queue_talk(self):
         self.source.stages.return_value = ["planned", "designed"]
-        self.assertEqual(self.stage(), ["requirements"])
+        self.assertEqual(self.stage(), ["queue"])
 
     def test_a_ticket_in_delivery_is_refused(self):
         self.engine.store.exists.side_effect = lambda repo, key: key == "7"

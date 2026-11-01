@@ -29,8 +29,8 @@ class Validate(unittest.TestCase):
 
     def test_prepare_is_two_talks_and_your_yes_is_the_go(self):
         steps = load("prepare")["steps"]
-        self.assertEqual([s["id"] for s in steps], ["requirements", "design"])
-        self.assertEqual([(s["section"], s["label"]) for s in steps], [("Requirements", "planned"), ("Design", "designed")])
+        self.assertEqual([s["id"] for s in steps], ["requirements", "design", "queue"])
+        self.assertEqual([(s["section"], s["label"]) for s in steps if "section" in s], [("Requirements", "planned"), ("Design", "designed")])
         self.assertTrue(all(s["fresh"] and s["read_only"] and s["interactive"] for s in steps if s["kind"] == "agent"))
 
     def test_an_interactive_step_needs_a_verdict_to_know_when_youve_agreed(self):

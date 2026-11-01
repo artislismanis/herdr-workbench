@@ -13,7 +13,7 @@ from .pipeline import prompt_text
 from .review import decisions, load_notes, load_replies, place, section
 from .shell import ToolError
 from .sources import Source
-from .store import Run, Store
+from .store import SNAPSHOT, Run, Store
 from .throttle import Throttle
 from .tools import Tools, slug
 
@@ -23,6 +23,7 @@ AGENT_NAME = 32  # herdr's limit
 STOPS = (ToolError, OSError, KeyError, ValueError, json.JSONDecodeError)
 PROPOSAL_FIELDS = {"create": ("title", "body", "why"), "close": ("key", "why"), "comment": ("key", "text", "why"), "skip": ()}
 SWEEPS = "sweeps.json"  # when each ran, and what you've declined
+QUEUE = "queue.json"  # the delivery queue's order by repo, as tickets have no order of their own that every source shares
 SWEEP_EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 
@@ -377,11 +378,31 @@ class Engine:
         """Your go: only now does what you agreed reach the ticket. A failed write stops here, so nothing is lost."""
         report = self._report(run, run.pipeline["steps"][run.index_of(step.get("report", step["id"]))])
         text = re.sub(r"^## Decision\n.*?(?=^#|^VERDICT|\Z)", "", report.read_text(encoding="utf-8"), flags=re.MULTILINE | re.DOTALL)  # it's for you, not the ticket
-        text = re.sub(r"^VERDICT: [A-Z_]+\s*$", "", text, flags=re.MULTILINE)
+        text = re.sub(r"^(VERDICT|QUEUE): \w+\s*$", "", text, flags=re.MULTILINE)
         source = self.source_for(run)
         source.publish(run.key, step["section"], text, step["label"])
         source.signed(run.key, f"{self.mark}Signed off the {step['section'].lower()}.")
         self.store.event(run, "signed_off", step=step["id"], section=step["section"])
+
+    def in_order(self, repo: str, keys: list[str]) -> list[str]:
+        saved = self.store.read(QUEUE).get(repo, [])
+        return sorted(keys, key=lambda key: saved.index(key) if key in saved else len(saved))
+
+    def _queue_list(self, run: Run) -> str:
+        titles = {item["key"]: item["title"] for item in self.store.read(SNAPSHOT).get("repos", {}).get(run.repo, {}).get("items", [])}
+        keys = self.in_order(run.repo, self.source_for(run).queued())
+        return "\n".join(f"- {key}: {titles.get(key, '')}" for key in keys) or "Nothing, so this would be next."
+
+    def _enqueue(self, run: Run, report: str) -> None:
+        found = re.findall(r"^QUEUE: (front|back|hold)\s*$", report, re.MULTILINE)
+        if not found or found[-1] == "hold":
+            return
+        ticket, source = run.key.removeprefix("prep-"), self.source_for(run)
+        others = self.in_order(run.repo, [key for key in source.queued() if key != ticket])
+        source.enqueue(run.key)
+        self.store.write(QUEUE, {**self.store.read(QUEUE), run.repo: [ticket, *others] if found[-1] == "front" else [*others, ticket]})
+        run.queued = True
+        self.store.event(run, "queued", place=found[-1])
 
     def _proposals(self, run: Run) -> list[dict[str, Any]]:
         """Agents write this by hand, so it's checked before anything is asked or done."""
@@ -821,7 +842,7 @@ class Engine:
         prompt = "sweep-revise.md" if revising else run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
         # In a talk you're there, so it asks you. What the others write becomes the PR.
         extra = "proposals.md" if step.get("proposes") else "" if step.get("interactive") else "decision.md" if step.get("read_only") else "asking.md"
-        text = (prompt_text(prompt) + (prompt_text(extra) if extra and not revising and not run.on_a_pr else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
+        text = (prompt_text(prompt) + (prompt_text(extra) if extra and not revising and not run.on_a_pr else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr).replace("{queued}", self._queue_list(run) if step.get("queues") else "")
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()
@@ -858,6 +879,8 @@ class Engine:
                 raise Park(f"{step['id']} gave no valid verdict.")
         if step.get("interactive") and "section" in step:  # your yes was in the talk, and it only writes one once you've given it
             self._sign_off(run, step)
+        if step.get("queues"):
+            self._enqueue(run, report.read_text(encoding="utf-8"))
         self.store.event(run, "step", step=step["id"], state="done", verdict=verdict, usage=self.throttle.snapshot())
         if run.checking:
             run.reviewed, run.checking = run.checking, ""  # only now: a step that stopped hasn't reviewed anything
@@ -911,10 +934,10 @@ class Engine:
             self._landed(run)
             return
         if run.preparing:
-            run.status, run.landed = "done", next((s["label"] for s in reversed(run.pipeline["steps"]) if "label" in s), "prepared")
+            run.status, run.landed = "done", "queued" if run.queued else next((s["label"] for s in reversed(run.pipeline["steps"]) if "label" in s), "prepared")
             self.store.event(run, "prepared")
             self.store.save(run)
-            self.tools.notify(f"Workshop: {run.key} {run.landed}", "It's on the ticket. p on the Backlog with its number starts the next stage." if run.landed != "designed" else "It's on the ticket, ready for the delivery label.")
+            self.tools.notify(f"Workshop: {run.key} {run.landed}", "It's in the queue." if run.queued else "It's on the ticket. p on the Backlog with its number starts the next stage.")
             self._tidy(run)
             return
         if run.sweeping:

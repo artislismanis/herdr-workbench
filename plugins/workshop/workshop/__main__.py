@@ -257,7 +257,7 @@ def start_ready(engine: Engine, cfg: dict[str, Any]) -> None:
     skipped: dict[str, str] = {}
     for name, repo in cfg["repos"].items():
         source = make_source(name, repo, cfg.get("jira", {}))
-        for key in source.ready():
+        for key in engine.in_order(name, source.ready()):
             if engine.store.exists(name, key) or being_prepared(engine, name, key):
                 continue
             if reason := source.guard(key):

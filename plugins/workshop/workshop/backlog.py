@@ -8,9 +8,8 @@ from .chat import CHAT
 from .engine import STOPS
 from .prs import fetch
 from .sources import Item, make_source
-from .store import Store
+from .store import SNAPSHOT, Store
 
-SNAPSHOT = "board.json"
 COLUMNS = ("new", "planned", "designed", "queued")
 
 
