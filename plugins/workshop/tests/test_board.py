@@ -811,6 +811,27 @@ class Keys(unittest.TestCase):
         self.type_in("2 3")
         self.assertEqual(self.sent(), ("reject", "1", "2 3"))
 
+    def at_gate(self):
+        steps = [{"id": "tasks", "kind": "agent"}, {"id": "approve", "kind": "gate", "report": "tasks", "ask": "Are these the right tasks?"}]
+        found = Run(repo="r", key="1", repo_path="/", base="main", pipeline={"name": "x", "steps": steps}, status="waiting", step=1, reason="Are these the right tasks?")
+        self.store.save(found)
+        (self.store.files(found) / "tasks.md").write_text("Add the flag in main.\n\nVERDICT: READY\n", encoding="utf-8")
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab = DELIVERY
+        return found
+
+    def test_a_gate_shows_what_youre_deciding(self):
+        found = self.at_gate()
+        text = joined(self.board.detail((found.repo, found.key), 100))
+        self.assertIn("Are these the right tasks?", text)
+        self.assertIn("Add the flag in main.", text)
+        self.assertNotIn("VERDICT", text)
+
+    def test_a_gates_report_shows_once(self):
+        found = self.at_gate()
+        self.assertEqual(joined(self.board.detail((found.repo, found.key), 100)).count("Add the flag in main."), 1)
+
     def test_a_gate_offers_approve_and_reject_not_pass(self):
         gated = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "check", "kind": "gate", "report": "plan"}]}
         self.store.save(Run(repo="r", key="1", repo_path="/", base="main", pipeline=gated, status="waiting", step=1))

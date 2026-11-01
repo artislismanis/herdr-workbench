@@ -23,6 +23,10 @@ class Validate(unittest.TestCase):
             self.assertTrue(steps[-1]["proposals"])
             self.assertTrue(steps[-2]["read_only"] and steps[-2]["proposes"])
 
+    def test_every_shipped_gate_asks_a_plain_question(self):
+        for name in ("gated", "prepare", "sweep-deps", "sweep-docs", "sweep-backlog", "sweep-logs"):
+            self.assertTrue(all(s.get("ask") for s in load(name)["steps"] if s["kind"] == "gate"), name)
+
     def test_prepare_is_two_talks_each_with_a_go(self):
         steps = load("prepare")["steps"]
         self.assertEqual([s["id"] for s in steps], ["requirements", "sign-requirements", "design", "sign-design"])

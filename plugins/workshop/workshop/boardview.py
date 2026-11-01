@@ -337,7 +337,9 @@ def needs_you(run: Run, report: str, width: int) -> list[Line]:
     """What a person has to settle, in the report's words where it has any."""
     items = [item for item in section(report, "needs you") if item.strip(" -*.").lower() not in ("nothing", "none")] or [run.reason]
     lines = [Line([Span("▌ Needs you", "red" if run.status == "parked" else "yellow")])]
-    return lines + [plain("  " + part.text) for item in items for part in wrapped(item, width - 2)]
+    if run.current and run.current["kind"] == "gate":  # the decision needs all of it, here, not a trip to the workspace
+        items = [run.reason, "", *(line for line in report.splitlines() if not line.startswith("VERDICT:"))]
+    return lines + [plain("  " + part.text) for item in items for part in (wrapped(item, width - 2) or [plain()])]
 
 
 def files_name(step: dict[str, Any]) -> str:
@@ -459,4 +461,4 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     if handover:
         lines += [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))]
     lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
-    return [*lines, plain(), rule("Workflow", width), *timeline(run, events, reports, width, stopped, earlier), *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]
+    return [*lines, plain(), rule("Workflow", width), *timeline(run, events, reports, width, ("", "") if run.current and run.current["kind"] == "gate" else stopped, earlier), *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]
