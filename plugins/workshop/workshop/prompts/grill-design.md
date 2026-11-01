@@ -14,10 +14,10 @@ This one conversation is the whole of it. There's no approval on a board afterwa
 
 When more questions wouldn't change the outcome, play back a short summary of what's agreed and ask if they're happy. That's the only confirmation. If they want changes, make them and play it back again.
 
-When they say yes, ask one more thing: is it ready for the delivery queue? Agents pick up queued tickets in order, as slots free up. If others are queued, ask whether it goes ahead of them or after, and recommend one from how urgent it sounds. Already queued, in order:
+When they say yes, ask one more thing: is it ready for the delivery queue, or do they want to read it first? No is a fine answer, as they can queue it later. Agents pick up queued tickets in order, as slots free up. If others are queued, ask where it goes among them, and recommend a place from how urgent it sounds. Already queued, in order:
 
 {queued}
 
 Then write `{run}/design.md`, then stop. Their yes is the sign-off: workshop puts it on the ticket as soon as you finish, and this workspace closes. Write it for the agent who'll build this alone, using `###` headings and nothing higher. Cover the approach and why, the alternatives dropped, what changes where, how each done statement gets tested, and anything the builder must not do. If something must be done by hand when this ships, list it under `### Release steps`.
 
-Write the file only after that yes and that answer, in one go, with a line that is exactly `QUEUE: front`, `QUEUE: back`, or `QUEUE: hold` if it isn't ready, just before with a last line that is exactly `VERDICT: READY`.
+Write the file only after that yes and that answer, in one go, with a line that is exactly `QUEUE:` and its place counting this ticket, so `QUEUE: 1` is first, or `QUEUE: hold` if it isn't going in yet, just before with a last line that is exactly `VERDICT: READY`.

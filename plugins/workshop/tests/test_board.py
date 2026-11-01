@@ -463,9 +463,11 @@ class PRs(unittest.TestCase):
 
     def test_fixed_says_who_is_holding_it_and_what_a_does(self):
         sent = run("reply-7", "done", pr="u", replying=True, replied=True)
-        text = joined(pull_story(pr(mine=True, state="ask for re-review", reviews={"sam": "CHANGES_REQUESTED"}), sent, "", "", "", [], WIDE))
-        self.assertIn("until sam reviews again", text)
-        self.assertIn("a asks them to", text)
+        text = joined(pull_story(pr(mine=True, state="re-review", reviews={"sam": "CHANGES_REQUESTED"}), sent, "", "", "", [], WIDE))
+        self.assertIn("a asks for another look", text)
+
+    def test_someone_elses_re_review_isnt_yours_to_ask_for(self):
+        self.assertNotIn("another look", joined(pull_story(pr(state="re-review"), None, "", "", "", [], WIDE)))
 
     def test_a_pr_with_no_run_says_how_to_start(self):
         self.assertIn("a starts the AI review", joined(pull_story(pr(), None, "", "", "", [], WIDE)))
@@ -1023,9 +1025,9 @@ class Keys(unittest.TestCase):
         self.assertNotIn("m claim", self.board.footer().text)
 
     def test_a_fixed_pr_offers_asking_for_re_review_and_nothing_else(self):
-        self.on_pr(mine=True, state="ask for re-review")
+        self.on_pr(mine=True, state="re-review")
         footer = self.board.footer().text
-        self.assertIn("a ask for re-review", footer)
+        self.assertIn("a re-review", footer)
         self.assertNotIn("ai re", footer)
         with mock.patch("workshop.board.threading.Thread") as thread:
             self.board.press(ord("a"))

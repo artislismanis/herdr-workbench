@@ -67,12 +67,12 @@ class MyPRs(unittest.TestCase):
         asked = [review("them", "CHANGES_REQUESTED")]
         self.assertEqual(move(reviews=asked), ("you", "changes requested"))
         old = [review("them", "CHANGES_REQUESTED", "older")]
-        self.assertEqual(move(reviews=old), ("you", "ask for re-review"))
+        self.assertEqual(move(reviews=old), ("you", "re-review"))
         self.assertEqual(move(reviews=old, waiting=["them"]), ("others", "re-review requested"))
 
     def test_asking_someone_else_isnt_a_re_request(self):
         old = [review("them", "CHANGES_REQUESTED", "older")]
-        self.assertEqual(move(reviews=old, waiting=["other"]), ("you", "ask for re-review"))
+        self.assertEqual(move(reviews=old, waiting=["other"]), ("you", "re-review"))
 
     def test_open_threads_then_approved(self):
         self.assertEqual(move(threads=[False, True]), ("you", "comments to address"))

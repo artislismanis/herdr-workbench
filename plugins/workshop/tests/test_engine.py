@@ -69,6 +69,9 @@ class FakeTickets(FakeSource):
     def tag(self, key, label):
         self.tags.append(label)
 
+    def untag(self, key, label):
+        self.tags.remove(label)
+
     def labels(self, key):
         return self.labelled
 
@@ -534,7 +537,7 @@ class Prepare(unittest.TestCase):
 
     def test_a_yes_to_the_queue_adds_the_label_and_its_place(self):
         self.ticket.label, self.ticket.queue = "ai", ["3", "4"]
-        run = self.design("### How\n\nLike so.\n\nQUEUE: front\nVERDICT: READY\n")
+        run = self.design("### How\n\nLike so.\n\nQUEUE: 1\nVERDICT: READY\n")
         self.assertEqual((run.label, self.ticket.tags), ("queued", ["planned", "designed", "ai"]))
         self.assertEqual(self.engine.in_order("r", ["3", "4", "7"]), ["7", "3", "4"])
         self.assertNotIn("QUEUE", self.ticket.text)
@@ -548,7 +551,28 @@ class Prepare(unittest.TestCase):
         self.ticket.label, self.ticket.queue = "ai", ["3"]
         pipeline = load("prepare")
         self.engine.start("r", "prep-7", self.root, "main", {**pipeline, "steps": pipeline["steps"][2:]}, self.source, preparing=True)
-        self.assertIn("- 3:", self.tools.prompts[-1][1])
+        self.assertIn("1. 3:", self.tools.prompts[-1][1])
+
+    def queue_talk(self, answer):
+        self.ticket.label, self.ticket.queue, self.ticket.tags = "ai", ["3", "7", "4"], ["ai"]
+        self.engine.store.write("queue.json", {"r": ["3", "7", "4"]})
+        pipeline = load("prepare")
+        run = self.engine.start("r", "prep-7", self.root, "main", {**pipeline, "steps": pipeline["steps"][2:]}, self.source, preparing=True)
+        return self.agree(run, "queue", f"QUEUE: {answer}\nVERDICT: READY\n")
+
+    def test_a_queued_ticket_can_move_to_any_place(self):
+        run = self.queue_talk("3")
+        self.assertEqual((run.label, self.engine.store.read("queue.json")), ("queued", {"r": ["3", "4", "7"]}))
+
+    def test_a_queued_ticket_can_come_out_and_be_designed_again(self):
+        run = self.queue_talk("out")
+        self.assertEqual((run.label, self.ticket.tags), ("designed", []))
+        self.assertEqual(self.engine.store.read("queue.json"), {"r": ["3", "4"]})
+
+    def test_holding_a_queued_ticket_leaves_it_where_it_is(self):
+        self.queue_talk("hold")
+        self.assertEqual(self.ticket.tags, ["ai"])
+        self.assertEqual(self.engine.store.read("queue.json"), {"r": ["3", "7", "4"]})
 
     def test_the_last_go_ends_the_run_with_no_pr(self):
         run = self.finished()

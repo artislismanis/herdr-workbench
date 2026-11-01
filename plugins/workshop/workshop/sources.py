@@ -67,6 +67,7 @@ class EditableSource(Source, Protocol):
     def body(self, key: str) -> str: ...
     def rewrite(self, key: str, text: str) -> None: ...
     def tag(self, key: str, label: str) -> None: ...
+    def untag(self, key: str, label: str) -> None: ...
     def labels(self, key: str) -> list[str]: ...
     def create(self, title: str, body: str) -> str: ...
     def close(self, key: str, why: str) -> None: ...
@@ -150,6 +151,9 @@ class GitHubSource:
     def tag(self, key: str, label: str) -> None:
         run("gh", "label", "create", label, "--force", cwd=self.repo)
         run("gh", "issue", "edit", key, "--add-label", label, cwd=self.repo)
+
+    def untag(self, key: str, label: str) -> None:
+        run("gh", "issue", "edit", key, "--remove-label", label, cwd=self.repo)
 
     def labels(self, key: str) -> list[str]:
         return [n["name"] for n in run_json("gh", "issue", "view", key, "--json", "labels", cwd=self.repo)["labels"]]
@@ -284,6 +288,9 @@ class JiraSource:
     def tag(self, key: str, label: str) -> None:
         self._call("PUT", f"issue/{key}", {"update": {"labels": [{"add": label}]}})
 
+    def untag(self, key: str, label: str) -> None:
+        self._call("PUT", f"issue/{key}", {"update": {"labels": [{"remove": label}]}})
+
     def labels(self, key: str) -> list[str]:
         return self._call("GET", f"issue/{key}?fields=labels")["fields"]["labels"]
 
@@ -409,6 +416,9 @@ class MarkdownSource:
 
     def tag(self, key: str, label: str) -> None:
         pass  # a folder of files has no labels
+
+    def untag(self, key: str, label: str) -> None:
+        pass
 
     def labels(self, key: str) -> list[str]:
         return []
@@ -609,6 +619,10 @@ class PrepareSource:
     def enqueue(self, key: str) -> None:
         if label := getattr(self.ticket, "label", ""):  # a folder of intent files has no queue to join
             self.ticket.tag(self._key(key), label)
+
+    def dequeue(self, key: str) -> None:
+        if label := getattr(self.ticket, "label", ""):
+            self.ticket.untag(self._key(key), label)
 
     def ready(self) -> list[str]:
         return []

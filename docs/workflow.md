@@ -9,8 +9,8 @@ The board is where you work. Open it with `prefix+shift+b`. Agents do the work, 
 | Stage | What happens | Your part |
 |---|---|---|
 | Capture | An idea becomes a ticket, by hand or with `p` on the Backlog tab. Sweeps can propose tickets too | Type the idea |
-| Prepare | Two separate talks with fresh agents: requirements, which makes the ticket `planned`, then design, which makes it `designed`. `p` with the ticket's number starts whichever is next, and on a designed ticket that's the queue | Answer in the agent's pane. When it plays back a summary, your yes puts it on the ticket, with nothing to approve on the board |
-| Queue | The design talk ends by asking if it's ready and where it goes among what's queued. Agents take tickets in that order as slots free up | Say so in the talk, or `p` with its number later. Adding the delivery label by hand works too |
+| Prepare | Two separate talks with fresh agents: requirements, which makes the ticket `planned`, then design, which makes it `designed`. `p` with the ticket's number starts whichever is next, and on a designed or queued ticket that's the queue | Answer in the agent's pane. When it plays back a summary, your yes puts it on the ticket, with nothing to approve on the board |
+| Queue | The design talk ends by asking if it's ready and where it goes among what's queued. Agents take tickets in that order as slots free up | Say so in the talk, or say no and read it first. `p` with its number queues it later, moves it, or takes it back out to `designed`. Adding the delivery label by hand works too |
 | Build | An agent plans the tasks and implements them | Nothing, unless it stops |
 | Test | The repo's checks run, then a fresh agent reviews the work | Nothing, unless it stops |
 | Self-review | A draft PR opens in hunk, with the reviewer's notes on the diff | `g` to go there. Comment, send to the agent, then finish with `prefix+shift+u` |
@@ -31,7 +31,7 @@ The Review tab works like Delivery: Needs you, With agents, With people, and Don
 
 New commits offer `a` again, in a fresh checkout, for a review of what's changed.
 
-`a` on your own PR with comments has an agent draft the fixes and replies. Nothing goes out yet: the row moves to Needs you, and its detail shows each reply. `g` opens the fix in hunk beside the agent, so you can tell it what to change. `prefix+shift+u` then pushes the fix and sends the replies, and a reply about a fix names its commit. That also re-requests review from whoever asked for changes, on GitHub, and the workspace and checkout go, as with a posted review. If you push fixes some other way, the row says `ask for re-review`, because GitHub keeps showing changes requested until that reviewer reviews again, and `a` asks them to. A reply to an inline comment joins that thread. Comments in a review's summary have no thread on GitHub, so those replies are general comments that quote what they answer.
+`a` on your own PR with comments has an agent draft the fixes and replies. Nothing goes out yet: the row moves to Needs you, and its detail shows each reply. `g` opens the fix in hunk beside the agent, so you can tell it what to change. `prefix+shift+u` then pushes the fix and sends the replies, and a reply about a fix names its commit. That also re-requests review from whoever asked for changes, on GitHub, and the workspace and checkout go, as with a posted review. If you push fixes some other way, the row says `re-review`, because GitHub keeps showing changes requested until it's reviewed again, and `a` asks for another look. A reply to an inline comment joins that thread. Comments in a review's summary have no thread on GitHub, so those replies are general comments that quote what they answer.
 
 Posting asks what the review should be. These are GitHub's own review types, and your inline comments and PR comment go with whichever you choose:
 
