@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, operations, limit_style, pipe, pull, pull_story, pulls, run_style, stage_groups, stage_state, to_go, usage_line, usage_view  # noqa: E402
+from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, operations, limit_style, pipe, pull, pull_story, pulls, run_style, stage_groups, stage_state, timeline, to_go, usage_line, usage_view  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -429,6 +429,26 @@ class PRs(unittest.TestCase):
         text = joined(pull(pr(), WIDE, pull_story(pr(), done, "AI: approve, 1 note(s)", "Intent: tidy up", "", [], WIDE)))
         self.assertLess(text.index("AI: approve, 1 note(s). g opens it in hunk"), text.index("Intent: tidy up"))
         self.assertLess(text.index("Intent: tidy up"), text.index("Reviews"))
+
+    def test_draft_replies_sit_under_the_step_that_wrote_them(self):
+        steps = [{"id": "reply", "stage": "Review", "kind": "agent", "output": "reply.md"}]
+        draft = run("reply-7", "done")
+        draft.pipeline = {"name": "reply", "steps": steps}
+        lines = [line.text for line in timeline(draft, [], ("/x/reply.md", "/x/replies.json", "/x/brief.md"), WIDE)]
+        self.assertLess(next(i for i, text in enumerate(lines) if "reply.md" in text), next(i for i, text in enumerate(lines) if "replies.json" in text))
+        self.assertIn("draft replies", next(text for text in lines if "replies.json" in text))
+
+    def test_replies_show_before_they_go(self):
+        draft = run("reply-7", "done", pr="u", replying=True)
+        story = joined(pull_story(pr(mine=True, state="changes requested"), draft, "", "", "", [], WIDE, [{"comment": 3, "about": "total.py:3", "reply": "Now adds b.", "fixed": True}, {"comment": None, "reply": "> Why?\nBecause."}]))
+        self.assertIn("Replies to post", story)
+        self.assertIn("On total.py:3, with the commit", story)
+        self.assertIn("On the PR", story)
+        self.assertIn("tell it what to change", story)
+
+    def test_a_sent_reply_points_at_the_re_request(self):
+        sent = run("reply-7", "done", pr="u", replying=True, replied=True)
+        self.assertIn("Re-request", joined(pull_story(pr(mine=True, state="fixed, re-request"), sent, "", "", "", [], WIDE)))
 
     def test_a_pr_with_no_run_says_how_to_start(self):
         self.assertIn("a starts the AI review", joined(pull_story(pr(), None, "", "", "", [], WIDE)))

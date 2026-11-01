@@ -828,6 +828,11 @@ class Replies(unittest.TestCase):
         self.assertEqual([c.args for c in self.source.reply.call_args_list], [("reply-7", 12, f"{PREFIX} Fixed"), ("reply-7", None, f"{PREFIX} Thanks")])
         self.assertEqual((run.replied, run.label), (True, "replied"))
 
+    def test_a_fix_names_its_commit_once_there_is_one(self):
+        self.tools.heads = ["abcdef0123456", *self.tools.heads]
+        self.engine.send_replies(self.finished('[{"comment": 12, "reply": "Done", "fixed": true}, {"comment": 13, "reply": "No need"}]'))
+        self.assertEqual([c.args[2] for c in self.source.reply.call_args_list], [f"{PREFIX} Done\n\nFixed in abcdef0.", f"{PREFIX} No need"])
+
     def test_a_send_that_stops_halfway_doesnt_repeat_itself(self):
         run = self.finished()
         self.source.reply.side_effect = [None, ToolError("gh failed")]
