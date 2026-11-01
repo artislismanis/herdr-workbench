@@ -104,6 +104,13 @@ class Claims(unittest.TestCase):
             self.assertEqual(PullRequestSource(Path("/repo")).activity("pr-7", since), ["alex commented", "sam reviewed: changes requested"])
 
 
+class DeletedAccounts(unittest.TestCase):
+    def test_a_deleted_account_doesnt_stop_the_watch(self):
+        pr = {"author": None, "reviews": [{"author": None, "submittedAt": "2026-11-01T02:00:00Z", "state": "APPROVED"}], "comments": [{"author": {"login": "sam"}, "createdAt": "2026-11-01T02:00:00Z"}]}
+        with mock.patch("workshop.sources.run_json", return_value=pr), mock.patch("workshop.sources.run", return_value="me\n"):
+            self.assertEqual(PullRequestSource(Path("/repo")).activity("pr-7", 0), ["sam commented"])
+
+
 class Markdown(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()

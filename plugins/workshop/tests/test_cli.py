@@ -114,6 +114,18 @@ class Lock(unittest.TestCase):
         self.assertEqual(done, [1])
 
 
+class FinishWaits(unittest.TestCase):
+    def test_nothing_posts_while_something_holds_the_lock(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("workshop.__main__.PATIENCE", 0.3), mock.patch("workshop.__main__.here") as here, mock.patch("workshop.__main__.post_review") as post:
+            lock = (Path(tmp) / "lock").open("w")
+            self.addCleanup(lock.close)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with self.assertRaisesRegex(ToolError, "busy"):
+                cli.finish(mock.Mock(), Path(tmp))
+            here.assert_not_called()
+            post.assert_not_called()
+
+
 class ReviewSettings(unittest.TestCase):
     def test_the_defaults_assume_no_team(self):
         self.assertEqual(review_settings({}, {}), {"mode": "silent", "claim": "none"})

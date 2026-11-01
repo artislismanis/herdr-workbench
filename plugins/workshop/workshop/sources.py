@@ -351,6 +351,10 @@ class MarkdownSource:
         return ""  # local files you put there yourself
 
 
+def _who(node: dict[str, Any]) -> str:
+    return (node["author"] or {}).get("login", "ghost")
+
+
 def number_of(key: str) -> str:
     return key.rsplit("-", 1)[-1]
 
@@ -403,9 +407,9 @@ class PullRequestSource:
     def activity(self, key: str, since: float) -> list[str]:
         """What other people did on the PR since then, to flag a review you haven't claimed."""
         pr = run_json("gh", "pr", "view", number_of(key), "--json", "author,reviews,comments", cwd=self.repo)
-        people = {run("gh", "api", "user", "--jq", ".login").strip(), pr["author"]["login"]}
-        done = [(r["author"]["login"], r["submittedAt"], f"reviewed: {r['state'].lower().replace('_', ' ')}") for r in pr["reviews"]]
-        done += [(c["author"]["login"], c["createdAt"], "commented") for c in pr["comments"]]
+        people = {run("gh", "api", "user", "--jq", ".login").strip(), _who(pr)}
+        done = [(_who(r), r["submittedAt"], f"reviewed: {r['state'].lower().replace('_', ' ')}") for r in pr["reviews"]]
+        done += [(_who(c), c["createdAt"], "commented") for c in pr["comments"]]
         return sorted({f"{who} {what}" for who, at, what in done if who not in people and _stamp(at) > since})
 
     def report(self, key: str, text: str) -> None:
@@ -431,10 +435,6 @@ query($owner: String!, $repo: String!, $number: Int!) {
   } }
 }
 """
-
-
-def _who(node: dict[str, Any]) -> str:
-    return (node["author"] or {}).get("login", "ghost")
 
 
 class ReplySource(PullRequestSource):
