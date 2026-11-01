@@ -351,11 +351,19 @@ class MarkdownSource:
         return ""  # local files you put there yourself
 
 
-class PullRequestSource:
-    """A PR under review. It only reads: what reaches GitHub is what you post from hunk, so a review stays silent."""
+# How a review shows as yours: the API path and field. Teams that assign reviewers themselves use none.
+CLAIMS = {
+    "none": ("", ""),
+    "github-reviewer": ("repos/{owner}/{repo}/pulls/%s/requested_reviewers", "reviewers[]"),
+    "github-assignee": ("repos/{owner}/{repo}/issues/%s/assignees", "assignees[]"),
+}
 
-    def __init__(self, repo: Path) -> None:
-        self.repo = repo
+
+class PullRequestSource:
+    """A PR under review. It only reads, except for the claim you chose: what else reaches GitHub is what you post from hunk."""
+
+    def __init__(self, repo: Path, action: str = "none") -> None:
+        self.repo, self.action = repo, action
 
     def details(self, key: str) -> dict[str, Any]:
         return run_json("gh", "pr", "view", key.removeprefix("pr-"), "--json", "title,body,url,state,isCrossRepository,baseRefName", cwd=self.repo)
@@ -383,7 +391,18 @@ class PullRequestSource:
         return []
 
     def claim(self, key: str) -> None:
-        pass
+        path, field_name = CLAIMS[self.action]
+        if path:
+            me = run("gh", "api", "user", "--jq", ".login").strip()
+            run("gh", "api", "-X", "POST", path % key.removeprefix("pr-"), "-f", f"{field_name}={me}", cwd=self.repo)
+
+    def activity(self, key: str, since: float) -> list[str]:
+        """What other people did on the PR since then, to flag a review you haven't claimed."""
+        pr = run_json("gh", "pr", "view", key.removeprefix("pr-"), "--json", "author,reviews,comments", cwd=self.repo)
+        people = {run("gh", "api", "user", "--jq", ".login").strip(), pr["author"]["login"]}
+        done = [(r["author"]["login"], r["submittedAt"], f"reviewed: {r['state'].lower().replace('_', ' ')}") for r in pr["reviews"]]
+        done += [(c["author"]["login"], c["createdAt"], "commented") for c in pr["comments"]]
+        return sorted({f"{who} {what}" for who, at, what in done if who not in people and _stamp(at) > since})
 
     def report(self, key: str, text: str) -> None:
         pass

@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> | review <key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | claim <key> | review <key> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | comment <key> <text> | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
@@ -18,15 +19,16 @@ from .engine import PREFIX, STOPS, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
 from .shell import ToolError, run, run_json
-from .sources import PullRequestSource, Source, make_source
+from .sources import CLAIMS, PullRequestSource, Source, make_source
 from .stats import stats
 from .store import Run, Store
 from .throttle import Throttle, usage_path
 from .tools import Tools
 
 
+PATIENCE = 60  # seconds a person's command waits for a tick to finish
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "review": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "claim": 1, "review": 1, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 def config_path() -> Path:
@@ -41,10 +43,18 @@ def state_root() -> Path:
     return Path(os.environ.get("XDG_STATE_HOME", "~/.local/state")).expanduser() / "workshop"
 
 
+def review_settings(cfg: dict[str, Any], repo: dict[str, Any]) -> dict[str, str]:
+    """Yours, and a repo's can differ. The defaults assume nothing about how a team claims reviews."""
+    found = {"mode": "silent", "claim": "none"} | cfg.get("review", {}) | repo.get("review", {})
+    if found["mode"] not in ("silent", "claimed") or found["claim"] not in CLAIMS:
+        raise KeyError(f"[review] takes mode silent or claimed, and claim {', '.join(CLAIMS)}")
+    return found
+
+
 def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
     def find(run: Run) -> Source:
         repo = cfg["repos"][run.repo]
-        return PullRequestSource(Path(repo["path"]).expanduser()) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
+        return PullRequestSource(Path(repo["path"]).expanduser(), review_settings(cfg, repo)["claim"]) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
 
     return find
 
@@ -68,14 +78,16 @@ def repo_of(cfg: dict[str, Any], url: str) -> tuple[str, str]:
     raise KeyError(f"{found[1]}/{found[2]} needs a [repos] table with its path before workshop can review its PRs")
 
 
-def begin_review(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
+def begin_review(engine: Engine, cfg: dict[str, Any], url: str, mode: str = "") -> Run:
     name, number = repo_of(cfg, url)
     repo = cfg["repos"][name]
     path = Path(repo["path"]).expanduser()
-    source = PullRequestSource(path)
+    settings = review_settings(cfg, repo)
+    claimed = (mode or settings["mode"]) == "claimed"
+    source = PullRequestSource(path, settings["claim"] if claimed else "none")
     key = f"pr-{number}"
     again = engine.store.exists(name, key) and engine.review_ready(engine.store.load(name, key))
-    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("review_pipeline", "review")), source, restart=again, commands=repo.get("commands"), pr=url.rstrip("/"))
+    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("review_pipeline", "review")), source, restart=again, commands=repo.get("commands"), pr=url.rstrip("/"), claimed=claimed)
 
 
 def advance_all(engine: Engine) -> None:
@@ -87,6 +99,8 @@ def advance_all(engine: Engine) -> None:
 
 def check_tickets(engine: Engine) -> None:
     for run in engine.store.all():
+        if run.reviewing and not run.claimed and not run.landed:
+            run = engine.watch(run)
         if run.blocked_at:
             engine.advance(engine.unblock(run))
         elif run.status == "done" and run.pr and not run.landed:
@@ -168,13 +182,25 @@ def show_doctor(cfg: dict[str, Any], launch: bool) -> int:
     return 0 if all(r.ok for r in results) else 1
 
 
-def locked(root: Path, work: Callable[[], None]) -> None:
+def locked(root: Path, work: Callable[[], None], patience: float = 0) -> bool:
+    deadline = time.monotonic() + patience
     with (root / "lock").open("w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return  # another tick has this; the next one catches up
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    return False  # another tick has this; the next one catches up
+                time.sleep(0.2)
         work()
+        return True
+
+
+def waited(root: Path, work: Callable[[], None]) -> None:
+    """For what a person asks for, which no later tick would pick up."""
+    if not locked(root, work, PATIENCE):
+        raise ToolError("Workshop is busy, so nothing happened. Try again in a moment.")
 
 
 def here() -> str:
@@ -195,9 +221,21 @@ def finish_choices(changed: list[str], draft: bool) -> list[tuple[str, str, str]
     return found + ([("c", "post the review notes as a PR comment", "comment")] if not changed else [])
 
 
+def finish_review(engine: Engine, run: Run, path: str) -> int:
+    """Going visible in one step: anything new shows first, then after your go the claim goes out just before the review."""
+    source = engine.source_for(run)
+    if run.claimed or source.action == "none":
+        return post_review(path)
+    for seen in source.activity(run.key, run.begun):
+        print(f"Since you started: {seen}")
+    return post_review(path, "--before", f"{Path.home()}/.local/bin/workshop claim {run.key}")
+
+
 def finish(engine: Engine, root: Path) -> int:
     """Ends a review from the workspace it happened in. Anything that isn't a delivered run is a plain PR review."""
     path = here()
+    if reviewing := next((r for r in engine.store.all() if r.worktree == path and r.reviewing), None):
+        return finish_review(engine, reviewing, path)
     delivered = next((r for r in engine.store.all() if r.worktree == path and engine.delivered(r)), None)
     if delivered is None:
         return post_review(path)
@@ -266,7 +304,7 @@ def main(argv: list[str]) -> int:
             case "advance":
                 locked(root, lambda: advance_all(engine))
             case "start":
-                locked(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv, "--restart" in argv))))
+                waited(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv, "--restart" in argv))))
             case "status":
                 show_status(engine)
             case "needs-you":
@@ -274,27 +312,30 @@ def main(argv: list[str]) -> int:
             case "explain":
                 print(engine.explain(engine.store.find(argv[1])))
             case "resume":
-                locked(root, lambda: print(engine.explain(engine.resume(engine.store.find(argv[1])))))
+                waited(root, lambda: print(engine.explain(engine.resume(engine.store.find(argv[1])))))
             case "pr":
-                locked(root, lambda: print(engine.explain(begin_review(engine, cfg, argv[1]))))
+                mode = "claimed" if "--claimed" in argv else "silent" if "--silent" in argv else ""
+                waited(root, lambda: print(engine.explain(begin_review(engine, cfg, argv[1], mode))))
+            case "claim":
+                waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
             case "review":
-                locked(root, lambda: print(engine.review(engine.store.find(argv[1]))))
+                waited(root, lambda: print(engine.review(engine.store.find(argv[1]))))
             case "finish":
                 return finish(engine, root)
             case "approve":
-                locked(root, lambda: print(engine.explain(engine.approve(engine.store.find(argv[1])))))
+                waited(root, lambda: print(engine.explain(engine.approve(engine.store.find(argv[1])))))
             case "reject":
-                locked(root, lambda: print(engine.explain(engine.reject(engine.store.find(argv[1]), argv[2]))))
+                waited(root, lambda: print(engine.explain(engine.reject(engine.store.find(argv[1]), argv[2]))))
             case "answer":
-                locked(root, lambda: print(engine.explain(engine.answer(engine.store.find(argv[1]), argv[2]))))
+                waited(root, lambda: print(engine.explain(engine.answer(engine.store.find(argv[1]), argv[2]))))
             case "retry":
-                locked(root, lambda: print(engine.explain(engine.retry(engine.store.find(argv[1]), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.retry(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "pass":
-                locked(root, lambda: print(engine.explain(engine.accept(engine.store.find(argv[1]), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.accept(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "drop":
-                locked(root, lambda: print(engine.explain(engine.drop(engine.store.find(argv[1]), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.drop(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "comment":
-                locked(root, lambda: print(engine.explain(engine.comment(engine.store.find(argv[1]), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.comment(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "list":
                 for name, repo in cfg["repos"].items():
                     print(name, *make_source(name, repo, cfg.get("jira", {})).ready())

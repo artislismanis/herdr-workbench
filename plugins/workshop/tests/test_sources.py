@@ -40,6 +40,22 @@ class PullRequests(unittest.TestCase):
         self.gh.assert_not_called()
 
 
+class Claims(unittest.TestCase):
+    def test_each_action_is_one_call_as_me(self):
+        for action, path, field in (("github-reviewer", "pulls/7/requested_reviewers", "reviewers[]=me"), ("github-assignee", "issues/7/assignees", "assignees[]=me")):
+            with mock.patch("workshop.sources.run", return_value="me\n") as run:
+                PullRequestSource(Path("/repo"), action).claim("pr-7")
+            self.assertIn(path, run.call_args.args[4])
+            self.assertEqual(run.call_args.args[6], field)
+
+    def test_activity_is_other_people_since_then(self):
+        pr = {"author": {"login": "them"}, "reviews": [{"author": {"login": "sam"}, "submittedAt": "2026-11-01T02:00:00Z", "state": "CHANGES_REQUESTED"}, {"author": {"login": "old"}, "submittedAt": "2026-10-01T02:00:00Z", "state": "APPROVED"}, {"author": {"login": "me"}, "submittedAt": "2026-11-01T02:00:00Z", "state": "COMMENTED"}],
+              "comments": [{"author": {"login": "them"}, "createdAt": "2026-11-01T02:00:00Z"}, {"author": {"login": "alex"}, "createdAt": "2026-11-01T03:00:00Z"}]}
+        since = datetime(2026, 11, 1, tzinfo=UTC).timestamp()
+        with mock.patch("workshop.sources.run_json", return_value=pr), mock.patch("workshop.sources.run", return_value="me\n"):
+            self.assertEqual(PullRequestSource(Path("/repo")).activity("pr-7", since), ["alex commented", "sam reviewed: changes requested"])
+
+
 class Markdown(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()

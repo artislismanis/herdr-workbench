@@ -455,6 +455,7 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     elif run.reason:
         lines += wrapped(run.reason, width, "dim")
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
+    lines += [line for seen in run.noticed for line in wrapped(f"Since you started: {seen}", width, "yellow")]
     if handover:
         lines += [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))]
     lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")

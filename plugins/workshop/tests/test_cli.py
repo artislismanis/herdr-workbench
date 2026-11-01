@@ -1,8 +1,10 @@
 import contextlib
+import fcntl
 import io
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -10,7 +12,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop import __main__ as cli  # noqa: E402
-from workshop.__main__ import finish_choices, main, repo_of  # noqa: E402
+from workshop.__main__ import finish_choices, locked, main, repo_of, review_settings, waited  # noqa: E402
+from workshop.shell import ToolError  # noqa: E402
 
 
 class Finish(unittest.TestCase):
@@ -78,6 +81,50 @@ class ReviewRepo(unittest.TestCase):
     def test_anything_else_is_not_a_pr(self):
         with self.assertRaisesRegex(KeyError, "not a PR link"):
             repo_of(self.CFG, "12; rm -rf /")
+
+
+class Lock(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+
+    def held(self):
+        lock = (self.root / "lock").open("w")
+        self.addCleanup(lock.close)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+
+    def test_a_tick_gives_way_quietly(self):
+        self.held()
+        done = []
+        self.assertFalse(locked(self.root, lambda: done.append(1)))
+        self.assertEqual(done, [])
+
+    def test_a_persons_command_says_when_it_couldnt_run(self):
+        self.held()
+        with mock.patch("workshop.__main__.PATIENCE", 0.3), self.assertRaisesRegex(ToolError, "busy"):
+            waited(self.root, lambda: None)
+
+    def test_a_persons_command_waits_its_turn(self):
+        lock = (self.root / "lock").open("w")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        threading.Timer(0.3, lock.close).start()
+        done = []
+        waited(self.root, lambda: done.append(1))
+        self.assertEqual(done, [1])
+
+
+class ReviewSettings(unittest.TestCase):
+    def test_the_defaults_assume_no_team(self):
+        self.assertEqual(review_settings({}, {}), {"mode": "silent", "claim": "none"})
+
+    def test_a_repo_can_differ_from_you(self):
+        found = review_settings({"review": {"mode": "claimed", "claim": "github-reviewer"}}, {"review": {"claim": "none"}})
+        self.assertEqual(found, {"mode": "claimed", "claim": "none"})
+
+    def test_a_typo_is_an_error(self):
+        with self.assertRaisesRegex(KeyError, "review"):
+            review_settings({"review": {"claim": "slack"}}, {})
 
 
 class Cli(unittest.TestCase):

@@ -690,6 +690,31 @@ class Keys(unittest.TestCase):
         self.board.press(ord("a"))
         self.tools.workshop.assert_not_called()
 
+    def test_a_capital_key_uses_the_other_mode_and_m_claims(self):
+        self.on_pr()
+        url = self.board.picked[1]
+        self.assertIn("A ai review, claimed", self.board.footer().text)
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(ord("A"))
+            thread.call_args.kwargs["target"]()
+        self.tools.workshop.assert_called_once_with("pr", url, "--claimed")
+        self.tools.workshop.reset_mock()
+        self.store.save(run("pr-7", status="done", pr=url, reviewing=True))
+        self.board.seen = None
+        self.board.reload()
+        self.assertIn("m claim", self.board.footer().text)
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(ord("m"))
+            thread.call_args.kwargs["target"]()
+        self.tools.workshop.assert_called_once_with("claim", "pr-7")
+
+    def test_a_claimed_review_offers_no_claim(self):
+        self.on_pr()
+        self.store.save(run("pr-7", status="done", pr=self.board.picked[1], reviewing=True, claimed=True))
+        self.board.seen = None
+        self.board.reload()
+        self.assertNotIn("m claim", self.board.footer().text)
+
     def test_new_commits_offer_another_ai_review(self):
         self.board.engine.review_ready.return_value = True
         self.on_pr(state="re-review")

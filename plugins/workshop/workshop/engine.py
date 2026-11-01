@@ -32,7 +32,7 @@ class Engine:
         self.mark = prefix + " "
         self.command = "/" + prefix.strip("[]")  # [ai] gives /ai
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "") -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False) -> Run:
         if self.store.exists(repo, key) and not restart:
             raise Park(f"{key} already has a run. Use workshop resume {key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
@@ -41,13 +41,14 @@ class Engine:
         if reason:
             raise Park(f"{key}: {reason}")
         source.claim(key)
-        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr))
+        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr), begun=self.clock(), claimed=claimed)
         if restart and self.store.exists(repo, key):
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
             run.worktree, run.branch, run.pane, run.agent = old.worktree, old.branch, old.pane, old.agent
             if pr:
                 self._catch_up(run, old.reviewed)
+                run.begun, run.claimed, run.noticed = old.begun, old.claimed or claimed, old.noticed
         self.store.save(run)
         self.store.event(run, "claimed", override=override, restart=restart)
         self._move(run, "working")
@@ -64,6 +65,30 @@ class Engine:
             raise Park(f"{run.key} has no new commits since the last review.")
         # After a force-push the old commit says nothing about what changed, so it's a full review again.
         run.reviewed = reviewed if self.tools.contains(work, reviewed) else ""
+
+    def claim(self, run: Run) -> Run:
+        """Your go on showing this review as yours."""
+        if not run.reviewing:
+            raise KeyError(f"{run.key} isn't a review")
+        if not run.claimed:
+            self.source_for(run).claim(run.key)
+            run.claimed = True
+            self.store.event(run, "claimed_review")
+            self.store.save(run)
+        return run
+
+    def watch(self, run: Run) -> Run:
+        """Tells you once when someone gets to a PR you're reviewing silently. The draft stays for you to drop or post."""
+        try:
+            new = [seen for seen in self.source_for(run).activity(run.key, run.begun) if seen not in run.noticed]
+            if new:
+                run.noticed += new
+                self.store.event(run, "noticed", what=new)
+                self.store.save(run)
+                self.tools.notify(f"Workshop: {run.key} moved on", "; ".join(new))
+        except STOPS as failed:
+            self.store.event(run, "check_failed", reason=str(failed))
+        return run
 
     def advance(self, run: Run) -> Run:
         """Move a run as far as it can go now. Parked and finished runs stay put."""

@@ -193,6 +193,32 @@ class Reviews(unittest.TestCase):
         self.assertTrue(run.worktree)
         self.assertIn("uncommitted", [e for e in self.engine.store.events(run) if e["type"] == "kept_worktree"][0]["reason"])
 
+    def watched(self, *seen):
+        self.engine.source_for = lambda run: mock.Mock(**{"activity.return_value": list(seen)})
+
+    def test_someone_else_reaching_a_silent_review_is_told_once(self):
+        run = self.to_review(self.start())
+        self.tools.notes.clear()
+        self.watched("sam reviewed: approved")
+        run = self.engine.watch(self.engine.watch(run))
+        self.assertEqual(run.noticed, ["sam reviewed: approved"])
+        self.assertEqual(self.tools.notes, ["Workshop: pr-7 moved on"])
+        self.assertEqual(run.status, "done")
+
+    def test_a_silent_review_claims_on_your_go_and_once(self):
+        run = self.to_review(self.start())
+        source = mock.Mock()
+        self.engine.source_for = lambda run: source
+        run = self.engine.claim(self.engine.claim(run))
+        self.assertTrue(run.claimed)
+        source.claim.assert_called_once_with("pr-7")
+
+    def test_a_delivery_cant_be_claimed(self):
+        run = self.to_review(self.start())
+        run.reviewing = False
+        with self.assertRaises(KeyError):
+            self.engine.claim(run)
+
     def test_what_to_do_next(self):
         run = self.to_review(self.start())
         self.assertIn("prefix+shift+u", self.engine.next_action(run))

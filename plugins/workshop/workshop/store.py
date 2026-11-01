@@ -42,6 +42,9 @@ class Run:
     opened: bool = False  # the PR has left draft
     reviewing: bool = False  # someone's PR under review, not a delivery, so workshop only reads it
     reviewed: str = ""  # the commit the last review looked at
+    begun: float = 0.0
+    claimed: bool = False  # others can see this review is yours
+    noticed: list[str] = field(default_factory=list)  # what others did on the PR, once told
 
     @property
     def current(self) -> dict[str, Any] | None:
