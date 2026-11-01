@@ -529,11 +529,7 @@ class Prepare(unittest.TestCase):
         return self.design("### How\n\nLike so.\n\nQUEUE: hold\nVERDICT: READY\n")
 
     def design(self, text):
-        return self.agree(self.agree(self.engine.start("r", "prep-7", self.root, "main", self.two_stages(), self.source, preparing=True)), "design", text)
-
-    def two_stages(self):
-        pipeline = load("prepare")
-        return {**pipeline, "steps": pipeline["steps"][:2]}
+        return self.agree(self.agree(self.engine.start("r", "prep-7", self.root, "main", load("prepare"), self.source, preparing=True, until=2)), "design", text)
 
     def test_a_yes_to_the_queue_adds_the_label_and_its_place(self):
         self.ticket.label, self.ticket.queue = "ai", ["3", "4"]
@@ -549,15 +545,13 @@ class Prepare(unittest.TestCase):
 
     def test_the_talk_sees_what_is_queued(self):
         self.ticket.label, self.ticket.queue = "ai", ["3"]
-        pipeline = load("prepare")
-        self.engine.start("r", "prep-7", self.root, "main", {**pipeline, "steps": pipeline["steps"][2:]}, self.source, preparing=True)
+        self.engine.start("r", "prep-7", self.root, "main", load("prepare"), self.source, preparing=True, at=2, until=3)
         self.assertIn("1. 3:", self.tools.prompts[-1][1])
 
     def queue_talk(self, answer):
         self.ticket.label, self.ticket.queue, self.ticket.tags = "ai", ["3", "7", "4"], ["ai"]
         self.engine.store.write("queue.json", {"r": ["3", "7", "4"]})
-        pipeline = load("prepare")
-        run = self.engine.start("r", "prep-7", self.root, "main", {**pipeline, "steps": pipeline["steps"][2:]}, self.source, preparing=True)
+        run = self.engine.start("r", "prep-7", self.root, "main", load("prepare"), self.source, preparing=True, at=2, until=3)
         return self.agree(run, "queue", f"QUEUE: {answer}\nVERDICT: READY\n")
 
     def test_a_queued_ticket_can_move_to_any_place(self):
@@ -583,8 +577,7 @@ class Prepare(unittest.TestCase):
         self.assertFalse([r for r in self.ticket.reports if "Draft PR" in r])
 
     def test_one_stage_ends_as_that_stage(self):
-        pipeline = load("prepare")
-        run = self.engine.start("r", "prep-7", self.root, "main", {**pipeline, "steps": pipeline["steps"][:1]}, self.source, preparing=True)
+        run = self.engine.start("r", "prep-7", self.root, "main", load("prepare"), self.source, preparing=True, until=1)
         run = self.agree(run)
         self.assertEqual((run.status, run.label, run.worktree), ("done", "planned", ""))
         self.assertIn("Workshop: prep-7 planned", self.tools.notes)

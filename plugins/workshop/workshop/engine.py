@@ -38,7 +38,7 @@ class Engine:
         self.mark = prefix + " "
         self.command = "/" + prefix.strip("[]")  # [ai] gives /ai
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, environments: dict[str, str] | None = None, sweeping: str = "") -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, until: int = 0, environments: dict[str, str] | None = None, sweeping: str = "") -> Run:
         if self.store.exists(repo, key) and not restart:
             raise Park(f"{key} already has a run. Use workshop resume {key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
@@ -47,7 +47,7 @@ class Engine:
         if reason:
             raise Park(f"{key}: {reason}")
         source.claim(key)
-        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying, replying=replying, begun=self.clock(), claimed=claimed, preparing=preparing, step=at, environments=environments or {}, sweeping=sweeping)
+        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying, replying=replying, begun=self.clock(), claimed=claimed, preparing=preparing, step=at, until=until, environments=environments or {}, sweeping=sweeping)
         if restart and self.store.exists(repo, key):
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
@@ -385,8 +385,11 @@ class Engine:
         self.store.event(run, "signed_off", step=step["id"], section=step["section"])
 
     def in_order(self, repo: str, keys: list[str]) -> list[str]:
+        return sorted(keys, key=lambda key: self.queue_place(repo, key))
+
+    def queue_place(self, repo: str, key: str) -> int:
         saved = self.store.read(QUEUE).get(repo, [])
-        return sorted(keys, key=lambda key: saved.index(key) if key in saved else len(saved))
+        return saved.index(key) if key in saved else len(saved)
 
     def _queue_list(self, run: Run) -> str:
         titles = {item["key"]: item["title"] for item in self.store.read(SNAPSHOT).get("repos", {}).get(run.repo, {}).get("items", [])}
@@ -911,10 +914,12 @@ class Engine:
     def _follow(self, run: Run, step: dict[str, Any], rule: dict[str, Any], verdict: str, where: str) -> None:
         if "park" in rule:
             raise Park(f"{rule['park']} {where}")
-        run.loops[step["id"]] = used = run.loops.get(step["id"], 0) + 1
-        if used > rule["max"]:
-            raise Park(f"{step['id']} still says {verdict} after {rule['max']} rounds. {where}")
-        run.step, run.phase = run.index_of(rule["goto"]), ""
+        target = run.index_of(rule["goto"])
+        if target <= run.step:  # going on regardless isn't another round
+            run.loops[step["id"]] = used = run.loops.get(step["id"], 0) + 1
+            if used > rule["max"]:
+                raise Park(f"{step['id']} still says {verdict} after {rule['max']} rounds. {where}")
+        run.step, run.phase = target, ""
         run.next_prompt = rule.get("prompt", "")
 
     def _draft_pr(self, run: Run) -> None:
@@ -940,7 +945,7 @@ class Engine:
             self._landed(run)
             return
         if run.preparing:
-            run.status, run.landed = "done", run.landed_as or next((s["label"] for s in reversed(run.pipeline["steps"]) if "label" in s), "prepared")
+            run.status, run.landed = "done", run.landed_as or next((s["label"] for s in reversed(run.pipeline["steps"][: run.step]) if "label" in s), "prepared")
             self.store.event(run, "prepared")
             self.store.save(run)
             self.tools.notify(f"Workshop: {run.key} {run.landed}", {"queued": "It's in the queue.", "designed": "It's designed, and out of the queue. p on the Backlog with its number queues it."}.get(run.landed_as, "It's on the ticket. p on the Backlog with its number starts the next stage."))

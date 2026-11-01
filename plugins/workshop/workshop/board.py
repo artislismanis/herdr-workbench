@@ -30,7 +30,7 @@ DRAGS_ON, DRAGS_OFF = "\033[?1002h", "\033[?1002l"
 PASTES_ON, PASTES_OFF = "\033[?2004h", "\033[?2004l"  # marks a paste, so a line break in one isn't enter
 FOCUS_ON, FOCUS_OFF = "\033[?1004h", "\033[?1004l"  # says when you come back to the board
 FOCUS_GAINED, FOCUS_LOST = b"[I", b"[O"
-CATCH_UP_SECONDS = 10  # so flicking between workspaces doesn't poll each time
+CATCH_UP_SECONDS, BACK_OFF_SECONDS = 60, 600  # each poll takes from GitHub's hourly limit, so flicking between workspaces mustn't
 PASTE_START, PASTE_END = b"[200~", b"\033[201~"
 PASTE_LIMIT = 100_000
 NOTE_ROWS = 6
@@ -232,7 +232,7 @@ class Board:
             return deliveries(self.building(), self.events, self.title, width, self.engine.throttle.pace(), self.meter.read())
         if self.tab == OPERATE:
             return operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), self.clock(), width, self.band(width))
-        return backlog(self.snapshot, self.skipped, self.store.exists, width) if self.tab == BACKLOG else pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked, self.band(width))
+        return backlog(self.snapshot, self.skipped, self.store.exists, width, self.engine.queue_place) if self.tab == BACKLOG else pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked, self.band(width))
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:
         return [line.ref for line in lines if line.ref]
@@ -523,7 +523,8 @@ class Board:
 
     def catch_up(self) -> None:
         """Quietly, unlike r: you came back, or did something, and the board shouldn't get in the way of your next key."""
-        if self.clock() - self.caught < CATCH_UP_SECONDS:
+        limited = "rate limit" in self.snapshot.get("prs", {}).get("error", "")
+        if self.clock() - self.caught < (BACK_OFF_SECONDS if limited else CATCH_UP_SECONDS):
             return
         self.caught = self.clock()
 
@@ -545,7 +546,6 @@ class Board:
             try:
                 self.engine.tools.workshop(*args)
                 if args[0] != "refresh":
-                    self.caught = 0.0
                     self.catch_up()
             except STOPS as failed:
                 self.say(str(failed))

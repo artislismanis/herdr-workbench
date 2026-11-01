@@ -7,7 +7,7 @@ from typing import Any
 from .shell import run_json
 
 RECENT_DAYS = 7
-COMMENTS = 10
+COMMENTS = 10  # GitHub prices a query by what it could return, so these sizes are what one poll costs from the hourly limit
 FAILING = ("FAILURE", "ERROR")
 FIELDS = """
 fragment pr on PullRequest {
@@ -15,9 +15,9 @@ fragment pr on PullRequest {
   author { login }
   repository { name }
   commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
-  reviews(last: 50) { nodes { state body createdAt author { login __typename } commit { oid } } }
+  reviews(last: 20) { nodes { state body createdAt author { login __typename } commit { oid } } }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
-  reviewThreads(first: 100) { nodes { isResolved path line comments(first: 5) { nodes { body author { login } } } } }
+  reviewThreads(first: 30) { nodes { isResolved path line comments(first: 3) { nodes { body author { login } } } } }
   comments(last: 10) { nodes { body createdAt author { login } } }
 }
 """
@@ -27,9 +27,9 @@ def searches(scope: str, now: float) -> dict[str, tuple[str, int]]:
     since = (datetime.fromtimestamp(now, UTC) - timedelta(days=RECENT_DAYS)).strftime("%Y-%m-%d")
     merged = f"is:pr is:merged merged:>={since} sort:updated-desc {scope}"
     return {
-        "mine": (f"is:open is:pr author:@me {scope}", 50),
-        "requested": (f"is:open is:pr review-requested:@me {scope}", 50),
-        "reviewed": (f"is:open is:pr reviewed-by:@me -author:@me {scope}", 50),
+        "mine": (f"is:open is:pr author:@me {scope}", 25),
+        "requested": (f"is:open is:pr review-requested:@me {scope}", 25),
+        "reviewed": (f"is:open is:pr reviewed-by:@me -author:@me {scope}", 25),
         "merged_mine": (f"{merged} author:@me", 5),
         "merged_reviewed": (f"{merged} reviewed-by:@me -author:@me", 5),
     }

@@ -125,6 +125,15 @@ def begin_reply(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
     return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("reply_pipeline", "reply")), source, restart=again, pr=url.rstrip("/"), replying=True)
 
 
+def take_me_to(engine: Engine, run: Run) -> None:
+    """You asked for this talk, and it needs you now."""
+    print(engine.explain(run))
+    try:
+        engine.tools.focus(run.pane)
+    except STOPS:
+        pass  # g on the board still goes there
+
+
 def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
     """A ticket key, or words, which you've just typed, so they become the ticket being prepared."""
     first, slash, rest = ticket.partition("/")
@@ -146,10 +155,10 @@ def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
     # One stage at a time, whichever the ticket has reached, so each talk can wait for its moment. Past the last, you want to go again.
     gates = [i for i, step in enumerate(pipeline["steps"]) if step.get("label") in stages]
     at = gates[-1] + 1 if gates else 0
-    stage = pipeline["steps"][0 if at == len(pipeline["steps"]) else at].get("stage")
-    pipeline = {**pipeline, "steps": [step for step in pipeline["steps"] if step.get("stage") == stage]}
+    at = 0 if at == len(pipeline["steps"]) else at
+    until = max(i for i, step in enumerate(pipeline["steps"]) if step.get("stage") == pipeline["steps"][at].get("stage")) + 1
     again = engine.store.exists(name, prep) and bool(engine.store.load(name, prep).landed)
-    return engine.start(name, prep, Path(repo["path"]).expanduser(), repo.get("base", "main"), pipeline, source, restart=again, preparing=True)
+    return engine.start(name, prep, Path(repo["path"]).expanduser(), repo.get("base", "main"), pipeline, source, restart=again, preparing=True, at=at, until=until)
 
 
 def begin_sweep(engine: Engine, cfg: dict[str, Any], name: str, sweep: str) -> Run:
@@ -542,7 +551,7 @@ def main(argv: list[str]) -> int:
             case "claim":
                 waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
             case "prepare":
-                waited(root, lambda: print(engine.explain(begin_prepare(engine, cfg, argv[1]))))
+                waited(root, lambda: take_me_to(engine, begin_prepare(engine, cfg, argv[1])))
             case "sample":
                 read_limits(engine)
                 sample(root, engine.throttle.snapshot(), agents_open(), Meter())
