@@ -76,6 +76,8 @@ Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set
 
 A `command` step runs what the repo sets for that step id under `[repos.<name>.commands]`, with no agent and no tokens. Its output is the report, and a failed `qa` goes back to `implement`. A repo without the command skips the step, shown as `SKIPPED`, and `ai-review` runs the repo's checks itself. Commands run as you, with your access, so only set them on repos you trust.
 
+An agent step's `again` names the prompt for later rounds. In `ticket` and `gated`, a later `ai-review` looks only at what changed since the last one: are the flagged issues fixed, and do the changes add new bugs. That stops reviewers and agents changing code back and forth.
+
 Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh` share one agent, so they must agree on the model.
 
 ## Terms

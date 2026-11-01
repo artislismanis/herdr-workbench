@@ -38,6 +38,7 @@ id = "ai-review"
 stage = "Test"
 kind = "agent"
 prompt = "ai-review.md"
+again = "ai-re-review.md"
 fresh = true
 read_only = true
 verdict = ["PASS", "CHANGES_NEEDED"]
