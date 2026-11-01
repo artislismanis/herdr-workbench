@@ -493,6 +493,13 @@ class Board:
             self.insert(pasted.removesuffix(PASTE_END).decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n"))
         return curses.ERR
 
+    def focus_changed(self, key: int) -> bool:
+        """A newer terminfo makes these keys of their own, and without one they arrive raw, which paste sees."""
+        name = curses.keyname(key) if key >= curses.KEY_MIN else b""
+        if name == b"kxIN":
+            self.catch_up()
+        return name in (b"kxIN", b"kxOUT")
+
     def catch_up(self) -> None:
         """Quietly, unlike r: you came back, or did something, and the board shouldn't get in the way of your next key."""
         if self.clock() - self.caught < CATCH_UP_SECONDS:
@@ -772,6 +779,8 @@ class Board:
             screen.timeout(100 if self.follow else 1000)  # the next question shouldn't wait for the redraw
             self.draw(screen, styles)
             key, width = screen.getch(), screen.getmaxyx()[1]
+            if self.focus_changed(key):
+                continue
             if key == ESCAPE:
                 key = self.paste(screen)
             if key == curses.KEY_MOUSE:
