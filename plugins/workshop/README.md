@@ -136,7 +136,7 @@ Colours are the terminal's own, so the board follows its colour scheme. Use herd
 
 Each run works in a linked worktree, grouped under its repo's workspace in herdr, which opens if it isn't already. A finished run opens hunk beside its agent, with the reviewer's notes on the diff. A note that can't sit on a changed line waits on the first change as `PR-level:`, and goes in the PR-level comment if you post the review. The detail shows the reviewer's handover: what changed, and a recommendation to approve, or to approve after named checks. The ticket's Draft PR comment carries the same text. Comment in hunk and send those to the agent with `prefix+shift+s` if it needs changes.
 
-`prefix+shift+u` finishes a review, and offers only what applies. On a delivered run that's pushing the agent's fixes, marking the PR ready, or posting the notes as a PR comment. GitHub won't let you approve your own PR, so ready is the end of it. Anywhere else it's a plain PR review, with approve and request changes. Nothing is pushed until you choose it there.
+`prefix+shift+u` finishes a review, and offers only what applies. On a draft from delivery, `r` pushes the agent's fixes and marks the PR ready in one go, and you're back on the board. Once it's ready, `p` pushes later fixes. With nothing to push, `c` posts the notes as a PR comment. GitHub won't let you approve your own PR, so ready is the end of it. One key picks, the result shows for a second, and the popup only stays if something failed. Anywhere else it's a plain PR review, with approve and request changes. Nothing is pushed until you choose it there.
 
 ## Concluding a stopped run
 

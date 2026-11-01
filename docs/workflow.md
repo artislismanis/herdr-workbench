@@ -43,7 +43,7 @@ Posting asks what the review should be. These are GitHub's own review types, and
 | Draft | A pending review only you can see, to finish on GitHub. The PR itself doesn't change |
 | Cancel | Nothing leaves. The notes stay in hunk |
 
-Pressing enter on its own cancels. Approve and Request changes aren't offered on your own PR, because GitHub refuses them from the author.
+One key picks, with no enter. Enter on its own cancels. Approve and Request changes aren't offered on your own PR, because GitHub refuses them from the author.
 
 ## When something needs you
 
