@@ -8,6 +8,17 @@ from typing import Any
 EVERY = 2  # seconds, so a key press can't shrink the sample to nothing
 
 
+def sessions(proc: Path = Path("/proc")) -> int:
+    """Every Claude open on this machine, so work outside the workshop shows too."""
+    found = 0
+    for name in proc.glob("[0-9]*/comm"):
+        try:
+            found += name.read_text(encoding="utf-8").strip() == "claude"
+        except OSError:
+            continue  # it ended while we looked
+    return found
+
+
 class Meter:
     """Peaks last as long as the board stays open."""
 

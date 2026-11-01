@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.system import EVERY, Meter  # noqa: E402
+from workshop.system import EVERY, Meter, sessions  # noqa: E402
 
 
 class Machine(unittest.TestCase):
@@ -21,6 +21,12 @@ class Machine(unittest.TestCase):
 
     def later(self):
         self.now += EVERY
+
+    def test_every_claude_counts_as_a_session(self):
+        for pid, name in (("1", "claude"), ("2", "claude"), ("3", "zsh")):
+            (self.proc / pid).mkdir()
+            (self.proc / pid / "comm").write_text(name + "\n")
+        self.assertEqual(sessions(self.proc), 2)
 
     def test_cpu_is_the_share_busy_since_the_last_reading(self):
         self.write(100, 100)
