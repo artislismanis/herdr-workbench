@@ -110,8 +110,10 @@ class Engine:
                     self._agent(run, step)
                 elif step["kind"] == "command":
                     self._command(run, step)
-                elif step.get("proposals") and not self._proposed(run, step):
+                elif step.get("proposals") and run.sent >= len(self._proposals(run)):
                     run.step, run.phase = run.step + 1, ""
+                elif step.get("proposals"):
+                    self._wait(run, self._question(run))
                 elif step["kind"] == "gate":
                     self._wait(run, step.get("ask") or f"{step['report']} needs your approval.")
                 else:
@@ -334,7 +336,8 @@ class Engine:
         if "section" in step:
             self._sign_off(run, step)
         if step.get("proposals"):
-            self._apply(run)
+            self._do(run, self._proposals(run)[run.sent])
+            return self._next_proposal(run)
         self._post(run, "Approved.")
         run.status, run.reason = "running", ""
         run.step, run.phase = run.step + 1, ""
@@ -357,53 +360,64 @@ class Engine:
             raise ValueError("proposals.json isn't a list of create, close or comment")
         return proposals
 
-    def _proposed(self, run: Run, step: dict[str, Any]) -> bool:
-        """Numbers them on the report you decide from, once, so skipping by number is plain. Nothing proposed needs no go."""
+    def _question(self, run: Run) -> str:
+        """Asked one at a time, so there's nothing to remember and no list to mark up."""
         proposals = self._proposals(run)
-        report = self._report(run, run.pipeline["steps"][run.index_of(step["report"])])
-        if proposals and run.told != step["id"]:
-            run.told = step["id"]
-            names = [" ".join(filter(None, (p["action"] + (f" {p['key']}" if "key" in p else "") + ":", p.get("title"), p.get("why")))) for p in proposals]
-            with report.open("a", encoding="utf-8") as out:
-                out.write("\n".join(["", "## Proposals", "", *(f"{n}. {name}" for n, name in enumerate(names, 1)), ""]))
-        return bool(proposals)
+        found = proposals[run.sent]
+        what = {"create": f"Create a ticket: {found.get('title', '')}", "close": f"Close {found.get('key', '')}", "comment": f"Comment on {found.get('key', '')}"}[found["action"]]
+        return f"{run.sent + 1} of {len(proposals)}: {what}?"
 
-    def _skip(self, run: Run, note: str) -> Run:
-        """No to some of what a sweep proposed. It's remembered, so the next sweep doesn't ask again."""
-        proposals = self._proposals(run)
-        numbers = list(range(1, len(proposals) + 1)) if note.strip().lower() == "all" else [int(n) for n in re.findall(r"\d+", note)]
-        if not numbers or set(numbers) - set(range(1, len(proposals) + 1)):
-            raise KeyError(f"say which of 1 to {len(proposals)} to skip, or all")
-        run.skipped = sorted({*run.skipped, *numbers})
+    def proposal(self, run: Run) -> str:
+        """The one being asked about, in full."""
+        found = self._proposals(run)[run.sent]
+        return "\n\n".join(filter(None, (found.get("why", ""), found.get("body") or found.get("text", ""))))
+
+    def _do(self, run: Run, found: dict[str, Any]) -> None:
+        """Your go. A ticket that's since gained a run or been queued is left alone."""
+        source = self.source_for(run)
+        key = found.get("key", "")
+        if found["action"] == "create":
+            self.store.event(run, "created", ticket=source.create(found["title"], found["body"]))
+        elif key not in source.open_keys() or self.store.exists(run.repo, key):
+            self.store.event(run, "left_alone", ticket=key)
+        elif found["action"] == "close":
+            source.close_ticket(key, self.mark + found["why"])
+        else:
+            source.comment(key, self.mark + found["text"])
+
+    def _next_proposal(self, run: Run) -> Run:
+        """Counted as it goes, so a failure doesn't repeat what went through."""
+        run.sent += 1
+        if run.sent < len(self._proposals(run)):
+            run.reason = self._question(run)
+            self.store.save(run)
+            return run
+        run.status, run.reason = "running", ""
+        run.step, run.phase = run.step + 1, ""
+        self.store.save(run)
+        return self.advance(run)
+
+    def _answer(self, run: Run, step: dict[str, Any], note: str) -> Run:
+        """n says no, and it's remembered so the next sweep doesn't ask again. Anything else is guidance, and the agent reworks that one proposal."""
+        found = self._proposals(run)[run.sent]
+        if note.strip().lower() != "n":
+            self._note(run, "feedback.md", f"Proposal {run.sent + 1}: {note}")
+            self.store.event(run, "guided", proposal=run.sent + 1)
+            run.status, run.reason, run.next_prompt = "running", "", "sweep-revise.md"
+            run.step, run.phase = run.index_of(step["report"]), ""
+            self.store.save(run)
+            return self.advance(run)
         seen = self.store.read(SWEEPS)
         entry = seen.setdefault(f"{run.repo}/{run.sweeping}", {})
-        entry["declined"] = list(dict.fromkeys([*entry.get("declined", []), *(p.get("title") or p.get("why", "") for p in (proposals[n - 1] for n in numbers))]))
+        entry["declined"] = list(dict.fromkeys([*entry.get("declined", []), found.get("title") or found.get("why", "")]))
         self.store.write(SWEEPS, seen)
-        self.store.event(run, "skipped", proposals=numbers)
-        return self.approve(run)  # one answer settles the list: these no, the rest yes
-
-    def _apply(self, run: Run) -> None:
-        """Your go. Done ones are counted, so a retry after a failure doesn't repeat them. A ticket that's since gained a run or been queued is left alone."""
-        source = self.source_for(run)
-        proposals, reachable = self._proposals(run), source.open_keys()
-        for number, proposal in list(enumerate(proposals, 1))[run.sent:]:
-            key = proposal.get("key", "")
-            free = key in reachable and not self.store.exists(run.repo, key)
-            if number not in run.skipped and proposal["action"] == "create":
-                self.store.event(run, "created", ticket=source.create(proposal["title"], proposal["body"]))
-            elif number not in run.skipped and not free:
-                self.store.event(run, "left_alone", ticket=key)
-            elif number not in run.skipped and proposal["action"] == "close":
-                source.close_ticket(key, self.mark + proposal["why"])
-            elif number not in run.skipped:
-                source.comment(key, self.mark + proposal["text"])
-            run.sent = number
-            self.store.save(run)
+        self.store.event(run, "skipped", proposal=run.sent + 1)
+        return self._next_proposal(run)
 
     def reject(self, run: Run, note: str) -> Run:
         step = self._at_gate(run)
         if step.get("proposals"):
-            return self._skip(run, note)
+            return self._answer(run, step, note)
         self._post(run, f"Rejected. {note}")
         self._note(run, "feedback.md", note)
         self.store.event(run, "rejected", note=note)
@@ -706,7 +720,7 @@ class Engine:
         if step.get("again") and not run.on_a_pr:
             run.checking = self.tools.snapshot(work)
         prompt = run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
-        text = (prompt_text(prompt) + (prompt_text("proposals.md") if step.get("proposes") else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
+        text = (prompt_text(prompt) + (prompt_text("proposals.md") if step.get("proposes") and not run.next_prompt else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()

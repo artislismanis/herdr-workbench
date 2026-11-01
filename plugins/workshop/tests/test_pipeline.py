@@ -25,7 +25,7 @@ class Validate(unittest.TestCase):
 
     def test_every_shipped_gate_asks_a_plain_question(self):
         for name in ("gated", "prepare", "sweep-deps", "sweep-docs", "sweep-backlog", "sweep-logs"):
-            self.assertTrue(all(s.get("ask") and s.get("go") for s in load(name)["steps"] if s["kind"] == "gate"), name)
+            self.assertTrue(all((s.get("ask") or s.get("proposals")) and s.get("go") for s in load(name)["steps"] if s["kind"] == "gate"), name)
 
     def test_prepare_is_two_talks_each_with_a_go(self):
         steps = load("prepare")["steps"]
