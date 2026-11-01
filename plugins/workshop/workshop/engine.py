@@ -595,6 +595,11 @@ class Engine:
         run.replied = True
         self.store.event(run, "replied", replies=run.sent)
         self.store.save(run)
+        try:
+            self.tools.rerequest(Path(run.repo_path), run.pr.rsplit("/", 1)[-1])
+            self.store.event(run, "rerequested")
+        except STOPS as failed:  # the replies are out either way, and the board offers it
+            self.store.event(run, "rerequest_failed", reason=str(failed))
         return run
 
     def delivered(self, run: Run) -> bool:

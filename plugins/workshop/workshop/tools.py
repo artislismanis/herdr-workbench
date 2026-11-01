@@ -116,7 +116,8 @@ class Tools:
         """Those who asked for changes, as nobody else is holding the PR."""
         reviews = run_json("gh", "pr", "view", number, "--json", "latestReviews", cwd=repo)["latestReviews"]
         who = [r["author"]["login"] for r in reviews if r["state"] == "CHANGES_REQUESTED"]
-        run("gh", "pr", "edit", number, "--add-reviewer", ",".join(who), cwd=repo)
+        if who:
+            run("gh", "pr", "edit", number, "--add-reviewer", ",".join(who), cwd=repo)
 
     def pr_state(self, url: str) -> dict[str, Any]:
         return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid,baseRefName,body,mergeCommit")
