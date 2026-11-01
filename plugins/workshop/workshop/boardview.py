@@ -199,19 +199,22 @@ def calm(style: str) -> str:
     return "" if style == "green" else style
 
 
-def usage_line(usage: Usage, machine: dict[str, Any] | None) -> Line:
-    """What you've got left to work with, grouped by whose limit it is."""
-    agents = [(f"{window} {used:.0f}%" + (f", {ago(left)} left" if left else ""), calm(limit_style(window, used, left))) for window, (used, left) in usage.items()]
-    system = [(f"{name} {machine[name]:.0f}%", calm(machine_style(machine[name]))) for name in ("cpu", "ram")] if machine else []
-    spans: list[Span] = []
-    for label, parts in (("Agents:", agents), ("OS:", system)):
-        if parts:
-            spans += [Span(f"{label} ", "bold"), *(span for text, style in parts for span in (Span(text, style), Span("   ")))]
-    return Line(spans)
+def to_go(seconds: float) -> str:
+    """Time to a reset, the way Claude's status line shows it."""
+    days, hours, minutes = int(seconds // 86400), int(seconds % 86400 // 3600), int(seconds % 3600 // 60)
+    return f"{days}d{hours}h" if days else f"{hours}h{minutes}m" if hours else f"{minutes}m"
 
 
 def machine_style(value: float) -> str:
     return "red" if value > MACHINE_RED else "yellow" if value > MACHINE_AMBER else "green"
+
+
+def usage_line(usage: Usage, machine: dict[str, Any] | None, width: int = 120) -> Line:
+    """A band, so it reads as one block of what you've got left."""
+    parts = [(window, used, calm(limit_style(window, used, left)), f" ({to_go(left)})" if left else "") for window, (used, left) in usage.items()]
+    parts += [(name.upper(), machine[name], calm(machine_style(machine[name])), "") for name in ("cpu", "ram")] if machine else []
+    spans = [span for name, value, style, time in parts for span in (Span(f" {name} ", "row-"), Span(f"{value:.0f}%", f"row-{style}"), Span(time, "row-others"), Span("  ", "row-"))]
+    return Line([*spans, Span(" " * max(width - sum(columns(span.text) for span in spans), 0), "row-")]) if spans else Line()
 
 
 def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine: dict[str, Any] | None, now: float, width: int = 120) -> list[Line]:
@@ -243,7 +246,7 @@ def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[R
     last = {(e["repo"], e["key"]): e["at"] for e in events}
     landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
     active = sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index(r.status))
-    lines = [usage_line(usage or {}, machine), tiles(runs), plain()]
+    lines = [usage_line(usage or {}, machine, width), plain(), tiles(runs), plain()]
     for heading in dict.fromkeys(HEADINGS[r.status] for r in active):
         group = [r for r in active if HEADINGS[r.status] == heading]
         lines += [rule(f"{heading} {len(group)}", width), *(delivery(r, title(r), width) for r in group), plain()]

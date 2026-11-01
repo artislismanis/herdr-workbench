@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, REVIEW, Board  # noqa: E402
-from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pulls, run_style, stage_groups, stage_state, usage_line, usage_view  # noqa: E402
+from workshop.boardview import ago, backlog, bar, block, cell, clean, columns, deliveries, drill, first_line, limit_style, pipe, pull, pulls, run_style, stage_groups, stage_state, to_go, usage_line, usage_view  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -104,13 +104,13 @@ class Deliveries(unittest.TestCase):
         lines = deliveries([run("1"), run("2", "parked", reason="It broke"), run("3", "waiting", reason="Which API?")], [], lambda r: "Title", WIDE)
         self.assertEqual([line.run.key for line in lines if line.run], ["2", "3", "1"])
         self.assertIn("It broke", next(line.text for line in lines if line.run and line.run.key == "2"))
-        self.assertIn(" 2  needs you", lines[1].text)
+        self.assertIn(" 2  needs you", lines[2].text)
 
     def test_limits_show_on_one_line(self):
-        self.assertIn("5h 40%, 2h left", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[0].text)
+        self.assertIn("5h 40% (2h0m)", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[0].text)
 
     def test_usage_sits_above_the_counts(self):
-        self.assertIn("needs you", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[1].text)
+        self.assertIn("needs you", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[2].text)
 
     def test_limits_are_coloured_by_whether_they_last_until_the_reset(self):
         hour, day = 3600, 86400
@@ -125,11 +125,15 @@ class Deliveries(unittest.TestCase):
     def test_the_machine_shows_when_it_can_be_read(self):
         found = {"cpu": 40, "cores": 8, "ram": 80, "memory": 31.4, "cpu_peak": 90, "ram_peak": 85}
         line = deliveries([], [], lambda r: "", WIDE, {"5h": (58.0, 2880)}, found)[0]
-        self.assertEqual(line.text.split(), ["Agents:", "5h", "58%,", "48m", "left", "OS:", "cpu", "40%", "ram", "80%"])
+        self.assertEqual(line.text.split(), ["5h", "58%", "(48m)", "CPU", "40%", "RAM", "80%"])
+        self.assertEqual(columns(line.text), WIDE)
+
+    def test_time_to_go_reads_like_claudes_status_line(self):
+        self.assertEqual([to_go(s) for s in (300, 16740, 190000)], ["5m", "4h39m", "2d4h"])
 
     def test_all_is_well_is_quiet_and_only_trouble_has_colour(self):
         line = usage_line({}, {"cpu": 40, "ram": 80})
-        self.assertEqual([s.style for s in line.spans if s.text.strip()], ["bold", "", "yellow"])
+        self.assertEqual([s.style for s in line.spans if "%" in s.text], ["row-", "row-yellow"])
 
     def test_the_usage_tab_says_when_theres_nothing_yet(self):
         self.assertIn("No samples yet", joined(usage_view([], [], None, 1000.0)))
@@ -1211,7 +1215,7 @@ class Mouse(Keys):
     def test_a_selected_row_keeps_its_colour_on_the_selection_background(self):
         drawn = []
         screen = mock.Mock(addnstr=lambda y, x, text, size, attr: drawn.append((text, attr)))
-        line = deliveries([run()], [], lambda r: "", 150)[3]
+        line = deliveries([run()], [], lambda r: "", 150)[4]
         self.board.put(screen, 3, line, collections.defaultdict(int, {"row-": 1, "row-dim": 2}), 200, True)
         self.assertTrue(any(attr == 2 for text, attr in drawn))
         self.assertEqual(drawn[-1][1], 1)
