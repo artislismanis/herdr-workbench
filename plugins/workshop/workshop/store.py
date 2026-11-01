@@ -125,8 +125,11 @@ class Store:
         return found[0]
 
     def event(self, run: Run, kind: str, **fields: Any) -> None:
+        self.note(run.repo, run.key, kind, **fields)
+
+    def note(self, repo: str, key: str, kind: str, **fields: Any) -> None:
         at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        line = {"at": at, "type": kind, "repo": run.repo, "key": run.key, **fields}
+        line = {"at": at, "type": kind, "repo": repo, "key": key, **fields}
         with (self.root / "events.jsonl").open("a", encoding="utf-8") as log:
             log.write(json.dumps(line) + "\n")
 

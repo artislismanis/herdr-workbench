@@ -14,6 +14,7 @@ from typing import Any
 
 from .backlog import poll
 from .board import show
+from .chat import CHAT, Chat
 from .doctor import doctor
 from .engine import PREFIX, STOPS, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
@@ -27,6 +28,7 @@ from .tools import Tools
 
 
 PATIENCE = 60  # seconds a person's command waits for a tick to finish
+DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see the PR.", "COMMENTED": "Commented, see the PR."}
 EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 # Each command and how many arguments it needs.
 COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "comment": 2, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
@@ -46,10 +48,16 @@ def state_root() -> Path:
 
 def review_settings(cfg: dict[str, Any], repo: dict[str, Any]) -> dict[str, str]:
     """Yours, and a repo's can differ. The defaults assume nothing about how a team claims reviews."""
-    found = {"mode": "silent", "claim": "none"} | cfg.get("review", {}) | repo.get("review", {})
-    if found["mode"] not in ("silent", "claimed") or found["claim"] not in CLAIMS:
-        raise KeyError(f"[review] takes mode silent or claimed, and claim {', '.join(CLAIMS)}")
+    found = {"mode": "silent", "claim": "none", "after_post": "none"} | cfg.get("review", {}) | repo.get("review", {})
+    if found["mode"] not in ("silent", "claimed") or found["claim"] not in CLAIMS or found["after_post"] not in ("none", "chat-reply"):
+        raise KeyError(f"[review] takes mode silent or claimed, claim {', '.join(CLAIMS)}, and after_post none or chat-reply")
+    if "chat" in (found["claim"].split("-")[0], found["after_post"].split("-")[0]) and "chat" not in cfg:
+        raise KeyError("a chat claim or reply needs a [chat] table")
     return found
+
+
+def chat_of(cfg: dict[str, Any]) -> Chat | None:
+    return Chat(cfg["chat"], Store(state_root()), Tools().claude) if "chat" in cfg else None
 
 
 def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
@@ -63,7 +71,7 @@ def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
             return SweepSource(make_source(run.repo, repo, cfg.get("jira", {})), run.sweeping, declined)
         if run.replying:
             return ReplySource(path)
-        return PullRequestSource(path, review_settings(cfg, repo)["claim"]) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
+        return PullRequestSource(path, review_settings(cfg, repo)["claim"], chat_of(cfg)) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
 
     return find
 
@@ -93,7 +101,7 @@ def begin_review(engine: Engine, cfg: dict[str, Any], url: str, mode: str = "") 
     path = Path(repo["path"]).expanduser()
     settings = review_settings(cfg, repo)
     claimed = (mode or settings["mode"]) == "claimed"
-    source = PullRequestSource(path, settings["claim"] if claimed else "none")
+    source = PullRequestSource(path, settings["claim"] if claimed else "none", chat_of(cfg))
     key = f"pr-{number}"
     again = engine.store.exists(name, key) and engine.review_ready(engine.store.load(name, key))
     return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("review_pipeline", "review")), source, restart=again, commands=repo.get("commands"), pr=url.rstrip("/"), claimed=claimed)
@@ -157,6 +165,31 @@ def start_sweeps(engine: Engine, cfg: dict[str, Any]) -> None:
                 print(f"{name}: {sweep} sweep didn't start: {failed}")
 
 
+def check_chat(engine: Engine, cfg: dict[str, Any]) -> None:
+    """Costs tokens, so only in working hours, spaced out, and never against a limit. A failed check waits for the next, and keeps what it knew."""
+    chat = chat_of(cfg)
+    saved = engine.store.read(CHAT)
+    if chat is None or not engine.throttle.working() or engine.throttle.hold_new(0):
+        return
+    if engine.clock() - saved.get("checked", 0) < cfg["chat"].get("check_minutes", 30) * 60:
+        return
+    saved["checked"] = engine.clock()
+    engine.store.write(CHAT, saved)
+
+    def wanted(url: str) -> bool:
+        try:
+            return bool(repo_of(cfg, url))
+        except (KeyError, ToolError):
+            return False
+
+    try:
+        found = {item["url"]: {"channel": item["channel"], "ts": item["ts"]} for item in chat.find(wanted)}
+    except (*STOPS,) as failed:
+        print(f"chat: {failed}")
+        return
+    engine.store.write(CHAT, saved | {"found": saved.get("found", {}) | found})
+
+
 def being_prepared(engine: Engine, name: str, key: str) -> bool:
     prep = f"prep-{key}"
     return engine.store.exists(name, prep) and not engine.store.load(name, prep).landed
@@ -197,6 +230,7 @@ def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     read_limits(engine)
     advance_all(engine)
     check_tickets(engine)
+    check_chat(engine, cfg)
     poll(cfg, engine.store)  # before the limits below, or a full workshop stops the board updating
     start_ready(engine, cfg)
     start_sweeps(engine, cfg)
@@ -298,14 +332,37 @@ def finish_choices(changed: list[str], draft: bool) -> list[tuple[str, str, str]
     return found + ([("c", "post the review notes as a PR comment", "comment")] if not changed else [])
 
 
-def finish_review(engine: Engine, run: Run, path: str) -> int:
+def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any]) -> int:
     """Going visible in one step: anything new shows first, then after your go the claim goes out just before the review."""
     source = engine.source_for(run)
+    started = time.time()
     if run.claimed or source.action == "none":
-        return post_review(path)
-    for seen in source.activity(run.key, run.begun):
-        print(f"Since you started: {seen}")
-    return post_review(path, "--before", f"{Path.home()}/.local/bin/workshop claim {run.key}")
+        code = post_review(path)
+    else:
+        for seen in source.activity(run.key, run.begun):
+            print(f"Since you started: {seen}")
+        code = post_review(path, "--before", f"{Path.home()}/.local/bin/workshop claim {run.key}")
+    if code == 0 and review_settings(cfg, cfg["repos"][run.repo])["after_post"] == "chat-reply":
+        offer_reply(run, source, chat_of(cfg), started)
+    return code
+
+
+def offer_reply(run: Run, source: Any, chat: Chat | None, started: float) -> None:
+    """A go of its own, as the words only exist once your review does, and they go out as you. The review stands whatever happens here."""
+    if chat is None or chat.message(run.pr) is None or not (decided := source.decided(run.key, started)):
+        return
+    text = DECIDED.get(decided, "Reviewed.")
+    try:
+        answer = input(f'\nReply in the chat thread: "{text}"\n[enter] send it, [n] skip, or type your own: ').strip()
+    except EOFError:
+        return
+    if answer.lower() == "n":
+        return
+    try:
+        chat.reply(run.pr, answer or text)
+        print("Replied.")
+    except STOPS as failed:
+        print(f"The review is posted, but the reply failed: {failed}")
 
 
 def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
@@ -338,14 +395,14 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
     return 0
 
 
-def finish(engine: Engine, root: Path) -> int:
+def finish(engine: Engine, root: Path, cfg: dict[str, Any]) -> int:
     """Ends a review from the workspace it happened in. Anything that isn't a delivered run is a plain PR review."""
     waited(root, lambda: None)  # a run shows done before its notes reach hunk, and whoever is loading them holds the lock
     path = here()
     if replying := next((r for r in engine.store.all() if r.worktree == path and r.replying and engine.review_ready(r) and not r.replied), None):
         return finish_reply(engine, replying, path, root)
     if reviewing := next((r for r in engine.store.all() if r.worktree == path and r.reviewing), None):
-        return finish_review(engine, reviewing, path)
+        return finish_review(engine, reviewing, path, cfg)
     delivered = next((r for r in engine.store.all() if r.worktree == path and engine.delivered(r)), None)
     if delivered is None:
         return post_review(path)
@@ -437,7 +494,7 @@ def main(argv: list[str]) -> int:
             case "review":
                 waited(root, lambda: print(engine.review(engine.store.find(argv[1]))))
             case "finish":
-                return finish(engine, root)
+                return finish(engine, root, cfg)
             case "approve":
                 waited(root, lambda: print(engine.explain(engine.approve(engine.store.find(argv[1])))))
             case "reject":

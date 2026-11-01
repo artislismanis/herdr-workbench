@@ -237,18 +237,18 @@ class FinishWaits(unittest.TestCase):
             self.addCleanup(lock.close)
             fcntl.flock(lock, fcntl.LOCK_EX)
             with self.assertRaisesRegex(ToolError, "busy"):
-                cli.finish(mock.Mock(), Path(tmp))
+                cli.finish(mock.Mock(), Path(tmp), {})
             here.assert_not_called()
             post.assert_not_called()
 
 
 class ReviewSettings(unittest.TestCase):
     def test_the_defaults_assume_no_team(self):
-        self.assertEqual(review_settings({}, {}), {"mode": "silent", "claim": "none"})
+        self.assertEqual(review_settings({}, {}), {"mode": "silent", "claim": "none", "after_post": "none"})
 
     def test_a_repo_can_differ_from_you(self):
         found = review_settings({"review": {"mode": "claimed", "claim": "github-reviewer"}}, {"review": {"claim": "none"}})
-        self.assertEqual(found, {"mode": "claimed", "claim": "none"})
+        self.assertEqual(found, {"mode": "claimed", "claim": "none", "after_post": "none"})
 
     def test_a_typo_is_an_error(self):
         with self.assertRaisesRegex(KeyError, "review"):
