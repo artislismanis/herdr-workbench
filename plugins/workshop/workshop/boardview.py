@@ -27,6 +27,7 @@ SYMBOLS = {True: "●", False: "○"}  # with colour, so it reads in any theme
 COLUMN_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
 REVIEW_MARKS = {"APPROVED": ("✓", "green"), "CHANGES_REQUESTED": ("✗", "red")}
 MAX_LINES = 2000
+TICKET_LINES = 8  # of the ticket under Needs you. All of it is in brief.md
 FINDINGS = 12  # lines of a stopped step's findings in the detail. The whole report is a click away
 BAD_VERDICTS = ("CHANGES_NEEDED", "BLOCKED", "FAILED")
 FILE_NOTES = {"brief.md": "the ticket", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "line notes", "ask.md": "the open question"}
@@ -342,6 +343,15 @@ def needs_you(run: Run, report: str, width: int) -> list[Line]:
     return lines + [plain("  " + part.text) for item in items for part in (wrapped(item, width - 2) or [plain()])]
 
 
+def ticket_context(brief: str, width: int) -> list[Line]:
+    """What the work is for, so a decision doesn't need a trip to the ticket."""
+    parts = [part.text for line in brief.partition("\n")[2].splitlines() if line.strip() for part in wrapped(line, width - 4)]
+    if not parts:
+        return []
+    more = [plain("  └ more in brief.md", "dim")] if len(parts) > TICKET_LINES else []
+    return [plain("  The ticket", "dim"), *(plain(f"  │ {text}", "dim") for text in parts[:TICKET_LINES]), *more, plain()]
+
+
 def files_name(step: dict[str, Any]) -> str:
     return step.get("output", f"{step['id']}.md")
 
@@ -445,7 +455,7 @@ def document(path: str, text: str, width: int) -> list[Line]:
     return lines
 
 
-def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), earlier: bool = False, handover: str = "") -> list[Line]:
+def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), earlier: bool = False, handover: str = "", brief: str = "") -> list[Line]:
     spent = [e for e in events if e["type"] == "spent"]
     prices = [e["usd"] for e in spent]
     total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
@@ -453,7 +463,9 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
     lines += [Line([Span(f" {run.label} ", run_style(run)), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
     if run.status in ("parked", "waiting"):
-        lines += [plain(), *needs_you(run, stopped[1], width)]
+        context = ticket_context(brief, width) if not run.sweeping else []
+        head, *rest = needs_you(run, stopped[1], width)
+        lines += [plain(), head, *context, *rest]
     elif run.reason:
         lines += wrapped(run.reason, width, "dim")
     lines += wrapped(f"Held: {run.held}" if run.held else "", width, "yellow")
