@@ -198,7 +198,7 @@ A push to someone's PR stays with them until they ask again, since it may be wor
 
 ## Run files
 
-Briefs, reports and notes live in `~/.local/state/workshop/runs/<repo>--<key>/`, not in the repo, so they outlive the worktree. Each review round's report is kept as `<step>-<n>.md`. Agents reach the folder through `--add-dir`.
+Briefs, reports and notes live in `~/.local/state/workshop/runs/<repo>--<key>/`, not in the repo, so they outlive the worktree. Each round's report, notes and replies are kept as `<name>-<n>`. On the board a file sits under the step that wrote it, the latest round shows, and `+n older` opens the earlier rounds in place. Only what the run started from and what people added sit with the ticket. Agents reach the folder through `--add-dir`.
 
 A step can set `output`, the file it writes, and `publish`: `pr` makes it the PR description and `ticket` posts it as a ticket comment.
 
