@@ -138,6 +138,9 @@ class Tools:
     def close_workspace(self, pane: str) -> None:
         run("herdr", "workspace", "close", pane.split(":")[0])
 
+    def pane_alive(self, pane: str) -> bool:
+        return subprocess.run(["herdr", "pane", "get", pane], capture_output=True).returncode == 0
+
     def close_pane(self, pane: str) -> None:
         subprocess.run(["herdr", "pane", "close", pane], capture_output=True)
 

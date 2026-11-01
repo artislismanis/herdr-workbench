@@ -238,7 +238,7 @@ def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine
 
 
 def heading(run: Run) -> str:
-    return "Needs you" if run.with_you else HEADINGS[run.status]
+    return "Needs you" if run.with_you or run.your_turn else HEADINGS[run.status]
 
 
 def delivery(run: Run, title: str, width: int) -> Line:
@@ -246,7 +246,7 @@ def delivery(run: Run, title: str, width: int) -> Line:
     detail = run.held or run.reason or run.landed or (f"PR #{number}" if number else "")
     room = max(width - 60, 30)
     title_width = room * 3 // 5
-    return Line([Span("  "), Span(" " + cell(run.label, 9), "dim" if run.landed else "yellow" if run.with_you else COLOURS[run.status]), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
+    return Line([Span("  "), Span(" " + cell(run.label, 9), "dim" if run.landed else "yellow" if run.with_you or run.your_turn else COLOURS[run.status]), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
 
 
 def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, usage: Usage | None = None, machine: dict[str, Any] | None = None) -> list[Line]:
@@ -259,7 +259,7 @@ def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[R
 def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int) -> list[Line]:
     last = {(e["repo"], e["key"]): e["at"] for e in events}
     landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
-    active = sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index("waiting" if r.with_you else r.status))
+    active = sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index("waiting" if heading(r) == "Needs you" and r.status != "parked" else r.status))
     lines = []
     for name in dict.fromkeys(heading(r) for r in active):
         group = [r for r in active if heading(r) == name]

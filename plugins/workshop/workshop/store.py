@@ -90,6 +90,11 @@ class Run:
         return bool(self.pr) and not self.opened and not self.deployed
 
     @property
+    def solo(self) -> bool:
+        """Only its step agents do anything here, so one of them has the workspace to itself."""
+        return self.reviewing or self.preparing or bool(self.sweeping)
+
+    @property
     def operating(self) -> bool:
         """Past the merge, or looking after what's live. What comes of it starts as new tickets."""
         return bool(self.sweeping or self.deployed or self.landed == "merged")

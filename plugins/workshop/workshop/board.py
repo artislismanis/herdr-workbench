@@ -69,6 +69,7 @@ class Ask(NamedTuple):
     options: tuple[tuple[str, str, str], ...]  # label, command and words
     typed: str  # what writing your own answer means
     command: str  # and what it runs
+    within: str = ""  # the repo already chosen, which the command needs in front of your words
 
 
 ANSWER = ord("a")
@@ -411,9 +412,7 @@ class Board:
             self.picked = (waiting.repo, waiting.key)
 
     def ask_what_to_prepare(self, repo: str = "") -> None:
-        self.begin_note(Ask("", "What should be prepared?", (), (), "A ticket number, or an idea to make into a ticket", "prepare"))
-        if repo:  # the form the command reads, and you can see where it's going
-            self.typed, self.cursor = f"{repo}/", len(repo) + 1
+        self.begin_note(Ask("", f"What should be prepared in {repo}?" if repo else "What should be prepared?", (), (), "A ticket number, or an idea to make into a ticket", "prepare", repo))
 
     def begin_note(self, asking: Ask) -> None:
         self.asking, self.typed = asking, self.drafts.get(asking.key + asking.command, "")
@@ -457,7 +456,7 @@ class Board:
                     command, words = (asking.command, "\n".join(notes)) if notes else (command, "")
                 self.asking, self.series = None, False
                 self.follow = asking.key
-                self.send(*filter(None, (command, asking.key, words)))
+                self.send(*filter(None, (command, asking.key, f"{asking.within}/{words}" if asking.within else words)))
         elif key in (curses.KEY_UP, curses.KEY_DOWN):
             self.choice = max(0, min(self.choice + (1 if key == curses.KEY_DOWN else -1), len(asking.options)))
         elif key in BACKSPACES:

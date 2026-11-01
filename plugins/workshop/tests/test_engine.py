@@ -458,21 +458,26 @@ class Prepare(unittest.TestCase):
         self.tools.statuses[run.step_agent] = "gone"
         self.assertEqual(self.engine.advance(run).status, "parked")
 
-    def test_agreeing_stops_at_a_go_and_writes_nothing(self):
+    def test_your_yes_goes_to_the_ticket_and_the_design_follows_with_no_gate(self):
         run = self.agree(self.start())
-        self.assertEqual((run.status, run.current["id"]), ("waiting", "sign-requirements"))
-        self.assertEqual((self.ticket.text, self.ticket.tags, self.ticket.reports), ("Body", [], []))
+        self.assertEqual((run.status, run.current["id"]), ("running", "design"))
+        self.assertIn("### What", self.ticket.text)
+        self.assertEqual(self.ticket.tags, ["planned"])
 
     def test_the_brief_is_for_you_not_the_ticket(self):
         report = "## Decision\n\nWhat: A thing\nAsk: Good?\n\n### What\n\nA thing.\n\nVERDICT: READY\n"
-        self.engine.approve(self.agree(self.start(), text=report))
+        self.agree(self.start(), text=report)
         self.assertNotIn("Decision", self.ticket.text)
         self.assertNotIn("Ask:", self.ticket.text)
         self.assertIn("### What", self.ticket.text)
 
     def test_a_report_for_a_person_opens_with_a_brief(self):
-        self.start()
+        self.engine.start("r", "prep-7", self.root, "main", {"name": "x", "steps": [{"id": "look", "kind": "agent", "prompt": "implement.md", "read_only": True}]}, self.source)
         self.assertIn("## Decision", self.tools.prompts[-1][1])
+
+    def test_in_a_talk_you_are_asked_there_not_through_a_brief(self):
+        self.start()
+        self.assertNotIn("## Decision", self.tools.prompts[-1][1])
 
     def test_a_pr_description_isnt_given_one_but_a_question_is(self):
         pipeline = {"name": "x", "steps": [{"id": "build", "kind": "agent", "prompt": "implement.md"}]}
@@ -481,7 +486,7 @@ class Prepare(unittest.TestCase):
         self.assertIn("Bottom line:", self.tools.prompts[-1][1])
 
     def test_your_go_writes_that_section_and_label(self):
-        run = self.engine.approve(self.agree(self.start()))
+        run = self.agree(self.start())
         self.assertTrue(self.ticket.text.startswith("## Requirements\n\n### What"))
         self.assertTrue(self.ticket.text.endswith("## Original ticket\n\nBody"))
         self.assertNotIn("VERDICT", self.ticket.text)
@@ -489,30 +494,32 @@ class Prepare(unittest.TestCase):
         self.assertEqual(self.ticket.reports, [f"{PREFIX} Signed off the requirements."])
         self.assertEqual(run.current["id"], "design")
 
-    def test_a_failed_write_keeps_the_go_waiting(self):
-        run = self.agree(self.start())
+    def test_a_failed_write_stops_on_the_step_and_keeps_the_report(self):
+        run = self.start()
         self.ticket.rewrite = mock.Mock(side_effect=ToolError("gh down"))
-        with self.assertRaises(ToolError):
-            self.engine.approve(run)
-        self.assertEqual(self.engine.store.load("r", "prep-7").current["id"], "sign-requirements")
+        run = self.agree(run)
+        self.assertEqual((run.status, run.current["id"]), ("parked", "requirements"))
+        self.assertTrue((self.engine.store.files(run) / "requirements.md").exists())
+
+    def test_the_agent_has_the_workspace_to_itself(self):
+        run = self.start()
+        self.assertEqual(run.step_pane, "")
+
+    def test_a_pane_you_closed_is_replaced(self):
+        run = self.agree(self.start())
+        self.tools.lost = {run.pane}
+        run = self.engine.advance(self.agree(run, "design"))
+        self.assertEqual(run.status, "done")
 
     def test_design_is_a_fresh_agent(self):
         first = self.start()
-        agent, pane = first.step_agent, first.step_pane
-        run = self.engine.approve(self.agree(first))
+        agent, pane = first.step_agent, first.pane
+        run = self.agree(first)
         self.assertNotEqual(run.step_agent, agent)
         self.assertIn(pane, self.tools.closed)
 
-    def test_rejecting_goes_back_to_the_same_talk(self):
-        run = self.agree(self.start())
-        run = self.engine.reject(run, "Too wide")
-        self.assertEqual((run.current["id"], run.status), ("requirements", "running"))
-        self.assertIn("Too wide", (self.engine.store.files(run) / "feedback.md").read_text())
-        self.assertEqual(self.ticket.text, "Body")
-
     def finished(self):
-        run = self.engine.approve(self.agree(self.start()))
-        return self.engine.approve(self.agree(run, "design", "## Decision\n\nWhat: A\nAsk: B?\n\n### How\n\nLike so.\n\nVERDICT: READY\n"))
+        return self.agree(self.agree(self.start()), "design", "### How\n\nLike so.\n\nVERDICT: READY\n")
 
     def test_the_last_go_ends_the_run_with_no_pr(self):
         run = self.finished()
@@ -527,7 +534,7 @@ class Prepare(unittest.TestCase):
         self.assertEqual((len(self.tools.removed), run.worktree), (1, ""))
 
     def test_a_ticket_past_requirements_starts_at_design(self):
-        run = self.start(at=2)
+        run = self.start(at=1)
         self.assertEqual(run.current["id"], "design")
 
     def test_you_can_drop_it_mid_talk(self):
@@ -1011,6 +1018,7 @@ class FakeTools:
         self.reloads, self.threads_loaded, self.followed = [], 0, 0
         self.snapshots = 0
         self.removed, self.closed_workspaces, self.remove_fails = [], [], False
+        self.lost = set()
         self.heads, self.ancestor = ["one", "two"], True
 
 
@@ -1072,6 +1080,9 @@ class FakeTools:
 
     def split(self, pane, path):
         return "p2"
+
+    def pane_alive(self, pane):
+        return pane not in self.lost
 
     def open_review(self, pane, work, base, reload=False):
         self.reviews.append((pane, base))

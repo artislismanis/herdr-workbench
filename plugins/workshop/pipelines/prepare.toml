@@ -1,5 +1,5 @@
-# Grills you on a ticket, then writes what you agreed to it. Each go on the Backlog's way to
-# delivery is yours, and nothing reaches the ticket before it. Copy to ~/.config/workshop/pipelines/ to change it.
+# One talk per stage: what's needed, then how to build it. Your yes to the agent's summary is
+# the go, and nothing reaches the ticket before it. Copy to ~/.config/workshop/pipelines/ to change it.
 name = "prepare"
 
 [[steps]]
@@ -11,17 +11,8 @@ interactive = true
 fresh = true
 read_only = true
 verdict = ["READY"]
-
-[[steps]]
-id = "sign-requirements"
-stage = "Plan"
-kind = "gate"
-go = "Write it to the ticket"
-report = "requirements"
-ask = "Write these requirements to the ticket?"
 section = "Requirements"
 label = "planned"
-then.REJECTED = { goto = "requirements", max = 3 }
 
 [[steps]]
 id = "design"
@@ -32,14 +23,5 @@ interactive = true
 fresh = true
 read_only = true
 verdict = ["READY"]
-
-[[steps]]
-id = "sign-design"
-stage = "Design"
-kind = "gate"
-go = "Write it to the ticket"
-report = "design"
-ask = "Write this design to the ticket?"
 section = "Design"
 label = "designed"
-then.REJECTED = { goto = "design", max = 3 }

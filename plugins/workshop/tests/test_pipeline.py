@@ -27,10 +27,10 @@ class Validate(unittest.TestCase):
         for name in ("gated", "prepare", "sweep-deps", "sweep-docs", "sweep-backlog", "sweep-logs"):
             self.assertTrue(all(s.get("proposals") or (s.get("ask") and s.get("go")) for s in load(name)["steps"] if s["kind"] == "gate"), name)
 
-    def test_prepare_is_two_talks_each_with_a_go(self):
+    def test_prepare_is_two_talks_and_your_yes_is_the_go(self):
         steps = load("prepare")["steps"]
-        self.assertEqual([s["id"] for s in steps], ["requirements", "sign-requirements", "design", "sign-design"])
-        self.assertEqual([(s["section"], s["label"]) for s in steps if s["kind"] == "gate"], [("Requirements", "planned"), ("Design", "designed")])
+        self.assertEqual([s["id"] for s in steps], ["requirements", "design"])
+        self.assertEqual([(s["section"], s["label"]) for s in steps], [("Requirements", "planned"), ("Design", "designed")])
         self.assertTrue(all(s["fresh"] and s["read_only"] and s["interactive"] for s in steps if s["kind"] == "agent"))
 
     def test_an_interactive_step_needs_a_verdict_to_know_when_youve_agreed(self):

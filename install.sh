@@ -81,6 +81,25 @@ for hook in "${WT_HOOKS[@]}"; do
 done
 ensure_top_block herdr-workbench:worktrunk "$REPO_ROOT/worktrunk/config.toml" "$WT_DIR/config.toml"
 install_file "$REPO_ROOT/claude/rules/workbench.md" "$RULES_DIR/workbench.md" 644
+
+# Review happens in hunk, so Claude Code's own diff panel only opens over the agent. Yours if you've set it.
+_diff_panel_off() {
+  local dst="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" tmp
+  if grep -qs '"diffSidebarOpen"' "$dst"; then
+    skip "$dst up to date"
+    return 0
+  fi
+  case "$MODE" in
+    check)   DRIFT=$((DRIFT + 1)); warn "$dst needs diffSidebarOpen" ;;
+    dry-run) log "${C_DIM}  would set diffSidebarOpen in $dst${C_RST}" ;;
+    install)
+      tmp="$(mktemp "${TMPDIR:-/tmp}/herdr-workbench.XXXXXX")"
+      python3 -c 'import json, pathlib, sys; p = pathlib.Path(sys.argv[1]); print(json.dumps({**(json.loads(p.read_text()) if p.exists() else {}), "diffSidebarOpen": False}, indent=2))' "$dst" >"$tmp"
+      _apply "$tmp" "$dst" "$(stat -c %a "$dst" 2>/dev/null || echo 600)"
+      ;;
+  esac
+}
+_diff_panel_off
 ensure_top_block herdr-workbench:hunk "$REPO_ROOT/hunk/config.toml" "$HUNK_CONFIG"
 
 if command -v hunk >/dev/null 2>&1; then

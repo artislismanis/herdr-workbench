@@ -203,10 +203,17 @@ class Engine:
     def _let_go_of_step(self, run: Run) -> None:
         if run.step_pane:
             self.tools.close_pane(run.step_pane)
-        elif run.reviewing and run.step_agent:  # its pane holds the workspace open, so a new one takes over first
+        elif run.solo and run.step_agent and self._pane_kept(run):  # its pane holds the workspace open, so a new one takes over first
             old, run.pane = run.pane, self.tools.split(run.pane, Path(run.worktree))
             self.tools.close_pane(old)
         run.step_pane, run.step_agent = "", ""
+
+    def _pane_kept(self, run: Run) -> bool:
+        """A person can close any pane, so it isn't assumed. A lost one is replaced where a run would open it."""
+        if self.tools.pane_alive(run.pane):
+            return True
+        run.pane = self.tools.linked(Path(run.repo_path), Path(run.worktree), run.key)
+        return False
 
     def retry(self, run: Run, note: str = "") -> Run:
         """Run the stopped step again, with guidance if there is any."""
@@ -366,8 +373,8 @@ class Engine:
         return self.advance(run)
 
     def _sign_off(self, run: Run, step: dict[str, Any]) -> None:
-        """Your go: only now does what you agreed reach the ticket. A failed write leaves the gate waiting, so nothing is lost."""
-        report = self._report(run, run.pipeline["steps"][run.index_of(step["report"])])
+        """Your go: only now does what you agreed reach the ticket. A failed write stops here, so nothing is lost."""
+        report = self._report(run, run.pipeline["steps"][run.index_of(step.get("report", step["id"]))])
         text = re.sub(r"^## Decision\n.*?(?=^#|^VERDICT|\Z)", "", report.read_text(encoding="utf-8"), flags=re.MULTILINE | re.DOTALL)  # it's for you, not the ticket
         text = re.sub(r"^VERDICT: [A-Z_]+\s*$", "", text, flags=re.MULTILINE)
         source = self.source_for(run)
@@ -792,10 +799,10 @@ class Engine:
             # A new agent each time: nothing checks its own work.
             run.loops[f"{step['id']}#"] = attempt = run.loops.get(f"{step['id']}#", 0) + 1
             self._let_go_of_step(run)  # the reviewer from last time
+            self._pane_kept(run)
             suffix = f"-{step['id']}-{attempt}"
             run.step_agent = run.agent[: AGENT_NAME - len(suffix)] + suffix
-            # A review has nothing else to run, so its reviewer takes the workspace rather than sit beside an empty shell.
-            run.step_pane = "" if run.reviewing else self.tools.split(run.pane, work)
+            run.step_pane = "" if run.solo else self.tools.split(run.pane, work)
             self.tools.start_agent(run.step_agent, run.step_pane or run.pane, self.store.files(run), step.get("model", ""))
             agent = run.step_agent
         else:
@@ -806,8 +813,9 @@ class Engine:
             run.checking = self.tools.snapshot(work)
         revising = step.get("proposes") and run.revised
         prompt = "sweep-revise.md" if revising else run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
-        extra = "proposals.md" if step.get("proposes") else "decision.md" if step.get("read_only") else "asking.md"  # what the others write becomes the PR
-        text = (prompt_text(prompt) + (prompt_text(extra) if not revising and not run.on_a_pr else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
+        # In a talk you're there, so it asks you. What the others write becomes the PR.
+        extra = "proposals.md" if step.get("proposes") else "" if step.get("interactive") else "decision.md" if step.get("read_only") else "asking.md"
+        text = (prompt_text(prompt) + (prompt_text(extra) if extra and not revising and not run.on_a_pr else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr)
         run.next_prompt = ""
         self.tools.prompt(agent, text)
         run.phase, run.started_at = "prompted", self.clock()
@@ -842,6 +850,8 @@ class Engine:
             verdict = found[-1] if found else ""
             if verdict not in allowed:
                 raise Park(f"{step['id']} gave no valid verdict.")
+        if step.get("interactive") and "section" in step:  # your yes was in the talk, and it only writes one once you've given it
+            self._sign_off(run, step)
         self.store.event(run, "step", step=step["id"], state="done", verdict=verdict, usage=self.throttle.snapshot())
         if run.checking:
             run.reviewed, run.checking = run.checking, ""  # only now: a step that stopped hasn't reviewed anything
@@ -898,6 +908,7 @@ class Engine:
             run.status, run.landed = "done", "prepared"
             self.store.event(run, "prepared")
             self.store.save(run)
+            self.tools.notify(f"Workshop: {run.key} prepared", "It's on the ticket, ready for the delivery label.")
             self._tidy(run)
             return
         if run.sweeping:
