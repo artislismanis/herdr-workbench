@@ -4,7 +4,7 @@ Read `{run}/requirements.md` if it exists, and `{run}/brief.md`, the ticket. If 
 
 Do not edit anything in the repo. Read the code first, so your questions are about real choices in it. The only file you may write is your report.
 
-This one conversation is the whole of it. There's no approval on a board afterwards. They may have just finished the requirements, or be coming back to this later, so start with a line on what you're here to settle. Grill them until the two of you agree, one question at a time:
+This one conversation is the whole of it. There's no approval on a board afterwards. Start with a line on what you're here to settle. Grill them until the two of you agree, one question at a time:
 
 - Ask one question, give your recommended answer and why, then stop and wait for theirs. Talk plainly, as you would across a desk.
 - Take an answer as decided. Don't ask them to confirm it, or play a single decision back.

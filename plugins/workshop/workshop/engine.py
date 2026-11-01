@@ -344,6 +344,7 @@ class Engine:
             run.worktree, run.pane, run.agent, run.step_pane, run.step_agent = "", "", "", "", ""
             self.store.event(run, "tidied")
             self.store.save(run)
+            self.tools.back_to_board(pane)
             self.tools.close_workspace(pane)  # last, as it can be the workspace this is running in
         except STOPS as failed:
             self.store.event(run, "kept_worktree", reason=str(failed))
@@ -905,10 +906,10 @@ class Engine:
             self._landed(run)
             return
         if run.preparing:
-            run.status, run.landed = "done", "prepared"
+            run.status, run.landed = "done", next((s["label"] for s in reversed(run.pipeline["steps"]) if "label" in s), "prepared")
             self.store.event(run, "prepared")
             self.store.save(run)
-            self.tools.notify(f"Workshop: {run.key} prepared", "It's on the ticket, ready for the delivery label.")
+            self.tools.notify(f"Workshop: {run.key} {run.landed}", "It's on the ticket. p on the Backlog with its number starts the next stage." if run.landed != "designed" else "It's on the ticket, ready for the delivery label.")
             self._tidy(run)
             return
         if run.sweeping:

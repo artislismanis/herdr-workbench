@@ -14,6 +14,6 @@ This one conversation is the whole of it. There's no approval on a board afterwa
 
 When more questions wouldn't change the outcome, play back a short summary of what's agreed and ask if they're happy. That's the only confirmation. If they want changes, make them and play it back again.
 
-When they say yes, write `{run}/requirements.md`, then stop. Their yes is the sign-off: workshop puts it on the ticket as soon as you finish, and the design follows. Write it to stand on its own, for someone who wasn't here, using `###` headings and nothing higher. Cover the problem, who it's for, what done looks like as checkable statements, what's out of scope, and the decisions made and why.
+When they say yes, write `{run}/requirements.md`, then stop. Their yes is the sign-off: workshop puts it on the ticket as soon as you finish, and this workspace closes. The design is a separate talk, for when they're ready. Write it to stand on its own, for someone who wasn't here, using `###` headings and nothing higher. Cover the problem, who it's for, what done looks like as checkable statements, what's out of scope, and the decisions made and why.
 
 Write the file only after that yes, in one go, with a last line that is exactly `VERDICT: READY`.

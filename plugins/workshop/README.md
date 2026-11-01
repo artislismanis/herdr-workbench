@@ -181,7 +181,8 @@ Each `tick` and `workshop refresh` saves open tickets to `~/.local/state/worksho
 
 1. A fresh agent grills you on the requirements, one question at a time, in the `prep-<key>` workspace. `g` on the board goes there. `your turn` means it's waiting for you, which is normal, so there's no time limit.
 2. When nothing's left to ask it plays back a summary. Your yes there writes it to the ticket and adds `planned`, with nothing to approve on the board. Changes go back into the same talk.
-3. Another fresh agent, which knows only what was written, takes over the workspace for the design, now or whenever you come back to it. Your yes adds `designed`, and the run ends and takes its checkout.
+3. The run ends there and takes its checkout, and a notification says so. The design is a separate talk, for when you're ready.
+4. `p` again with the ticket's number starts the next stage it hasn't reached. A fresh agent, which knows only what was written, does the same for the design, and your yes adds `designed`.
 
 Nothing reaches the ticket before your yes. Each go puts its section at the top of the ticket body, above a `## Original ticket` heading that keeps your text, and posts a `Signed off` comment. Delivery treats comments older than that as background. Running it again replaces those sections. A ticket with `planned` starts at the design, and one with `designed` starts over. Queueing stays yours: add the delivery label once you've read it. Jira shows the headings as plain text, as they're Markdown. `prepare_pipeline` on a repo names a different pipeline. A gate's `ask` is the question it puts to you, shown with the report on the board. `go` names its first option, and `change` the line for your own words. A step's `interactive = true` needs a `verdict`, which is how the engine knows you've agreed, and `section` and `label`, on that step or on a gate, set what it writes.
 
