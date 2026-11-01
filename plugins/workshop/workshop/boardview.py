@@ -34,10 +34,10 @@ TICKET_LINES = 8  # of the ticket under Needs you. All of it is in brief.md
 FINDINGS = 12  # lines of a stopped step's findings in the detail. The whole report is a click away
 BAD_VERDICTS = ("CHANGES_NEEDED", "BLOCKED", "FAILED")
 COMPANIONS = ("notes.json", "replies.json", "proposals.json")  # what the last agent writes beside its report, round by round
-FILE_NOTES = {"replies.json": "draft replies", "proposals.json": "proposals", "brief.md": "the ticket", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "line notes", "ask.md": "the open question"}
+FILE_NOTES = {"replies.json": "draft replies", "proposals.json": "proposals", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "line notes", "ask.md": "the open question"}
 RECENT = 10
+LIMITED = "GitHub's hourly limit is used up, so this is from the last update. It clears within the hour."
 LANDED = 5
-BAR = 30
 KANBAN_WIDTH = 80
 PIPE_WIDTH = 13
 
@@ -121,11 +121,6 @@ def step_id(run: Run) -> str:
 
 def rule(title: str, width: int) -> Line:
     return Line([Span(f"─ {title} ", "bold"), Span("─" * max(width - columns(title) - 5, 0), "dim")])
-
-
-def bar(value: float, total: float, size: int) -> str:
-    filled = round(size * value / total) if total else 0
-    return "█" * filled + "░" * (size - filled)
 
 
 def first_line(error: str) -> str:
@@ -297,13 +292,10 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
     repos = snapshot.get("repos", {})
     if not repos:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
-    lines = [plain(f"{repo}: couldn't update: {first_line(r['error'])}", "red") for repo, r in repos.items() if r["error"]]
+    limited = any("rate limit" in r["error"] for r in repos.values())
+    lines = [plain(LIMITED, "yellow")] if limited else [plain(f"{repo}: couldn't update: {first_line(r['error'])}", "red") for repo, r in repos.items() if r["error"]]
     found = {column: [(f"{repo}/{i['key']}", i) for repo, r in repos.items() for i in r["items"] if i["column"] == column and not started(repo, i["key"])] for column in COLUMNS}
     found["queued"].sort(key=lambda pair: place(*pair[0].split("/", 1)))  # first to go at the top
-    most = max(len(items) for items in found.values())
-    for column, items in found.items():
-        lines.append(Line([Span(f"  {cell(column.title(), 10)}", "bold"), Span(bar(len(items), most, BAR), COLUMN_COLOURS[column]), Span(f" {len(items)}")]))
-    lines.append(plain())
     if width < KANBAN_WIDTH:
         for column, items in found.items():
             lines.append(rule(f"{column.title()} {len(items)}", width))
@@ -399,7 +391,7 @@ def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str
     if not found:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
     limited = "rate limit" in found["error"]
-    lines = [plain("GitHub's hourly limit is used up, so this is from the last update. It clears within the hour.", "yellow")] if limited else [plain(f"Couldn't update: {first_line(found['error'])}", "red")] if found["error"] else []
+    lines = [plain(LIMITED, "yellow")] if limited else [plain(f"Couldn't update: {first_line(found['error'])}", "red")] if found["error"] else []
     grouped = {heading: [(p, *linked(p)) for p in found["items"] if pull_group(p, linked(p)[0]) == heading] for heading in REVIEW_GROUPS}
     lines = [*([band, plain()] if band else []), *lines, tally(*(len(grouped[heading]) for heading in REVIEW_GROUPS[:3])), plain()]
     for heading, items in grouped.items():
@@ -495,9 +487,11 @@ def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[st
     return Line([Span(f" {stage} ", block(style) if style != "dim" else "bold"), Span(f"  {word}", style), Span(f"   {total}" if total else "", "dim")])
 
 
-def file_row(lead: list[Span], path: str, room: int, label: str = "", about: str = "") -> Line:
+def file_row(lead: list[Span], path: str, room: int, label: str = "") -> Line:
     name = path.rsplit("/", 1)[-1]
-    note = about or FILE_NOTES.get(re.sub(r"-\d+(\.\w+)$", r"\1", name), "")
+    note = FILE_NOTES.get(re.sub(r"-\d+(\.\w+)$", r"\1", name), "")
+    if label == note:
+        note = ""
     return Line([*lead, Span(cell(label, 25)), Span(cell(note, room), "dim"), Span("  "), Span(name, "mine")], path=path)
 
 
@@ -513,7 +507,7 @@ def ticket_rows(run: Run, files: list[str], staged: bool, room: int) -> list[Lin
     stage = run.pipeline.get("ticket_stage")
     heading = [Line([Span(f" {stage} ", "on-green"), Span("  done", "green")])] if stage else []
     start = "PR" if run.on_a_pr else "brief" if run.sweeping else "ticket"
-    rows = [file_row([Span(branch(staged, bool(stage), index == len(files) - 1), "dim"), Span("● ", "green")], path, room, "" if index else start, "" if index else f"the {start}") for index, path in enumerate(files)]  # nothing but where it started and what people added gets here
+    rows = [file_row([Span(branch(staged, bool(stage), index == len(files) - 1), "dim"), Span("● ", "green")], path, room, FILE_NOTES.get(path.rsplit("/", 1)[-1], path.rsplit("/", 1)[-1]) if index else start) for index, path in enumerate(files)]  # nothing but where it started and what people added gets here
     return [*heading, *rows, plain()] if heading or rows else []
 
 

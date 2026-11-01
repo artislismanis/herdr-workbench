@@ -28,9 +28,7 @@ MESSAGE_SECONDS = 5
 CLICKS = curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED | curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED | curses.REPORT_MOUSE_POSITION
 DRAGS_ON, DRAGS_OFF = "\033[?1002h", "\033[?1002l"
 PASTES_ON, PASTES_OFF = "\033[?2004h", "\033[?2004l"  # marks a paste, so a line break in one isn't enter
-FOCUS_ON, FOCUS_OFF = "\033[?1004h", "\033[?1004l"  # says when you come back to the board
-FOCUS_GAINED, FOCUS_LOST = b"[I", b"[O"
-CATCH_UP_SECONDS, BACK_OFF_SECONDS = 60, 600  # each poll takes from GitHub's hourly limit, so flicking between workspaces mustn't
+BACK_OFF_SECONDS = 600  # each poll takes from GitHub's hourly limit, so a used up one is left alone
 PASTE_START, PASTE_END = b"[200~", b"\033[201~"
 PASTE_LIMIT = 100_000
 NOTE_ROWS = 6
@@ -493,13 +491,6 @@ class Board:
         seen = bytearray()
         while len(seen) < len(PASTE_START) and (key := screen.getch()) != curses.ERR:
             seen.append(key & 0xFF)
-        if bytes(seen[:2]) in (FOCUS_GAINED, FOCUS_LOST):
-            screen.timeout(1000)
-            for key in reversed(seen[2:]):
-                curses.ungetch(key)
-            if bytes(seen[:2]) == FOCUS_GAINED:
-                self.catch_up()
-            return curses.ERR
         if bytes(seen) != PASTE_START:
             screen.timeout(1000)
             for key in reversed(seen):
@@ -514,17 +505,9 @@ class Board:
             self.insert(pasted.removesuffix(PASTE_END).decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n"))
         return curses.ERR
 
-    def focus_changed(self, key: int) -> bool:
-        """A newer terminfo makes these keys of their own, and without one they arrive raw, which paste sees."""
-        name = curses.keyname(key) if key >= curses.KEY_MIN else b""
-        if name == b"kxIN":
-            self.catch_up()
-        return name in (b"kxIN", b"kxOUT")
-
     def catch_up(self) -> None:
-        """Quietly, unlike r: you came back, or did something, and the board shouldn't get in the way of your next key."""
-        limited = "rate limit" in self.snapshot.get("prs", {}).get("error", "")
-        if self.clock() - self.caught < (BACK_OFF_SECONDS if limited else CATCH_UP_SECONDS):
+        """Quietly, unlike r: you did something, and the board shouldn't get in the way of your next key."""
+        if "rate limit" in self.snapshot.get("prs", {}).get("error", "") and self.clock() - self.caught < BACK_OFF_SECONDS:
             return
         self.caught = self.clock()
 
@@ -792,7 +775,7 @@ class Board:
         styles = self.colours()
         curses.mousemask(CLICKS)
         curses.mouseinterval(0)
-        sys.stdout.write(DRAGS_ON + PASTES_ON + FOCUS_ON)  # curses' own mouse mode reports presses, not movement
+        sys.stdout.write(DRAGS_ON + PASTES_ON)  # curses' own mouse mode reports presses, not movement
         sys.stdout.flush()
         screen.timeout(1000)
         while True:
@@ -801,8 +784,6 @@ class Board:
             screen.timeout(100 if self.follow else 1000)  # the next question shouldn't wait for the redraw
             self.draw(screen, styles)
             key, width = screen.getch(), screen.getmaxyx()[1]
-            if self.focus_changed(key):
-                continue
             if key == ESCAPE:
                 key = self.paste(screen)
             if key == curses.KEY_MOUSE:
@@ -823,5 +804,5 @@ def show(engine: Engine, cfg: dict[str, Any]) -> None:
     try:
         curses.wrapper(Board(engine, cfg).loop)
     finally:
-        sys.stdout.write(DRAGS_OFF + PASTES_OFF + FOCUS_OFF)
+        sys.stdout.write(DRAGS_OFF + PASTES_OFF)
         sys.stdout.flush()

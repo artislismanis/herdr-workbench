@@ -348,6 +348,7 @@ def here() -> str:
 def post_review(path: str, *args: str) -> int:
     code = subprocess.run([str(Path.home() / ".config/herdr/bin/hunk-pr-push"), *args, path]).returncode
     if code == 0:
+        refresh_soon()
         time.sleep(SHOWN_SECONDS)
     return code
 
@@ -397,7 +398,13 @@ def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any], root
 
 
 def step_away(engine: Engine, run: Run, root: Path) -> None:
+    refresh_soon()
     waited(root, lambda: engine.leave(engine.store.load(run.repo, run.key)))
+
+
+def refresh_soon() -> None:
+    """The board only sees files, and this happened on GitHub. On its own, as the popup is about to close."""
+    subprocess.Popen([str(Path.home() / ".local/bin/workshop"), "refresh"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def offer_reply(run: Run, source: Any, chat: Chat | None, started: float) -> None:
@@ -490,6 +497,7 @@ def finish(engine: Engine, root: Path, cfg: dict[str, Any]) -> int:
         print(outcome[0])
         if not done[0]:
             return 1  # the popup stays, so the reason can be read
+        refresh_soon()
         time.sleep(SHOWN_SECONDS)
         if action == "ready":
             try:
