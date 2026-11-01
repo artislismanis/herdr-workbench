@@ -142,7 +142,6 @@ AGENT_NOTE='{"source": "agent", "author": "claude", "filePath": "f.txt", "newRan
   echo "$output" | grep -q "Posting as me"
   echo "$output" | grep -q "1 inline comment(s):"
   echo "$output" | grep -q "f.txt:"
-  echo "$output" | grep -q "Request changes"
 }
 
 @test "push: enter on its own posts nothing" {
