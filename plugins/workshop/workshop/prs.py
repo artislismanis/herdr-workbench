@@ -80,7 +80,7 @@ def my_move(pr: dict[str, Any], reviews: dict[str, dict[str, Any]], head: str, f
     if asked:
         if all(reviewed_commit(r) == head for r in asked.values()):
             return "you", "changes requested"
-        return ("others", "re-review requested") if set(asked) & set(waiting_on(pr)) else ("you", "fixed, re-request")
+        return ("others", "re-review requested") if set(asked) & set(waiting_on(pr)) else ("you", "ask for re-review")
     if threads:
         return "you", "comments to address"
     if any(r["state"] == "APPROVED" for r in reviews.values()):

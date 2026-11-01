@@ -192,7 +192,7 @@ The same poll saves your open PRs, PRs you're asked to review or have reviewed, 
 
 | Needs you | With people |
 |---|---|
-| Yours: draft, checks failing, changes requested, fixed and not re-requested, comments to address, approved | Yours: awaiting review, re-review requested |
+| Yours: draft, checks failing, changes requested, fixed, so ask for re-review, comments to address, approved | Yours: awaiting review, re-review requested |
 | Theirs: needs review, re-review | Theirs: draft, waiting for fixes, new commits, approved |
 
 A push to someone's PR stays with them until they ask again, since it may be work in progress. Bots' reviews don't count.

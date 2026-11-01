@@ -36,7 +36,7 @@ DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see
 TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "rerequest": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 SHOWN_SECONDS = 1  # long enough to see it worked, with nothing to dismiss
@@ -534,6 +534,9 @@ def main(argv: list[str]) -> int:
             case "pr":
                 mode = "claimed" if "--claimed" in argv else "silent" if "--silent" in argv else ""
                 waited(root, lambda: print(engine.explain(begin_review(engine, cfg, argv[1], mode))))
+            case "rerequest":
+                name, number = repo_of(cfg, argv[1])
+                engine.tools.rerequest(Path(cfg["repos"][name]["path"]).expanduser(), number)
             case "reply":
                 waited(root, lambda: print(engine.explain(begin_reply(engine, cfg, argv[1]))))
             case "claim":

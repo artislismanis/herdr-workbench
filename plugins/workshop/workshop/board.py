@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
+from .boardview import ASK_AGAIN, RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .review import decisions
 from .store import Run
@@ -265,6 +265,9 @@ class Board:
             else:
                 self.begin_note(Ask(run.key, f"Drop {run.key}?", (), (("Drop it", "drop", ""),), "Drop it, and say why", "drop"))
             return True
+        if key == AI_REVIEW and (pr := self.askable(lines)):
+            self.send("rerequest", pr)
+            return True
         if key == AI_REVIEW and (pr := self.answerable(lines)):
             self.send("reply", pr)
             return True
@@ -337,7 +340,13 @@ class Board:
         if pr is None or pr["move"] == "done":
             return ""
         run = next((r for r in self.runs if r.pr == pr["url"]), None)
-        return "" if pr["mine"] and pr["state"] in RESPOND else pr["url"] if run is None or (self.engine.review_ready(run) and pr["state"] in RENEWED) else ""
+        return "" if pr["mine"] and pr["state"] in (*RESPOND, ASK_AGAIN) else pr["url"] if run is None or (self.engine.review_ready(run) and pr["state"] in RENEWED) else ""
+
+    def askable(self, lines: list[Line]) -> str:
+        """The selected PR, if yours is fixed and only needs the reviewer back."""
+        wanted = self.open or self.selected(lines)
+        pr = next((p for p in self.pr_items() if ("#pr", p["url"]) == wanted), None)
+        return pr["url"] if pr and pr["mine"] and pr["state"] == ASK_AGAIN else ""
 
     def answerable(self, lines: list[Line]) -> str:
         """The selected PR, if it's yours with comments an agent could answer."""
@@ -586,6 +595,7 @@ class Board:
         stopped = moves[:1] * bool(self.open) + [(label, key) for key, label in self.run_actions(run).items()]
         offers = [("a ai review", AI_REVIEW), (f"A ai review, {self.other_mode()}", AI_REVIEW_OTHER)] if self.unreviewed(lines) else []
         offers = [("a ai reply", AI_REVIEW)] if self.answerable(lines) else offers
+        offers = [("a ask for re-review", AI_REVIEW)] if self.askable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run.pane if run else self.tab != REVIEW) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
