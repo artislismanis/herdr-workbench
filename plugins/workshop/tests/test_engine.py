@@ -1317,7 +1317,7 @@ class Questions(Case):
     def test_a_question_waits_for_a_person(self):
         run = self.asked()
         self.assertEqual((run.status, run.reason), ("waiting", "tasks asks: Which API version?"))
-        self.assertIn("workshop answer DE-1", self.engine.explain(run))
+        self.assertIn("x sends your answer", self.engine.explain(run))
 
     def test_a_question_beats_a_report(self):
         run = self.start()

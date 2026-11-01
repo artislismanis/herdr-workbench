@@ -537,6 +537,8 @@ class Engine:
             return "With reviewers. Ask for review if nobody's assigned. It lands when the PR merges, and its worktree goes then"
         if run.current and run.current["kind"] == "gate":
             return "a accepts it. x sends it back with what to change. d drops it"
+        if run.status == "waiting":
+            return "x sends your answer. a accepts it and moves on. d drops it"
         return "x runs it again, with your note if you add one. a accepts it and moves on. d drops it"
 
     def explain(self, run: Run) -> str:
