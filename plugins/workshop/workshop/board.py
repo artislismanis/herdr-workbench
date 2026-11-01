@@ -595,7 +595,7 @@ class Board:
         stopped = moves[:1] * bool(self.open) + [(label, key) for key, label in self.run_actions(run).items()]
         offers = [("a ai review", AI_REVIEW), (f"A ai review, {self.other_mode()}", AI_REVIEW_OTHER)] if self.unreviewed(lines) else []
         offers = [("a ai reply", AI_REVIEW)] if self.answerable(lines) else offers
-        offers = [("a ask for re-review", AI_REVIEW)] if self.askable(lines) else offers
+        offers = [("a re-review", AI_REVIEW)] if self.askable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run.pane if run else self.tab != REVIEW) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])

@@ -46,7 +46,7 @@ class Run:
     replying: bool = False  # comments on your own PR: fixes and replies wait for your go
     replied: bool = False  # those went out
     posted: str = ""  # the commit whose review went out
-    queued: bool = False  # the talk put its ticket in the delivery queue
+    landed_as: str = ""  # where the queue talk left its ticket, if it moved it
     sent: int = 0  # how many replies have, should a send stop halfway
     reviewed: str = ""  # what the last review looked at, a commit on a PR, otherwise a snapshot
     checking: str = ""  # the snapshot this review is looking at

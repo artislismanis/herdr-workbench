@@ -391,17 +391,23 @@ class Engine:
     def _queue_list(self, run: Run) -> str:
         titles = {item["key"]: item["title"] for item in self.store.read(SNAPSHOT).get("repos", {}).get(run.repo, {}).get("items", [])}
         keys = self.in_order(run.repo, self.source_for(run).queued())
-        return "\n".join(f"- {key}: {titles.get(key, '')}" for key in keys) or "Nothing, so this would be next."
+        return "\n".join(f"{place}. {key}: {titles.get(key, '')}" for place, key in enumerate(keys, 1)) or "Nothing, so this would be next."
 
     def _enqueue(self, run: Run, report: str) -> None:
-        found = re.findall(r"^QUEUE: (front|back|hold)\s*$", report, re.MULTILINE)
+        """A place in the queue, counted from 1, or out of it, back to designed. Hold leaves things as they are."""
+        found = re.findall(r"^QUEUE: (\d+|out|hold)\s*$", report, re.MULTILINE)
         if not found or found[-1] == "hold":
             return
         ticket, source = run.key.removeprefix("prep-"), self.source_for(run)
         others = self.in_order(run.repo, [key for key in source.queued() if key != ticket])
-        source.enqueue(run.key)
-        self.store.write(QUEUE, {**self.store.read(QUEUE), run.repo: [ticket, *others] if found[-1] == "front" else [*others, ticket]})
-        run.queued = True
+        if found[-1] == "out":
+            source.dequeue(run.key)
+            run.landed_as = "designed"
+        else:
+            source.enqueue(run.key)
+            others.insert(max(int(found[-1]) - 1, 0), ticket)
+            run.landed_as = "queued"
+        self.store.write(QUEUE, {**self.store.read(QUEUE), run.repo: others})
         self.store.event(run, "queued", place=found[-1])
 
     def _proposals(self, run: Run) -> list[dict[str, Any]]:
@@ -934,10 +940,10 @@ class Engine:
             self._landed(run)
             return
         if run.preparing:
-            run.status, run.landed = "done", "queued" if run.queued else next((s["label"] for s in reversed(run.pipeline["steps"]) if "label" in s), "prepared")
+            run.status, run.landed = "done", run.landed_as or next((s["label"] for s in reversed(run.pipeline["steps"]) if "label" in s), "prepared")
             self.store.event(run, "prepared")
             self.store.save(run)
-            self.tools.notify(f"Workshop: {run.key} {run.landed}", "It's in the queue." if run.queued else "It's on the ticket. p on the Backlog with its number starts the next stage.")
+            self.tools.notify(f"Workshop: {run.key} {run.landed}", {"queued": "It's in the queue.", "designed": "It's designed, and out of the queue. p on the Backlog with its number queues it."}.get(run.landed_as, "It's on the ticket. p on the Backlog with its number starts the next stage."))
             self._tidy(run)
             return
         if run.sweeping:

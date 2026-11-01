@@ -183,7 +183,7 @@ Each `tick` and `workshop refresh` saves open tickets to `~/.local/state/worksho
 2. When nothing's left to ask it plays back a summary. Your yes there writes it to the ticket and adds `planned`, with nothing to approve on the board. Changes go back into the same talk.
 3. The run ends there and takes its checkout, and a notification says so. The design is a separate talk, for when you're ready.
 4. `p` again with the ticket's number starts the next stage it hasn't reached. A fresh agent, which knows only what was written, does the same for the design, and your yes adds `designed`.
-5. The design talk ends by asking if it's ready for the queue, and if others are queued, whether it goes ahead of them or after. Your answer adds the delivery label and sets its place. `p` on a designed ticket asks just that, so a ticket on hold, or one you want to move, takes a minute. The order is kept in `queue.json`, and with no place a ticket goes last, oldest first.
+5. The design talk ends by asking if it's ready for the queue, and if others are queued, where it goes among them. Your answer adds the delivery label and sets its place, and no is fine: it stays `designed`, for you to read. `p` on a designed or queued ticket has a short talk about just that, to queue it, move it or take it back out to `designed`. The order is kept in `queue.json`, and with no place a ticket goes last, oldest first.
 
 Nothing reaches the ticket before your yes. Each go puts its section at the top of the ticket body, above a `## Original ticket` heading that keeps your text, and posts a `Signed off` comment. Delivery treats comments older than that as background. Running it again replaces those sections. A ticket with `planned` starts at the design, and one with `designed` starts over. Adding the delivery label by hand queues a ticket too. Jira shows the headings as plain text, as they're Markdown. `prepare_pipeline` on a repo names a different pipeline. A gate's `ask` is the question it puts to you, shown with the report on the board. `go` names its first option, and `change` the line for your own words. A step's `interactive = true` needs a `verdict`, which is how the engine knows you've agreed, and `section` and `label`, on that step or on a gate, set what it writes.
 
@@ -193,7 +193,7 @@ The same poll saves your open PRs, PRs you're asked to review or have reviewed, 
 
 | Needs you | With people |
 |---|---|
-| Yours: draft, checks failing, changes requested, fixed, so ask for re-review, comments to address, approved | Yours: awaiting review, re-review requested |
+| Yours: draft, checks failing, changes requested, `re-review`, once fixed, comments to address, approved | Yours: awaiting review, re-review requested |
 | Theirs: needs review, re-review | Theirs: draft, waiting for fixes, new commits, approved |
 
 A push to someone's PR stays with them until they ask again, since it may be work in progress. Bots' reviews don't count.

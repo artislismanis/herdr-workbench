@@ -24,7 +24,7 @@ GOOD_EVENTS = ("finished", "approved", "landed")
 MOVES = {"you": "Needs you", "others": "With people", "done": "Done lately"}
 REVIEW_GROUPS = ("Needs you", "With agents", "With people", "Done lately")
 RESPOND = ("changes requested", "comments to address")
-ASK_AGAIN = "ask for re-review"
+ASK_AGAIN = "re-review"  # on your own PR, where it's yours to ask for
 PACE_AMBER, PACE_RED = 10, 25  # points ahead of an even pace, so a busy start isn't an alarm
 MACHINE_AMBER, MACHINE_RED = 75, 90
 COLUMN_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
@@ -355,9 +355,8 @@ def pull_status(pr: dict[str, Any], run: Run | None) -> tuple[str, str]:
 
 def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
     """The one thing to do next, so nobody has to work it out from the state."""
-    if pr["state"] == ASK_AGAIN and not (run and run.status != "done"):
-        who = ", ".join(person for person, state in pr["reviews"].items() if state == "CHANGES_REQUESTED")
-        return f"Your fixes are pushed, but GitHub shows changes requested until {who} reviews again. a asks them to."
+    if pr["mine"] and pr["state"] == ASK_AGAIN and not (run and run.status != "done"):
+        return "Your fixes are pushed, but GitHub shows changes requested until it's reviewed again. a asks for another look."
     if run and run.status == "running":
         return "An agent is on it. This moves to Needs you when it's done."
     if run and run.status != "done":
