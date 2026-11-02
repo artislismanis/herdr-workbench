@@ -21,6 +21,14 @@ width = 70
 height = 12
 
 [[keys.command]]
+key = "prefix+shift+x"
+type = "popup"
+command = "\"$HOME/.config/herdr/bin/wt-prune\""
+description = "Worktree: remove what's merged in this repo"
+width = 70
+height = 16
+
+[[keys.command]]
 key = "prefix+shift+r"
 type = "shell"
 command = "\"$HOME/.config/herdr/bin/hunk-review-open\""

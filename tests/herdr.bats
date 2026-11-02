@@ -97,6 +97,7 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   source "$REPO_ROOT/pins"
   grep -qx "$WORKTRUNK_PLUGIN $WORKTRUNK_PLUGIN_COMMIT" "$HOME/.plugin-installs"
   [ -x "$HOME/.config/herdr/bin/wt-remove-current" ]
+  [ -x "$HOME/.config/herdr/bin/wt-prune" ]
   installs="$(wc -l <"$HOME/.plugin-installs")"
   install
   [ "$(wc -l <"$HOME/.plugin-installs")" -eq "$installs" ]
