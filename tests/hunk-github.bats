@@ -144,6 +144,15 @@ AGENT_NOTE='{"source": "agent", "author": "claude", "filePath": "f.txt", "newRan
   echo "$output" | grep -q "f.txt:"
 }
 
+@test "push: a blocked approve says why and refuses" {
+  notes "{\"comments\": [$AGENT_NOTE]}"
+  run bash -c "echo n | '$REPO_ROOT/bin/hunk-pr-push' --no-approve 'CI is failing.' '$REPO' 2>&1"
+  echo "$output" | grep -q "CI is failing."
+  run --separate-stderr "$REPO_ROOT/bin/hunk-pr-push" --as approve --no-approve "CI is failing." "$REPO" </dev/null
+  [ "$status" -ne 0 ]
+  echo "$stderr" | grep -q "CI is failing."
+}
+
 @test "push: enter on its own posts nothing" {
   notes "{\"comments\": [$AGENT_NOTE]}"
   run bash -c "echo | '$REPO_ROOT/bin/hunk-pr-push' '$REPO'"

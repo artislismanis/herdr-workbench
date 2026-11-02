@@ -131,6 +131,10 @@ class Fetch(unittest.TestCase):
         self.assertIn("resource(url:", call.call_args.args[-1])
         self.assertEqual([(p["move"], p["state"], p["chat"]) for p in found], [("you", "needs review", True)])
 
+    def test_chat_only_means_a_github_request_isnt_yours(self):
+        with mock.patch("workshop.prs.run_json", return_value=self.data(requested=[pr("them")])):
+            self.assertEqual([(p["move"], p["state"]) for p in fetch("", 0.0, {}, True)], [("others", "open")])
+
     def chat_after(self, asked_at):
         asked = pr("them", reviews=[review(ME, "APPROVED")]) | {"state": "OPEN"}
         reply = self.data()
