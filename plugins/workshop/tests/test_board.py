@@ -1099,6 +1099,21 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.assertEqual(len(self.board.pr_items()), 1)
 
+    def test_o_passes_on_the_selected_prs_link(self):
+        self.on_pr()
+        self.board.engine.tools.open_link.return_value = "Link copied"
+        self.assertIn("o link", self.board.footer().text)
+        self.board.press(ord("o"))
+        self.board.engine.tools.open_link.assert_called_once_with(self.board.picked[1])
+        self.assertEqual(self.board.message, "Link copied")
+
+    def test_a_row_without_a_pr_has_no_link(self):
+        self.store.save(run("7"))
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab = DELIVERY
+        self.assertNotIn("o link", self.board.footer().text)
+
     def test_your_own_pr_has_no_ai_review(self):
         for state in ("approved", "checks failing", "awaiting review"):
             self.on_pr(mine=True, state=state)

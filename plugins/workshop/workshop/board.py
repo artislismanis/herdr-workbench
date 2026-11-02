@@ -312,7 +312,19 @@ class Board:
             self.refresh()
         elif key == ord("g"):
             self.jump(self.open or self.selected(lines))
+        elif key == ord("o") and (url := self.link(lines)):
+            self.open_link(url)
         return True
+
+    def link(self, lines: list[Line]) -> str:
+        ref = self.open or self.selected(lines)
+        return ref[1] if ref and ref[0] == "#pr" else run.pr if (run := self.target(lines)) else ""
+
+    def open_link(self, url: str) -> None:
+        try:
+            self.say(self.engine.tools.open_link(url) or f"Opened {url}")
+        except (ToolError, OSError) as failed:
+            self.say(str(failed))
 
     def enter(self, ref: tuple[str, str] | None) -> None:
         if ref and ref[0] == "#file":
@@ -586,7 +598,7 @@ class Board:
         offers = [("a re-review", AI_REVIEW)] if self.askable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
-        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run.pane if run else self.tab != REVIEW) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run.pane if run else self.tab != REVIEW) + [("o link", ord("o"))] * bool(self.link(lines)) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def note(self, width: int) -> list[Line]:

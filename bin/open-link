@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Stands in for xdg-open and $BROWSER. With WSL interop off nothing here can
+# start a Windows browser, so the link goes to the Windows clipboard instead.
+set -uo pipefail
+
+url="${1:-}"
+[ -n "$url" ] || { echo "usage: open-link <url>" >&2; exit 2; }
+
+# wl-copy stays behind to hold the clipboard, so it can't keep our pipes open.
+if ! printf '%s' "$url" | wl-copy >/dev/null 2>&1; then
+  { printf '\033]52;c;%s\a' "$(printf '%s' "$url" | base64 -w0)" >/dev/tty; } 2>/dev/null || { echo "Couldn't copy: $url" >&2; exit 1; }
+fi
+echo "Link copied, paste it in your browser: $url"

@@ -17,7 +17,8 @@ RULES_DIR="$CLAUDE_DIR/rules/herdr-workbench"
 HERDR_CONFIG="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
 HERDR_SKILL="$CLAUDE_DIR/skills/herdr/SKILL.md"
 HERDR_BIN="$HOME/.config/herdr/bin"
-HERDR_SCRIPTS=(wt-remove-current hunk-review-open hunk-pr-notes hunk-pr-push)
+HERDR_SCRIPTS=(wt-remove-current hunk-review-open hunk-pr-notes hunk-pr-push open-link)
+XDG_OPEN="$HOME/.local/bin/xdg-open"
 HERDR_PLUGINS="$HOME/.config/herdr/plugins"
 HUNKDIFF_CONFIG="$HERDR_PLUGINS/config/jhochenbaum.hunkdiff/config.toml"
 HUNK_CONFIG="$HOME/.config/hunk/config.toml"
@@ -54,6 +55,7 @@ herdr plugin uninstall jhochenbaum.hunkdiff 2>/dev/null || true
 herdr plugin uninstall annotate 2>/dev/null || true
 herdr plugin uninstall workshop 2>/dev/null || true
 rm -f "$WORKSHOP_CLI"
+[ ! -L "$XDG_OPEN" ] || rm -f "$XDG_OPEN"
 systemctl --user disable --now workshop-tick.timer 2>/dev/null || true
 systemctl --user disable --now workshop-sample.timer 2>/dev/null || true
 rm -f$(printf ' "%s"' "${WORKSHOP_UNITS[@]/#/$SYSTEMD_USER/}")
@@ -181,6 +183,10 @@ else
   for script in "${HERDR_SCRIPTS[@]}"; do
     install_file "$REPO_ROOT/bin/$script" "$HERDR_BIN/$script" 755
   done
+  # gh, herdr's link clicks and the board all look for xdg-open. A real one wins.
+  if [ -L "$XDG_OPEN" ] || ! command -v xdg-open >/dev/null 2>&1; then
+    ensure_symlink "$HERDR_BIN/open-link" "$XDG_OPEN"
+  fi
   _ensure_plugin worktrunk "$WORKTRUNK_PLUGIN" "$WORKTRUNK_PLUGIN_COMMIT"
   _ensure_plugin jhochenbaum.hunkdiff "$HUNKDIFF_PLUGIN" "$HUNKDIFF_PLUGIN_COMMIT"
   _ensure_plugin annotate "$ANNOTATE_PLUGIN" "$ANNOTATE_PLUGIN_COMMIT"

@@ -74,6 +74,10 @@ class Tools:
         except (OSError, subprocess.SubprocessError) as failed:
             raise ToolError(f"wl-copy failed: {failed}") from failed
 
+    def open_link(self, url: str) -> str:
+        """What the opener said, as in WSL it can only pass the link on."""
+        return run("xdg-open", url).strip()
+
     def workshop(self, *args: str) -> None:
         # The command, not the engine, so the board takes the same lock as everything else.
         run(f"{Path.home()}/.local/bin/workshop", *args)
