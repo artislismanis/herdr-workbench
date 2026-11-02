@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 import sys
 import unittest
 from pathlib import Path
@@ -126,15 +127,28 @@ class Fetch(unittest.TestCase):
         reply = self.data()
         reply["data"]["asked0"] = asked
         with mock.patch("workshop.prs.run_json", return_value=reply) as call:
-            found = fetch("", 0.0, (asked["url"],))
+            found = fetch("", 0.0, {asked["url"]: 1.0})
         self.assertIn("resource(url:", call.call_args.args[-1])
         self.assertEqual([(p["move"], p["state"], p["chat"]) for p in found], [("you", "needs review", True)])
+
+    def chat_after(self, asked_at):
+        asked = pr("them", reviews=[review(ME, "APPROVED")]) | {"state": "OPEN"}
+        reply = self.data()
+        reply["data"]["asked0"] = asked
+        with mock.patch("workshop.prs.run_json", return_value=reply):
+            return [(p["move"], p["state"]) for p in fetch("", 0.0, {asked["url"]: asked_at})]
+
+    def test_your_review_answers_the_ask_in_chat(self):
+        self.assertEqual(self.chat_after(datetime(2026, 10, 30, tzinfo=UTC).timestamp()), [("others", "you approved")])
+
+    def test_a_newer_ask_in_chat_comes_back_to_you(self):
+        self.assertEqual(self.chat_after(datetime(2026, 11, 1, tzinfo=UTC).timestamp()), [("you", "re-review")])
 
     def test_a_chat_pr_thats_closed_or_gone_doesnt_show(self):
         reply = self.data()
         reply["data"]["asked0"], reply["data"]["asked1"] = pr("them") | {"state": "MERGED"}, None
         with mock.patch("workshop.prs.run_json", return_value=reply):
-            self.assertEqual(fetch("", 0.0, ("a", "b")), [])
+            self.assertEqual(fetch("", 0.0, {"a": 1.0, "b": 1.0}), [])
 
     def test_merged_ones_are_done(self):
         with mock.patch("workshop.prs.run_json", return_value=self.data(merged_mine=[pr()])):
