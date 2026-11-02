@@ -67,9 +67,10 @@ Reviewing the same PR again, once it has new commits, follows the PR's head and 
 
 `[chat]` connects Slack, or any chat with an MCP server, through a `claude -p` call that may use only the tools you name. See `config.example.toml`. Without it, workshop has no chat at all.
 
-- Each tick in working hours, at most every `check_minutes`, it looks for PR links in `channels` and adds those PRs to the Review tab. Limits hold it back, and what it spends shows under `chat` in `workshop stats`. Message text is data: only a well-formed link to a repo you've set up gets through.
-- `claim = "chat-reaction"` adds the eyes reaction to the message that asked, as your claim. It follows `mode`, so a silent review reacts after your go.
-- `after_post = "chat-reply"` offers a thread reply once your review is posted, with the decision filled in. Enter sends it, `n` skips it, or type your own.
+- Each tick in working hours, at most every `check_minutes`, it looks for PR links in `channels`, threads included, and adds those PRs to the Review tab. A review reaction from someone else takes a PR off your pile, and a newer ask, in its thread or not, brings it back. With `[prs] intake = "chat"`, GitHub requests don't reach Needs you. Limits hold it back, and what it spends shows under `chat` in `workshop stats`. Message text is data: only a well-formed link to a repo you've set up gets through.
+- `claim = "chat-reaction"` adds the claim reaction, eyes unless `[chat.reactions]` says otherwise, to the message that asked. It follows `mode`, so a silent review reacts after your go.
+- `after_post = "chat-reply"` offers a thread reply once your review is posted, with the decision filled in. Reactions set in `[chat.reactions]` go on the ask and the thread's first message: approved or comments, never both, and ci or copilot if they apply. Enter sends it all, `n` skips it, or type your own. It only adds reactions, as the Slack MCP can't remove them.
+- `block_failing_ci = true` under `[review]` takes approving away while CI fails. Unresolved Copilot comments only warn.
 
 ## Pipelines
 
