@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Removes the worktrees wt counts as merged, for the repo of the focused pane,
+# after showing them. Runs in a herdr popup, which gets the pane under it as
+# HERDR_ACTIVE_PANE_ID. wt skips dirty worktrees and young ones by itself.
+set -uo pipefail
+PATH="$HOME/.local/bin:$PATH"
+herdr="${HERDR_BIN_PATH:-herdr}"
+
+# The popup closes when this exits, so hold it open for the message.
+stop() {
+  printf '%s Press a key to close.' "$1"
+  read -rn1
+  exit "${2:-0}"
+}
+
+cwd="$("$herdr" pane get "$HERDR_ACTIVE_PANE_ID" | jq -r '.result.pane.cwd')"
+top="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || stop "Not in a git repository: $cwd." 1
+before="$("$herdr" worktree list --cwd "$top" --json)"
+main="$(jq -r '.result.source.repo_root' <<<"$before")"
+
+plan="$(wt step prune --dry-run --format=json -C "$main")" || stop "wt couldn't list what's merged." 1
+[ "$(jq 'length' <<<"$plan")" -gt 0 ] || stop "Nothing merged to remove."
+jq -r '.[] | "  \(.branch): \(.reason) \(.target)"' <<<"$plan"
+
+read -rp "Remove these? [Y/n] " reply
+case "$reply" in n|N|no|NO) exit 0 ;; esac
+wt step prune --foreground --yes -C "$main" || stop "wt step prune failed (see above)." 1
+
+# wt doesn't know about workspaces, so close the ones left without a checkout.
+jq -r '.result.worktrees[] | select(.is_linked_worktree and .open_workspace_id != null) | [.path, .open_workspace_id] | @tsv' <<<"$before" |
+  while IFS=$'\t' read -r path wsid; do
+    [ -e "$path" ] || "$herdr" workspace close "$wsid" >/dev/null
+  done
