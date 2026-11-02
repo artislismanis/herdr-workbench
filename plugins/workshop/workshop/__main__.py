@@ -14,8 +14,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .backlog import poll
+from .backlog import SNAPSHOT, poll
 from .board import show
+from .boardview import full_pile
 from .chat import CHAT, Chat
 from .doctor import doctor
 from .engine import PREFIX, STOPS, SWEEP_EVERY, SWEEPS, Engine, Park
@@ -244,9 +245,14 @@ def read_limits(engine: Engine) -> None:
     engine.throttle.update(engine.tools.claude_usage())
 
 
+def your_pile(engine: Engine, cfg: dict[str, Any]) -> str:
+    limit = cfg.get("max_waiting", 0)
+    return full_pile(engine.store.all(), engine.store.read(SNAPSHOT).get("prs", {}).get("items", []), limit) if limit else ""
+
+
 def no_room(engine: Engine, cfg: dict[str, Any]) -> bool:
     active = running(engine)
-    return len(active) >= cfg.get("max_active", 2) or bool(engine.throttle.hold_new(len(active)))
+    return len(active) >= cfg.get("max_active", 2) or bool(engine.throttle.hold_new(len(active)) or your_pile(engine, cfg))
 
 
 def tick(engine: Engine, cfg: dict[str, Any]) -> None:
@@ -284,11 +290,11 @@ def save_skipped(skipped: dict[str, str]) -> None:
     (state_root() / "skipped.json").write_text(json.dumps(skipped, indent=2), encoding="utf-8")
 
 
-def show_status(engine: Engine) -> None:
+def show_status(engine: Engine, cfg: dict[str, Any]) -> None:
     for run in engine.store.all():
         step = run.current["id"] if run.current else "-"
         print(f"{run.label:9} {run.repo}/{run.key} {step} {run.held or run.reason or run.pr}")
-    if held := engine.throttle.hold_new(len(running(engine))):
+    if held := engine.throttle.hold_new(len(running(engine))) or your_pile(engine, cfg):
         print(f"held     new tickets: {held}")
     skipped = state_root() / "skipped.json"
     if skipped.exists():
@@ -541,7 +547,7 @@ def main(argv: list[str]) -> int:
             case "start":
                 waited(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv, "--restart" in argv))))
             case "status":
-                show_status(engine)
+                show_status(engine, cfg)
             case "needs-you":
                 show_needs_you(engine)
             case "explain":

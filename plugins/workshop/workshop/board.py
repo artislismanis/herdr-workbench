@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, live, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
+from .boardview import ASK_AGAIN, RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, live, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .review import decisions
 from .store import Run
@@ -115,8 +115,14 @@ class Board:
     def reload(self) -> None:
         if (stamp := self.stamp()) != self.seen:
             self.seen = stamp
+            waiting = self.picked and self.picked in self.your_pile()
             self.runs, self.events = self.store.all(), self.store.history()
             self.snapshot, self.skipped = self.store.read(SNAPSHOT), self.store.read(SKIPPED)
+            if waiting and self.picked not in self.your_pile():  # dealt with, so the next one is ready
+                self.picked, self.viewing, self.side, self.earlier = None, "", 0, False
+
+    def your_pile(self) -> set[tuple[str, str]]:
+        return {(r.repo, r.key) for r in self.runs if heading(r) == "Needs you"} | {("#pr", p["url"]) for p in self.pr_items() if pull_group(p, self.linked(p)) == "Needs you"}
 
     def title(self, run: Run) -> str:
         brief = self.store.files(run) / "brief.md"
@@ -337,7 +343,7 @@ class Board:
         if pr is None or pr["move"] == "done":
             return ""
         run = next((r for r in self.runs if r.pr == pr["url"]), None)
-        return "" if pr["mine"] and pr["state"] in (*RESPOND, ASK_AGAIN) else pr["url"] if run is None or (self.engine.review_ready(run) and pr["state"] in RENEWED) else ""
+        return "" if pr["mine"] else pr["url"] if run is None or (self.engine.review_ready(run) and pr["state"] in RENEWED) else ""
 
     def askable(self, lines: list[Line]) -> str:
         """The selected PR, if yours is fixed and only needs the reviewer back."""
@@ -563,7 +569,7 @@ class Board:
         sources = [self.snapshot.get("prs", {})] if self.tab == REVIEW else self.snapshot.get("repos", {}).values()
         times = [source.get("polled_at", 0) for source in sources]
         age = f"{kind} {ago(self.clock() - min(times))} old" if times and min(times) else f"{kind} not polled"
-        held = self.engine.throttle.hold_new(len([r for r in self.runs if r.status == "running"]))
+        held = self.engine.throttle.hold_new(len([r for r in self.runs if r.status == "running"])) or full_pile(self.runs, self.snapshot.get("prs", {}).get("items", []), self.cfg.get("max_waiting", 0))
         return Line([*tabs, Span(f" {age}", "dim"), Span(f"   held: {held}" if held else "", "yellow")])
 
     def footer(self, width: int = 120) -> Line:

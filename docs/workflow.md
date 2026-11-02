@@ -25,7 +25,7 @@ Delivery owns a ticket until your self-review lets it go with `prefix+shift+u`. 
 The Review tab works like Delivery: Needs you, With agents, With people, and Done lately.
 
 1. `a` on someone else's PR runs the repo's checks and a fresh AI review. The row shows `working`, under With agents, and its detail shows the stages.
-2. When it's done, the row moves to Needs you as `your turn`. Its detail gives the AI's recommendation and what to do next, then a four line briefing to read before the diff: the intent, what the code delivers against it, the challenges, and the recommendation.
+2. When it's done, the row moves to Needs you as `drafted`. Its detail gives the AI's recommendation and what to do next, then a four line briefing to read before the diff: the intent, what the code delivers against it, the challenges, and the recommendation.
 3. `g` opens hunk with the AI's notes on the diff, and the reviewer beside it. Ask it anything. It changes nothing and posts nothing.
 4. Keep, change or drop the notes, then post with `prefix+shift+u`. What you post is the review, and it's all on GitHub, so the workspace and checkout go whatever you chose, and you're back on the board. The row goes back to the PR's own status.
 
@@ -53,6 +53,7 @@ A run that needs you shows one of three states.
 |---|---|---|
 | `decide` | It stopped as planned, at a gate or with a question | Read what's shown and decide |
 | `fix` | Something went wrong: a failure, a time limit, or an agent that's gone | Read why, then choose |
+| `drafted` | An agent's work is done and waits for your check: a self-review, a review or replies | `g`, then `prefix+shift+u` when you're happy |
 | `your turn` | An agent in Prepare is waiting for your answer | `g`, then answer it there |
 
 The board shows the reason and the report, so you shouldn't need to open the workspace to decide.

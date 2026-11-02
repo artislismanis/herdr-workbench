@@ -33,9 +33,11 @@ class Finish(unittest.TestCase):
 
 
 class Filling(unittest.TestCase):
-    def tick(self, ready, max_active=2, held=lambda active: ""):
+    def tick(self, ready, max_active=2, held=lambda active: "", max_waiting=0, pile=()):
         started = []
         engine = mock.Mock()
+        engine.store.all.return_value = list(pile)
+        engine.store.read.return_value = {}
         engine.store.exists.return_value = False
         engine.in_order.side_effect = lambda repo, keys: keys
         engine.throttle.hold_new.side_effect = held
@@ -52,11 +54,16 @@ class Filling(unittest.TestCase):
             mock.patch.object(cli, "running", side_effect=lambda _: started),
             mock.patch.object(cli, "begin", side_effect=lambda _e, _c, _n, key: started.append(key)),
         ):
-            cli.tick(engine, {"repos": {"r": {}}, "max_active": max_active})
+            cli.tick(engine, {"repos": {"r": {}}, "max_active": max_active, "max_waiting": max_waiting})
         return started
 
     def test_one_tick_fills_every_free_slot_and_no_more(self):
         self.assertEqual(self.tick(["1", "2", "3"]), ["1", "2"])
+
+    def test_a_full_pile_starts_nothing_until_it_clears(self):
+        stopped = mock.Mock(status="parked", pr="u", preparing=False)
+        self.assertEqual(self.tick(["1"], max_waiting=1, pile=[stopped]), [])
+        self.assertEqual(self.tick(["1"], max_waiting=2, pile=[stopped]), ["1"])
 
     def test_limits_are_checked_before_each_start(self):
         self.assertEqual(self.tick(["1", "2"], held=lambda active: "held" if active else ""), ["1"])

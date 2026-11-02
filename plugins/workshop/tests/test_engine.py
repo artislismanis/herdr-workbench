@@ -640,7 +640,7 @@ class Reviews(unittest.TestCase):
         run = self.to_review(self.start())
         self.assertTrue(run.step_agent)
         self.assertEqual((run.step_pane, self.tools.closed), ("", []))
-        self.assertEqual(run.label, "your turn")
+        self.assertEqual(run.label, "drafted")
         self.engine.posted(run)
         self.assertEqual(run.label, "posted")
 
@@ -902,7 +902,7 @@ class Replies(unittest.TestCase):
 
     def test_nothing_leaves_until_your_go(self):
         run = self.finished()
-        self.assertEqual((run.status, run.label, self.tools.pushes, self.tools.commits), ("done", "your turn", 0, []))
+        self.assertEqual((run.status, run.label, self.tools.pushes, self.tools.commits), ("done", "drafted", 0, []))
         self.source.reply.assert_not_called()
         self.assertEqual(self.tools.reloads, [True])
         self.assertFalse(self.engine.delivered(run))
