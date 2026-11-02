@@ -79,13 +79,16 @@ class Chat:
     def _react(self, step: str, found: dict[str, Any], emoji: list[str], messages: list[str]) -> None:
         self._write(step, REACT.format(emoji=", ".join(emoji), channel=found["channel"], messages=", ".join(messages)), "react_tool")
 
+    def _ours(self, url: str) -> None:
+        saved = self.store.read(CHAT)
+        saved["found"][url.rstrip("/")]["ours"] = True
+        self.store.write(CHAT, saved)
+
     def react(self, url: str) -> None:
         """A PR that wasn't asked for in chat has no message to react to, and that's fine."""
         if found := self.message(url):
             self._react("chat-react", found, [self.settings.get("reactions", {}).get("claim", "eyes")], [found["ts"]])
-            saved = self.store.read(CHAT)
-            saved["found"][url.rstrip("/")]["ours"] = True
-            self.store.write(CHAT, saved)
+            self._ours(url)
 
     def outcome(self, decided: str, standing: dict[str, Any]) -> list[str]:
         """A review either approves or asks for something, never both. What's still wrong with the PR shows beside either."""
@@ -97,6 +100,7 @@ class Chat:
         """On the ask and on the thread's first message, as that's where people look."""
         if found := self.message(url):
             self._react("chat-outcome", found, emoji, list(dict.fromkeys((found["ts"], found["root"]))))
+            self._ours(url)
 
     def reply(self, url: str, text: str) -> None:
         if found := self.message(url):

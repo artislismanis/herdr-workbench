@@ -116,6 +116,12 @@ class Writing(Case):
         seen = self.chat.seen([{"url": URL, "channel": "C1", "ts": "1.2", "root": "1.1", "reactions": ["eyes"]}], known)
         self.assertFalse(seen[URL]["taken"])
 
+    def test_your_own_outcome_doesnt_read_as_taken(self):
+        self.known()
+        self.answer = "DONE"
+        self.chat.settle(URL, ["bubble"])
+        self.assertTrue(self.store.read(CHAT)["found"][URL]["ours"])
+
     def test_no_message_means_nothing_to_do(self):
         self.chat.react(URL)
         self.chat.reply(URL, "x")
