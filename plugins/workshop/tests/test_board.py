@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Board  # noqa: E402
-from workshop.boardview import Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, operations, limit_style, pipe, pull, pull_status, pull_story, pulls, run_style, stage_groups, stage_state, timeline, to_go, usage_line, usage_view  # noqa: E402
+from workshop.boardview import Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, pipe, pull, pull_status, pull_story, pulls, run_style, stage_groups, stage_state, timeline, to_go, usage_line, usage_view  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -357,7 +357,7 @@ class Drill(unittest.TestCase):
 
 
 def pr(url="u", move="you", mine=False, state="needs review", **fields):
-    return {"repo": "r", "number": 7, "title": "A change", "url": url, "author": "them", "mine": mine, "move": move, "state": state, "checks": "SUCCESS", "threads": 0, "reviews": {}, "waiting_on": [], "beaten": [], **fields}
+    return {"repo": "r", "number": 7, "title": "A change", "url": url, "author": "them", "mine": mine, "move": move, "state": state, "checks": "SUCCESS", "threads": 0, "reviews": {}, "waiting_on": [], "beaten": [], "updated": "2026-11-01T10:00:00Z", **fields}
 
 
 class Operate(unittest.TestCase):
@@ -385,7 +385,7 @@ class PRs(unittest.TestCase):
         self.assertIn("Needs you 1", joined(lines))
 
     def test_a_row_says_whose_it_is(self):
-        mine, theirs = self.rows(pr("a", mine=True), pr("b"))
+        mine, theirs = self.rows(pr("a", mine=True, state="approved"), pr("b"))
         self.assertEqual(mine.text[1], "●")
         self.assertEqual(theirs.text[1], "○")
         self.assertEqual(next(span for span in mine.spans if "you" in span.text.split()).style, mine.spans[1].style)
@@ -418,6 +418,23 @@ class PRs(unittest.TestCase):
     def test_every_status_of_yours_under_needs_you_says_what_next(self):
         for state in ("changes requested", "comments to address", "checks failing", "re-review", "approved"):
             self.assertIn("▌ Next", joined(pull_story(pr(mine=True, state=state), None, "", "", "", [], WIDE)))
+
+    def test_needs_you_is_in_the_order_to_clear_it(self):
+        items = [pr("new"), pr("theirs", state="re-review"), pr("feedback", mine=True, state="changes requested"), pr("ask", mine=True, state="re-review"), pr("merge", mine=True, state="approved"), pr("old", updated="2026-10-01T10:00:00Z"), pr("stopped"), pr("waits"), pr("draft")]
+        runs = {"stopped": run("pr-1", "parked", pr="stopped", reviewing=True), "waits": run("pr-2", "waiting", pr="waits", reviewing=True), "draft": run("pr-3", "done", pr="draft", reviewing=True)}
+        lines = pulls({"prs": {"error": "", "items": items}}, WIDE, lambda p: runs.get(p["url"]))
+        self.assertEqual([line.pr["url"] for line in lines if line.pr], ["stopped", "waits", "draft", "merge", "ask", "feedback", "theirs", "old", "new"])
+
+    def test_delivery_needs_you_goes_the_same_way(self):
+        rows = [line.run.key for line in deliveries([run("1", "done", pr="u"), run("2", "waiting"), run("3", "parked")], [], lambda r: "", WIDE) if line.run]
+        self.assertEqual(rows, ["3", "2", "1"])
+
+    def test_the_pile_counts_what_needs_you_once(self):
+        runs = [run("pr-7", "done", pr="u", reviewing=True), run("9", "parked"), run("8")]
+        items = [pr("u"), pr("v"), pr("w", "others"), pr("x", state="draft")]
+        self.assertEqual(full_pile(runs, items, 3), "3 waiting on you")
+        self.assertEqual(full_pile(runs, items, 4), "")
+        self.assertEqual(full_pile(runs, items, 0), "")
 
     def test_the_ci_dot_goes_by_the_checks(self):
         dots = {"SUCCESS": "green", "FAILURE": "red", "ERROR": "red", "PENDING": "yellow", "EXPECTED": "yellow", "": "dim"}
@@ -464,7 +481,7 @@ class PRs(unittest.TestCase):
     def test_a_finished_review_needs_you(self):
         lines = pulls({"prs": {"error": "", "items": [pr(move="others")]}}, WIDE, lambda p: run("pr-7", "done", pr="u", reviewing=True))
         self.assertIn("Needs you 1", joined(lines))
-        self.assertIn("your turn", next(line for line in lines if line.pr).text)
+        self.assertIn("drafted", next(line for line in lines if line.pr).text)
 
     def test_a_posted_review_goes_by_whose_move_it_is(self):
         posted = run("pr-7", "done", pr="u", reviewing=True, reviewed="abc", posted="abc")
@@ -1037,11 +1054,11 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.assertEqual(self.board.advice(self.board.run_of(self.board.picked)), "AI: approve")
-        self.assertIn(" your turn ", joined(self.board.detail(self.board.picked, WIDE)))
+        self.assertIn(" drafted ", joined(self.board.detail(self.board.picked, WIDE)))
 
-    def test_a_delivered_draft_is_your_turn_until_you_let_it_go(self):
+    def test_a_delivered_draft_is_drafted_until_you_let_it_go(self):
         draft = run("5", "done", pr="u")
-        self.assertEqual(draft.label, "your turn")
+        self.assertEqual(draft.label, "drafted")
         self.assertIn("Needs you", joined(deliveries([draft], [], lambda r: "", WIDE)))
         draft.opened = True
         self.assertEqual(draft.label, "in review")
@@ -1081,6 +1098,32 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.assertEqual(len(self.board.pr_items()), 1)
+
+    def test_your_own_pr_has_no_ai_review(self):
+        for state in ("approved", "checks failing", "awaiting review"):
+            self.on_pr(mine=True, state=state)
+            self.assertNotIn("ai review", self.board.footer().text)
+
+    def test_dealing_with_a_row_selects_the_next(self):
+        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 1.0, "error": "", "items": [pr("a"), pr("b")]}})
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab, self.board.picked = REVIEW, ("#pr", "b")
+        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 2.0, "error": "", "items": [pr("a"), pr("b", "others", state="waiting for fixes")]}})
+        self.board.seen = None
+        self.board.reload()
+        self.assertEqual(self.board.selected(self.board.listing(WIDE)), ("#pr", "a"))
+
+    def test_a_row_that_didnt_need_you_keeps_its_selection(self):
+        items = [pr("a"), pr("b", "others")]
+        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 1.0, "error": "", "items": items}})
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab, self.board.picked = REVIEW, ("#pr", "b")
+        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 2.0, "error": "", "items": items}})
+        self.board.seen = None
+        self.board.reload()
+        self.assertEqual(self.board.picked, ("#pr", "b"))
 
     def test_a_used_up_limit_backs_off(self):
         self.board.snapshot = {"prs": {"error": "API rate limit already exceeded"}}

@@ -74,7 +74,7 @@ class Run:
         """A finished run is still with people until its PR lands."""
         if self.deployed == "prod" and self.landed == "merged":
             return "in prod"
-        finished = "replied" if self.replied else "your turn" if self.with_you else "posted" if self.on_a_pr else "in review"
+        finished = "replied" if self.replied else "drafted" if self.with_you else "posted" if self.on_a_pr else "in review"
         return self.landed or self.deployed or (finished if self.status == "done" else "your turn" if self.your_turn else NAMES[self.status])
 
     @property

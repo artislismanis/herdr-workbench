@@ -28,6 +28,7 @@ ASK_AGAIN = "re-review"  # on your own PR, where it's yours to ask for
 STATUS = {"needs review": "review", "awaiting review": "review", "open": "review", "changes requested": "changes", "waiting for fixes": "changes", "comments to address": "changes", "checks failing": "changes", "new commits": "changes", "re-review requested": "re-review", "you approved": "approved"}  # where a PR is. The group above says whose move it is
 REASONS = {"needs review": "asked of you", "open": "not asked of you", "checks failing": ""}  # the facts beside it say CI failing
 MARKS = {True: ("●", "bold"), False: ("○", "others")}
+NEXT_UP = ("fix", "decide", "drafted", "your turn", "yours approved", "yours re-review", "yours changes", "theirs re-review", "theirs review")  # closest to done first, as finishing frees someone. Unstopping a run comes before all of it
 CI_DOTS = {"SUCCESS": "green", "FAILURE": "red", "ERROR": "red", "PENDING": "yellow", "EXPECTED": "yellow"}
 PACE_AMBER, PACE_RED = 10, 25  # points ahead of an even pace, so a busy start isn't an alarm
 MACHINE_AMBER, MACHINE_RED = 75, 90
@@ -243,6 +244,10 @@ def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine
     return lines
 
 
+def rank(word: str) -> int:
+    return NEXT_UP.index(word) if word in NEXT_UP else len(NEXT_UP)
+
+
 def heading(run: Run) -> str:
     return "Needs you" if run.with_you or run.your_turn else HEADINGS[run.status]
 
@@ -265,7 +270,7 @@ def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[R
 def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int) -> list[Line]:
     last = {(e["repo"], e["key"]): e["at"] for e in events}
     landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
-    active = sorted((r for r in runs if not r.landed), key=lambda r: ORDER.index("waiting" if heading(r) == "Needs you" and r.status != "parked" else r.status))
+    active = sorted((r for r in runs if not r.landed), key=lambda r: (rank(r.label), last.get((r.repo, r.key), "")) if heading(r) == "Needs you" else (len(NEXT_UP) + 1 + ORDER.index(r.status), ""))
     lines = []
     for name in dict.fromkeys(heading(r) for r in active):
         group = [r for r in active if heading(r) == name]
@@ -339,6 +344,19 @@ def pull_group(pr: dict[str, Any], run: Run | None) -> str:
     return "With agents" if run.status == "running" else "Needs you"
 
 
+def pull_rank(pr: dict[str, Any], run: Run | None) -> tuple[int, str]:
+    """Oldest first within a status, so nothing sinks."""
+    word = pull_status(pr, run)[0]
+    return rank(word if live(run) else f"{'yours' if pr['mine'] else 'theirs'} {word}"), pr["updated"]
+
+
+def full_pile(runs: list[Run], items: list[dict[str, Any]], limit: int) -> str:
+    """Why no new work starts, if your pile has reached `max_waiting`. Agents make work faster than a person clears it."""
+    waiting = {r.pr or r.key for r in runs if not r.preparing and (r.status in ("parked", "waiting") or r.with_you)}
+    waiting |= {p["url"] for p in items if p["move"] == "you" and p["state"] != "draft"}
+    return f"{len(waiting)} waiting on you" if 0 < limit <= len(waiting) else ""
+
+
 def pr_name(pr: dict[str, Any]) -> str:
     return f"{pr['repo']}#{pr['number']}"
 
@@ -404,6 +422,7 @@ def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str
     limited = "rate limit" in found["error"]
     lines = [plain(LIMITED, "yellow")] if limited else [plain(f"Couldn't update: {first_line(found['error'])}", "red")] if found["error"] else []
     grouped = {heading: [(p, linked(p)) for p in found["items"] if pull_group(p, linked(p)) == heading] for heading in REVIEW_GROUPS}
+    grouped["Needs you"].sort(key=lambda found: pull_rank(*found))
     name_width, author_width = max(map(columns, map(pr_name, found["items"])), default=0), max(map(columns, map(author, found["items"])), default=0)  # one width across the groups, and authors in full
     lines = [*([band, plain()] if band else []), *lines, tally(*(len(grouped[heading]) for heading in REVIEW_GROUPS[:3])), plain()]
     for heading, items in grouped.items():

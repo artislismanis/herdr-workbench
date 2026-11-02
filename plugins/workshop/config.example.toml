@@ -1,6 +1,7 @@
 # Copy to ~/.config/workshop/config.toml and chmod 600. Never commit a real one.
 
 # max_active = 2             # runs at once
+# max_waiting = 10           # no new tickets while this many items wait on you. Off by default
 # comment_prefix = "[ai]"    # starts everything workshop posts, so it never counts as your comment. Change it with no run blocked
 #
 # A ticket runs only if you were the last person to change it. To run one anyway, add the
