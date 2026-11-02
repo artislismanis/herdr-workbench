@@ -290,11 +290,11 @@ class FinishWaits(unittest.TestCase):
 
 class ReviewSettings(unittest.TestCase):
     def test_the_defaults_assume_no_team(self):
-        self.assertEqual(review_settings({}, {}), {"mode": "silent", "claim": "none", "after_post": "none"})
+        self.assertEqual(review_settings({}, {}), {"mode": "silent", "claim": "none", "after_post": "none", "block_failing_ci": False})
 
     def test_a_repo_can_differ_from_you(self):
         found = review_settings({"review": {"mode": "claimed", "claim": "github-reviewer"}}, {"review": {"claim": "none"}})
-        self.assertEqual(found, {"mode": "claimed", "claim": "none", "after_post": "none"})
+        self.assertEqual(found, {"mode": "claimed", "claim": "none", "after_post": "none", "block_failing_ci": False})
 
     def test_a_typo_is_an_error(self):
         with self.assertRaisesRegex(KeyError, "review"):

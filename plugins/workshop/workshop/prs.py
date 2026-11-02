@@ -144,15 +144,15 @@ def ask_stands(pr: dict[str, Any], me: str, asked_at: float) -> bool:
     return not mine or datetime.fromisoformat(mine["createdAt"]).timestamp() < asked_at
 
 
-def fetch(scope: str, now: float, asked: dict[str, float] | None = None) -> list[dict[str, Any]]:
-    """Asked is PRs someone asked you about elsewhere, which GitHub can't search for, and when."""
+def fetch(scope: str, now: float, asked: dict[str, float] | None = None, chat_only: bool = False) -> list[dict[str, Any]]:
+    """Asked is PRs someone asked you about elsewhere, which GitHub can't search for, and when. Chat_only is for teams where a GitHub request says nothing, as CODEOWNERS adds everyone."""
     asked = asked or {}
     parts = searches(scope, now)
     body = "".join(f"{alias}: search(query: {json.dumps(query)}, type: ISSUE, first: {size}) {{ nodes {{ ...pr }} }}\n" for alias, (query, size) in parts.items())
     body += "".join(f"asked{n}: resource(url: {json.dumps(url)}) {{ ...pr }}\n" for n, url in enumerate(asked))
     data = run_json("gh", "api", "graphql", "-f", f"query=query {{ viewer {{ login }}\n{body}}}\n{FIELDS}")["data"]
     me = data["viewer"]["login"]
-    requested = {pr["url"] for pr in data["requested"]["nodes"]}
+    requested = set() if chat_only else {pr["url"] for pr in data["requested"]["nodes"]}
     found: dict[str, dict[str, Any]] = {}
     for alias in parts:
         merged = alias.startswith("merged")

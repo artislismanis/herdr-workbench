@@ -57,7 +57,7 @@ def state_root() -> Path:
 
 def review_settings(cfg: dict[str, Any], repo: dict[str, Any]) -> dict[str, str]:
     """Yours, and a repo's can differ. The defaults assume nothing about how a team claims reviews."""
-    found = {"mode": "silent", "claim": "none", "after_post": "none"} | cfg.get("review", {}) | repo.get("review", {})
+    found = {"mode": "silent", "claim": "none", "after_post": "none", "block_failing_ci": False} | cfg.get("review", {}) | repo.get("review", {})
     if found["mode"] not in ("silent", "claimed") or found["claim"] not in CLAIMS or found["after_post"] not in ("none", "chat-reply"):
         raise KeyError(f"[review] takes mode silent or claimed, claim {', '.join(CLAIMS)}, and after_post none or chat-reply")
     if "chat" in (found["claim"].split("-")[0], found["after_post"].split("-")[0]) and "chat" not in cfg:
@@ -208,11 +208,11 @@ def check_chat(engine: Engine, cfg: dict[str, Any]) -> None:
             return False
 
     try:
-        found = {item["url"]: {"channel": item["channel"], "ts": item["ts"]} for item in chat.find(wanted)}
+        found = chat.find(wanted)
     except (*STOPS,) as failed:
         print(f"chat: {failed}")
         return
-    engine.store.write(CHAT, saved | {"found": saved.get("found", {}) | found})
+    engine.store.write(CHAT, saved | {"found": chat.seen(found, saved.get("found", {}))})
 
 
 def being_prepared(engine: Engine, name: str, key: str) -> bool:
@@ -388,16 +388,23 @@ def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any], root
     """Going visible in one step: anything new shows first, then after your go the claim goes out just before the review."""
     source = engine.source_for(run)
     started = time.time()
+    settings = review_settings(cfg, cfg["repos"][run.repo])
+    standing = source.standing(run.key)
+    held = ("--no-approve", "CI is failing, so this can't be approved.") if settings["block_failing_ci"] and standing["failing"] else ()
+    if standing["copilot"]:
+        print(f"Copilot comments unresolved: {standing['copilot']}")
+    if (chat := chat_of(cfg)) and (chat.message(run.pr) or {}).get("taken"):
+        print("Someone has reacted to this ask in chat.")
     if run.claimed or source.action == "none":
-        code = post_review(path)
+        code = post_review(path, *held)
     else:
         for seen in source.activity(run.key, run.begun):
             print(f"Since you started: {seen}")
-        code = post_review(path, "--before", f"{Path.home()}/.local/bin/workshop claim {run.key}")
+        code = post_review(path, *held, "--before", f"{Path.home()}/.local/bin/workshop claim {run.key}")
     if code == 0:
         waited(root, lambda: engine.posted(engine.store.load(run.repo, run.key)))
-    if code == 0 and review_settings(cfg, cfg["repos"][run.repo])["after_post"] == "chat-reply":
-        offer_reply(run, source, chat_of(cfg), started)
+    if code == 0 and settings["after_post"] == "chat-reply":
+        offer_reply(run, source, chat, started)
     if code == 0:
         step_away(engine, run, root)
     return code
@@ -419,16 +426,24 @@ def offer_reply(run: Run, source: Any, chat: Chat | None, started: float) -> Non
         return
     text = DECIDED.get(decided, "Reviewed.")
     try:
-        answer = input(f'\nReply in the chat thread: "{text}"\n[enter] send it, [n] skip, or type your own: ').strip()
+        emoji = chat.outcome(decided, source.standing(run.key))
+    except STOPS:
+        emoji = []
+    marks = f" and add {', '.join(emoji)}" if emoji else ""
+    try:
+        answer = input(f'\nReply in the chat thread: "{text}"{marks}\n[enter] send it, [n] skip, or type your own: ').strip()
     except EOFError:
         return
     if answer.lower() == "n":
         return
-    while True:
+    steps = [lambda: chat.reply(run.pr, answer or text)]
+    if emoji:
+        steps.insert(0, lambda: chat.settle(run.pr, emoji))
+    while steps:
         try:
-            chat.reply(run.pr, answer or text)
-            print("Replied.")
-            return
+            steps[0]()
+            steps.pop(0)
+            continue
         except STOPS as failed:
             print(f"The review is posted, but the reply failed: {failed}")
         try:
@@ -436,6 +451,7 @@ def offer_reply(run: Run, source: Any, chat: Chat | None, started: float) -> Non
                 return
         except EOFError:
             return
+    print("Replied.")
 
 
 def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:

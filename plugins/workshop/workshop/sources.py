@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .chat import Chat
+from .prs import FAILING
 from .guard import Change, check
 from .pipeline import SECTIONS, STAGES
 from .shell import run, run_json
@@ -459,12 +460,16 @@ def number_of(key: str) -> str:
     return key.rsplit("-", 1)[-1]
 
 
+STANDING = """query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) {
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+  reviewThreads(first: 30) { nodes { isResolved comments(first: 1) { nodes { author { login } } } } }
+} } }"""
 # How a review shows as yours: the API path and field. Teams that assign reviewers themselves use none.
 CLAIMS = {
     "none": ("", ""),
     "github-reviewer": ("repos/{owner}/{repo}/pulls/%s/requested_reviewers", "reviewers[]"),
     "github-assignee": ("repos/{owner}/{repo}/issues/%s/assignees", "assignees[]"),
-    "chat-reaction": ("", ""),  # the eyes reaction on the message that asked
+    "chat-reaction": ("", ""),  # the claim reaction on the message that asked
 }
 
 
@@ -513,6 +518,14 @@ class PullRequestSource:
         me = run("gh", "api", "user", "--jq", ".login").strip()
         mine = [r for r in pr["reviews"] if _who(r) == me and r.get("submittedAt") and _stamp(r["submittedAt"]) >= since]
         return mine[-1]["state"] if mine else ""
+
+    def standing(self, key: str) -> dict[str, Any]:
+        """What's still wrong with the PR, whoever's review this is."""
+        found = run_json("gh", "api", "graphql", "-F", "owner={owner}", "-F", "repo={repo}", "-F", f"number={number_of(key)}", "-f", f"query={STANDING}", cwd=self.repo)
+        pr = found["data"]["repository"]["pullRequest"]
+        checks = pr["commits"]["nodes"][-1]["commit"]["statusCheckRollup"] or {}
+        opened = [t["comments"]["nodes"][0] for t in pr["reviewThreads"]["nodes"] if not t["isResolved"] and t["comments"]["nodes"]]
+        return {"failing": checks.get("state") in FAILING, "copilot": sum("copilot" in (c["author"] or {}).get("login", "").lower() for c in opened)}
 
     def activity(self, key: str, since: float) -> list[str]:
         """What other people did on the PR since then, to flag a review you haven't claimed."""
