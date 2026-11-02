@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -199,8 +201,26 @@ class Replying(Case):
         self.answer = "nope"
         source = mock.Mock()
         source.decided.return_value = "APPROVED"
-        with mock.patch("builtins.input", return_value=""):
+        with mock.patch("builtins.input", side_effect=["", "n"]):
             cli.offer_reply(mock.Mock(pr=URL, key="pr-7"), source, self.chat, 1.0)
+        self.assertEqual(len(self.asked), 1)
+
+    def test_a_failed_reply_can_go_again_and_says_what_went_wrong(self):
+        self.known()
+        self.answer = "nope"
+        source = mock.Mock()
+        source.decided.return_value = "APPROVED"
+        out = io.StringIO()
+
+        def typed(prompt):
+            if "try again" in prompt:
+                self.answer = "DONE"
+            return ""
+
+        with mock.patch("builtins.input", typed), contextlib.redirect_stdout(out):
+            cli.offer_reply(mock.Mock(pr=URL, key="pr-7"), source, self.chat, 1.0)
+        self.assertEqual(len(self.asked), 2)
+        self.assertIn("nope", out.getvalue())
 
 
 class Settings(unittest.TestCase):

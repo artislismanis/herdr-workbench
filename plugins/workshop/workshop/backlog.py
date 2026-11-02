@@ -34,7 +34,7 @@ def poll(cfg: dict[str, Any], store: Store, clock: Callable[[], float] = time.ti
         except STOPS as failed:
             repos[name] = {"polled_at": 0.0, "items": [], **before.get(name, {}), "error": str(failed)}
     try:
-        prs = {"polled_at": clock(), "error": "", "items": fetch(cfg.get("prs", {}).get("search", ""), clock(), tuple(store.read(CHAT).get("found", {})))}
+        prs = {"polled_at": clock(), "error": "", "items": fetch(cfg.get("prs", {}).get("search", ""), clock(), {url: float(found["ts"]) for url, found in store.read(CHAT).get("found", {}).items()})}
     except STOPS as failed:
         prs = {"polled_at": 0.0, "items": [], **previous.get("prs", {}), "error": str(failed)}
     snapshot = {"repos": repos, "prs": prs}

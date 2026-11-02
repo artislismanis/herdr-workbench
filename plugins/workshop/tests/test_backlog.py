@@ -46,7 +46,7 @@ class Poll(unittest.TestCase):
                 raise found
             return mock.Mock(backlog=lambda: found)
 
-        def prs(scope, now, asked=()):
+        def prs(scope, now, asked=None):
             if isinstance(self.prs, Exception):
                 raise self.prs
             self.scope = scope

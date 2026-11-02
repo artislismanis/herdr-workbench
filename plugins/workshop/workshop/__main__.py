@@ -424,11 +424,18 @@ def offer_reply(run: Run, source: Any, chat: Chat | None, started: float) -> Non
         return
     if answer.lower() == "n":
         return
-    try:
-        chat.reply(run.pr, answer or text)
-        print("Replied.")
-    except STOPS as failed:
-        print(f"The review is posted, but the reply failed: {failed}")
+    while True:
+        try:
+            chat.reply(run.pr, answer or text)
+            print("Replied.")
+            return
+        except STOPS as failed:
+            print(f"The review is posted, but the reply failed: {failed}")
+        try:
+            if input("[enter] try again, [n] skip: ").strip().lower() == "n":
+                return
+        except EOFError:
+            return
 
 
 def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:

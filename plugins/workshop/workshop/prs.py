@@ -138,8 +138,15 @@ def classify(pr: dict[str, Any], me: str, requested: bool = False, merged: bool 
     }
 
 
-def fetch(scope: str, now: float, asked: tuple[str, ...] = ()) -> list[dict[str, Any]]:
-    """Asked is PRs someone asked you about elsewhere, which GitHub can't search for."""
+def ask_stands(pr: dict[str, Any], me: str, asked_at: float) -> bool:
+    """An ask in chat is answered by your review, and a newer ask starts it again."""
+    mine = latest_reviews(pr).get(me)
+    return not mine or datetime.fromisoformat(mine["createdAt"]).timestamp() < asked_at
+
+
+def fetch(scope: str, now: float, asked: dict[str, float] | None = None) -> list[dict[str, Any]]:
+    """Asked is PRs someone asked you about elsewhere, which GitHub can't search for, and when."""
+    asked = asked or {}
     parts = searches(scope, now)
     body = "".join(f"{alias}: search(query: {json.dumps(query)}, type: ISSUE, first: {size}) {{ nodes {{ ...pr }} }}\n" for alias, (query, size) in parts.items())
     body += "".join(f"asked{n}: resource(url: {json.dumps(url)}) {{ ...pr }}\n" for n, url in enumerate(asked))
@@ -154,5 +161,5 @@ def fetch(scope: str, now: float, asked: tuple[str, ...] = ()) -> list[dict[str,
     for n, url in enumerate(asked):
         pr = data[f"asked{n}"]
         if pr and pr["state"] == "OPEN":
-            found[pr["url"]] = classify(pr, me, True) | {"chat": True}
+            found[pr["url"]] = classify(pr, me, pr["url"] in requested or ask_stands(pr, me, asked[url])) | {"chat": True}
     return sorted(found.values(), key=lambda pr: pr["updated"], reverse=True)

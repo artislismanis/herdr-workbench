@@ -56,8 +56,9 @@ class Chat:
         return self.store.read(CHAT).get("found", {}).get(url.rstrip("/"))
 
     def _write(self, step: str, template: str, tool: str, found: dict[str, str], **extra: str) -> None:
-        if self._ask(step, template.format(ts=found["ts"], channel=found["channel"], **extra), [self.settings[tool]]) != "DONE":
-            raise ToolError(f"{step} didn't confirm it worked")
+        said = self._ask(step, template.format(ts=found["ts"], channel=found["channel"], **extra), [self.settings[tool]])
+        if said != "DONE":
+            raise ToolError(f"{step} didn't confirm it worked: {said}")
 
     def react(self, url: str) -> None:
         """A PR that wasn't asked for in chat has no message to react to, and that's fine."""
