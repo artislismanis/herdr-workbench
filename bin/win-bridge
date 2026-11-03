@@ -9,7 +9,7 @@ to it. Only a recent poll counts as someone listening.
 Usage:
   win-bridge setup [host ...]      Turn it on; prints the command to run in Windows PowerShell
   win-bridge open <url>            Open a link in the Windows browser
-  win-bridge toast <title> [body]  Show a toast; the first https link in it opens on click
+  win-bridge toast <title> [body]  Show a toast; a click goes to its herdr workspace, and a button opens its first https link
   win-bridge status                Is Windows listening?
   win-bridge serve                 The server (its systemd unit runs this)
 """
@@ -19,13 +19,14 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import time
 import tomllib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 PORT = int(os.environ.get("WIN_BRIDGE_PORT", "47123"))
 HOME = Path.home()
@@ -49,6 +50,8 @@ POLL = 25
 LIVE = 60  # a poll ends every POLL seconds, so longer than that without one means nobody's there
 STALE = {"open": 30, "toast": 600}  # a laptop waking up shouldn't open a burst of tabs
 LINK = re.compile(r"https://\S+")
+BOARD = "workshop"  # the workspace a click goes to when the toast's own one can't be told apart
+PLACES: dict[str, str] = {}  # a shown toast's id to the workspace a click on it goes to
 
 
 def token() -> str:
@@ -84,6 +87,29 @@ def take() -> dict | None:
     return None
 
 
+def where(title: str, body: str) -> str:
+    """herdr's own toasts start the body with the workspace, and workshop's name the run's, whose workspace has its key."""
+    if " · " in body:
+        return body.split(" · ")[0]
+    words = title.split()
+    return words[1] if len(words) > 1 and words[0] == "Workshop:" else ""
+
+
+def go(label: str) -> None:
+    """Only to a workspace a toast named, so a click can't be made to run anything else."""
+    if not label:
+        return
+    herdr = shutil.which("herdr", path=f"{HOME}/.local/bin:{os.environ.get('PATH', '')}") or "herdr"
+    try:
+        spaces = json.loads(subprocess.run([herdr, "workspace", "list"], capture_output=True, text=True, timeout=5).stdout)["result"]["workspaces"]
+        found = [space["workspace_id"] for space in spaces if space.get("label") == label]
+        found = found if len(found) == 1 else [space["workspace_id"] for space in spaces if space.get("label") == BOARD]
+        if found:
+            subprocess.run([herdr, "workspace", "focus", found[0]], capture_output=True, timeout=5)
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        pass
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if not hmac.compare_digest(self.headers.get("X-Token", ""), token()):
@@ -91,6 +117,9 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/listener.ps1":
             return self.reply(200, LISTENER.read_text().replace("__PORT__", str(PORT)).replace("__TOKEN__", token()).replace("__HOSTS__", (CONFIG / "hosts").read_text().strip()).encode(), "text/plain")
+        if path == "/focus":
+            go(PLACES.get(parse_qs(urlsplit(self.path).query).get("id", [""])[0], ""))
+            return self.reply(204)
         if path != "/next":
             return self.reply(404)
         QUEUE.mkdir(parents=True, exist_ok=True)
@@ -99,6 +128,11 @@ class Handler(BaseHTTPRequestHandler):
             SEEN.touch()
             event = take()
             if event:
+                if place := event.pop("where", ""):
+                    event["focus"] = secrets.token_hex(8)
+                    PLACES[event["focus"]] = place
+                    while len(PLACES) > 200:
+                        PLACES.pop(next(iter(PLACES)))
                 return self.reply(200, json.dumps(event).encode(), "application/json")
             if time.time() > until:
                 return self.reply(204)
@@ -167,7 +201,7 @@ def main(argv: list[str]) -> int:
         case ["toast", title, *body]:
             text = " ".join(body)
             found = LINK.search(text)
-            send({"kind": "toast", "title": title, "body": text, "url": found.group(0) if found else ""})
+            send({"kind": "toast", "title": title, "body": text, "url": found.group(0) if found else "", "where": where(title, text)})
         case ["status"]:
             print("Windows is listening." if listening() else "Windows isn't listening. win-bridge setup shows how to start it.")
             return 0 if listening() else 1
