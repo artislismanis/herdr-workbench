@@ -629,7 +629,7 @@ def main(argv: list[str]) -> int:
                 engine.tools.open_board()
         return 0
     except (Park, PipelineError, ToolError, KeyError) as stop:
-        print(f"workshop: {stop}", file=sys.stderr)
+        print(f"workshop: {stop.args[0] if isinstance(stop, KeyError) and stop.args else stop}", file=sys.stderr)  # a KeyError quotes its message
         return 1
 
 
