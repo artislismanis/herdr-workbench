@@ -134,7 +134,7 @@ def setup(asked: list[str]) -> int:
     where = "$env:LOCALAPPDATA\\win-bridge"
     print(f"On, port {PORT}. Links open on: {', '.join(allowed)}.\n")
     print("In Windows PowerShell, this fetches the listener and starts it:\n")
-    print(f"$d=\"{where}\"; mkdir -Force $d >$null; iwr -UseBasicParsing http://127.0.0.1:{PORT}/listener.ps1 -Headers @{{'X-Token'='{token()}'}} -OutFile \"$d\\listener.ps1\"; Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',\"$d\\listener.ps1\"\n")
+    print(f"$d=\"{where}\"; $null = New-Item -ItemType Directory -Force $d; iwr -UseBasicParsing http://127.0.0.1:{PORT}/listener.ps1 -Headers @{{'X-Token'='{token()}'}} -OutFile \"$d\\listener.ps1\"; Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',\"$d\\listener.ps1\"\n")
     print("To start it at every sign-in as well:\n")
     print(f"Set-Content \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\win-bridge.cmd\" \"@start `\"`\" /min powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `\"{where}\\listener.ps1`\"\"")
     return 0
