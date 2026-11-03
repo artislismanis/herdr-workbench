@@ -17,7 +17,7 @@ RULES_DIR="$CLAUDE_DIR/rules/herdr-workbench"
 HERDR_CONFIG="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
 HERDR_SKILL="$CLAUDE_DIR/skills/herdr/SKILL.md"
 HERDR_BIN="$HOME/.config/herdr/bin"
-HERDR_SCRIPTS=(wt-remove-current wt-prune hunk-review-open hunk-pr-notes hunk-pr-push open-link)
+HERDR_SCRIPTS=(wt-remove-current wt-prune hunk-review-open hunk-pr-notes hunk-pr-push open-link win-bridge win-bridge-listener.ps1)
 XDG_OPEN="$HOME/.local/bin/xdg-open"
 HERDR_PLUGINS="$HOME/.config/herdr/plugins"
 HUNKDIFF_CONFIG="$HERDR_PLUGINS/config/jhochenbaum.hunkdiff/config.toml"
@@ -58,6 +58,8 @@ rm -f "$WORKSHOP_CLI"
 [ ! -L "$XDG_OPEN" ] || rm -f "$XDG_OPEN"
 systemctl --user disable --now workshop-tick.timer 2>/dev/null || true
 systemctl --user disable --now workshop-sample.timer 2>/dev/null || true
+systemctl --user disable --now win-bridge.service 2>/dev/null || true
+rm -f "$SYSTEMD_USER/win-bridge.service"
 rm -f$(printf ' "%s"' "${WORKSHOP_UNITS[@]/#/$SYSTEMD_USER/}")
 rm -rf "$SYSTEMD_USER/workshop-tick.timer.d"
 rm -f "$HUNKDIFF_CONFIG"

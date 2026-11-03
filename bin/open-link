@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # Stands in for xdg-open and $BROWSER. With WSL interop off nothing here can
-# start a Windows browser, so the link goes to the Windows clipboard instead.
+# start a Windows browser: win-bridge hands the link to Windows when it's
+# listening, and otherwise it goes to the Windows clipboard.
 set -uo pipefail
 
 url="${1:-}"
 [ -n "$url" ] || { echo "usage: open-link <url>" >&2; exit 2; }
+
+# xdg-open is a link to this, so look beside the real file.
+if "$(dirname "$(readlink -f "$0")")/win-bridge" open "$url" 2>/dev/null; then
+  echo "Opened in your Windows browser: $url"
+  exit 0
+fi
 
 # wl-copy stays behind to hold the clipboard, so it can't keep our pipes open.
 if ! printf '%s' "$url" | wl-copy >/dev/null 2>&1; then
