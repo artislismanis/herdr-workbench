@@ -386,15 +386,15 @@ class PRs(unittest.TestCase):
 
     def test_a_row_says_whose_it_is(self):
         mine, theirs = self.rows(pr("a", mine=True, state="approved"), pr("b"))
-        self.assertEqual(mine.text[1], "●")
-        self.assertEqual(theirs.text[1], "○")
+        self.assertEqual(mine.text[1], "⬥")
+        self.assertEqual(theirs.text[1], "⬦")
         self.assertEqual(next(span for span in mine.spans if "you" in span.text.split()).style, mine.spans[1].style)
         self.assertEqual(next(span for span in theirs.spans if "them" in span.text).style, theirs.spans[1].style)
         self.assertNotEqual(mine.spans[1].style, theirs.spans[1].style)
 
     def test_a_row_is_mark_status_pr_title_author_ci(self):
         row = self.rows(pr(state="comments to address", mine=True))[0]
-        self.assertRegex(row.text, r"^ ● changes    r#7 A change +you ●$")
+        self.assertRegex(row.text, r"^ ⬥ changes    r#7 A change +you ●$")
         self.assertEqual(columns(row.text), WIDE - 2)
 
     def test_a_row_at_panel_width_keeps_long_names_whole(self):
