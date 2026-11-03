@@ -150,3 +150,11 @@ focus_after() {
   focus_after "claude finished" "pr-7 · 10"
   [ "${lines[1]}" = "herdr pr-7" ]
 }
+
+@test "the distro's name is the second guess at herdr's tab" {
+  stub_herdr
+  echo TestEnv >"$HOME/.config/win-bridge/distro"
+  focus_after "claude finished" "pr-7 · 10"
+  [ "${lines[1]}" = "$(hostname): pr-7" ]
+  [ "${lines[2]}" = TestEnv ]
+}

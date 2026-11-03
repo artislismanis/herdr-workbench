@@ -99,7 +99,7 @@ def where(title: str, body: str) -> str:
 
 
 def go(label: str) -> str:
-    """Only to a workspace a toast named, so a click can't be made to run anything else. Says the title herdr's tab now has."""
+    """Only to a workspace a toast named, so a click can't be made to run anything else. Says the titles herdr's tab may have, likeliest first."""
     if not label:
         return ""
     herdr = shutil.which("herdr", path=f"{HOME}/.local/bin:{os.environ.get('PATH', '')}") or "herdr"
@@ -117,7 +117,15 @@ def go(label: str) -> str:
         template = tomllib.loads(Path(os.environ.get("HERDR_CONFIG_PATH", HOME / ".config/herdr/config.toml")).read_text()).get("ui", {}).get("window_title", TITLE)
     except (OSError, ValueError):
         template = TITLE
-    return template.replace("{hostname}", socket.gethostname()).replace("{workspace}", shown)
+    # Windows Terminal often names the tab after the distro instead, so that's the second guess.
+    return "\n".join([template.replace("{hostname}", socket.gethostname()).replace("{workspace}", shown), *distro()])
+
+
+def distro() -> list[str]:
+    try:
+        return [(CONFIG / "distro").read_text().strip()]
+    except OSError:
+        return []
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -186,6 +194,8 @@ def setup(asked: list[str]) -> int:
         (CONFIG / "token").touch(mode=0o600)
         (CONFIG / "token").write_text(secrets.token_urlsafe(24))
     allowed = hosts(asked)
+    if os.environ.get("WSL_DISTRO_NAME"):
+        (CONFIG / "distro").write_text(os.environ["WSL_DISTRO_NAME"])
     # Windows checks links against these before opening them, so nothing in WSL can make it open anything else.
     (CONFIG / "hosts").write_text(", ".join(f"'{h}'" for h in allowed if re.fullmatch(r"[A-Za-z0-9.-]+", h)))
     UNIT.parent.mkdir(parents=True, exist_ok=True)
