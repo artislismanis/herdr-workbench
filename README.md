@@ -16,6 +16,7 @@ How work moves through it, and what you do at each point: [docs/workflow.md](doc
 | `~/.claude/skills/herdr/SKILL.md` | herdr's agent skill, from `herdr --skill`, so it matches the installed binary | Refreshed if it drifts |
 | herdr's Claude integration | `herdr integration install claude`: a hook that lets herdr resume Claude sessions after a server restart | Installed if missing or not current |
 | `~/.config/herdr/bin/wt-remove-current` | Removes the focused pane's worktree after a Y/n, and closes its workspace | Refreshed if it drifts |
+| `~/.config/herdr/bin/win-bridge` | Opens links and shows toasts on Windows with interop off. Off until you run its setup: see [below](#links-and-toasts-on-windows) | Refreshed if it drifts |
 | herdr's worktrunk plugin | [herdr-worktrunk](https://github.com/devashish2203/herdr-worktrunk) at the commit in `pins` | Installed if missing or at another commit |
 | herdr's workshop plugin | `plugins/workshop`, linked with `herdr plugin link`, so it moves with this checkout | Linked if missing or linked to another checkout |
 | `~/.local/bin/workshop` | Symlink to the plugin's command: `workshop doctor`, `workshop start` and so on. See [its README](plugins/workshop/README.md) | Repointed if it drifts |
@@ -47,6 +48,21 @@ Don't `source .venv/bin/activate`: an activated venv stays on PATH after you swi
 herdr's parts are skipped with a warning when `herdr` isn't on PATH. In herdr's `config.toml`, add your own tables above our block, not below it.
 
 Machine-local worktrunk settings, such as `[projects."<id>"]` entries, go below the block. Never commit them here.
+
+## Links and toasts on Windows
+
+With WSL interop off, nothing in WSL can start a Windows program, so by default `xdg-open` (the board's `o`, `gh --web`) copies the link for you to paste. Links already on screen open with Shift+click, which Windows Terminal handles itself.
+
+`win-bridge` lets Windows reach in instead: a script on Windows asks WSL for work over `localhost`, which WSL forwards by default, so it needs no interop, admin, firewall rule or `/mnt/c`. Then links open in your Windows browser, and workshop's notifications also show as Windows toasts that open the PR on click. To turn it on:
+
+```bash
+~/.config/herdr/bin/win-bridge setup                     # links to github.com and your workshop Jira
+~/.config/herdr/bin/win-bridge setup github.com example.com  # or name the sites
+```
+
+It prints a command to paste into Windows PowerShell, which fetches the listener and starts it, and another to start it at every sign-in. `win-bridge status` says whether Windows is listening; when it isn't, links are copied as before.
+
+Windows opens only `https` links to the sites named at setup, so nothing in WSL can make it open anything else. Events reach the server through a folder, not the port, so a web page can't send any. Toasts need PowerShell in FullLanguage mode (`$ExecutionContext.SessionState.LanguageMode`); in ConstrainedLanguage, links still open but toasts don't show.
 
 ## Install
 

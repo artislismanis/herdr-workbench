@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Toasts and links on Windows from a WSL with interop off.
+
+Windows reaches in, WSL never reaches out: a listener script on Windows
+long-polls this server on localhost, which WSL forwards by default. Events go
+in through a spool directory, never over the port, so a web page can't post
+to it. Only a recent poll counts as someone listening.
+
+Usage:
+  win-bridge setup [host ...]      Turn it on; prints the command to run in Windows PowerShell
+  win-bridge open <url>            Open a link in the Windows browser
+  win-bridge toast <title> [body]  Show a toast; the first https link in it opens on click
+  win-bridge status                Is Windows listening?
+  win-bridge serve                 The server (its systemd unit runs this)
+"""
+
+import hmac
+import json
+import os
+import re
+import secrets
+import subprocess
+import sys
+import time
+import tomllib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlsplit
+
+PORT = int(os.environ.get("WIN_BRIDGE_PORT", "47123"))
+HOME = Path.home()
+CONFIG = HOME / ".config/win-bridge"
+STATE = HOME / ".local/state/win-bridge"
+QUEUE = STATE / "queue"
+SEEN = STATE / "seen"
+UNIT = HOME / ".config/systemd/user/win-bridge.service"
+LISTENER = Path(__file__).resolve().parent / "win-bridge-listener.ps1"
+POLL = 25
+LIVE = 60  # a poll ends every POLL seconds, so longer than that without one means nobody's there
+STALE = {"open": 30, "toast": 600}  # a laptop waking up shouldn't open a burst of tabs
+LINK = re.compile(r"https://\S+")
+
+
+def token() -> str:
+    return (CONFIG / "token").read_text().strip()
+
+
+def listening() -> bool:
+    try:
+        return time.time() - SEEN.stat().st_mtime < LIVE
+    except OSError:
+        return False
+
+
+def send(event: dict) -> bool:
+    if not listening():
+        return False
+    QUEUE.mkdir(parents=True, exist_ok=True)
+    name = f"{time.time_ns()}.json"
+    (QUEUE / f".{name}").write_text(json.dumps(event | {"at": time.time()}))
+    (QUEUE / f".{name}").rename(QUEUE / name)
+    return True
+
+
+def take() -> dict | None:
+    for path in sorted(QUEUE.glob("*.json")):
+        try:
+            event = json.loads(path.read_text())
+            path.unlink()
+        except (OSError, ValueError):
+            continue  # another poll took it first
+        if time.time() - event.get("at", 0) < STALE.get(event.get("kind"), 0):
+            return event
+    return None
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if not hmac.compare_digest(self.headers.get("X-Token", ""), token()):
+            return self.reply(403)
+        path = urlsplit(self.path).path
+        if path == "/listener.ps1":
+            return self.reply(200, LISTENER.read_text().replace("__PORT__", str(PORT)).replace("__TOKEN__", token()).replace("__HOSTS__", (CONFIG / "hosts").read_text().strip()).encode(), "text/plain")
+        if path != "/next":
+            return self.reply(404)
+        QUEUE.mkdir(parents=True, exist_ok=True)
+        until = time.time() + POLL
+        while True:
+            SEEN.touch()
+            event = take()
+            if event:
+                return self.reply(200, json.dumps(event).encode(), "application/json")
+            if time.time() > until:
+                return self.reply(204)
+            time.sleep(0.5)
+
+    def reply(self, code: int, body: bytes = b"", kind: str = "") -> None:
+        self.send_response(code)
+        if kind:
+            self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_: object) -> None:
+        pass
+
+
+def hosts(asked: list[str]) -> list[str]:
+    if asked:
+        return asked
+    found = ["github.com"]
+    try:
+        jira = tomllib.loads((HOME / ".config/workshop/config.toml").read_text()).get("jira", {}).get("base_url", "")
+        found += [urlsplit(jira).hostname] if jira else []
+    except (OSError, ValueError):
+        pass
+    return found
+
+
+def setup(asked: list[str]) -> int:
+    CONFIG.mkdir(parents=True, exist_ok=True)
+    if not (CONFIG / "token").exists():
+        (CONFIG / "token").touch(mode=0o600)
+        (CONFIG / "token").write_text(secrets.token_urlsafe(24))
+    allowed = hosts(asked)
+    # Windows checks links against these before opening them, so nothing in WSL can make it open anything else.
+    (CONFIG / "hosts").write_text(", ".join(f"'{h}'" for h in allowed if re.fullmatch(r"[A-Za-z0-9.-]+", h)))
+    UNIT.parent.mkdir(parents=True, exist_ok=True)
+    UNIT.write_text(f"[Unit]\nDescription=win-bridge: toasts and links on Windows\n\n[Service]\nExecStart={Path(__file__).resolve()} serve\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n")
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "--now", "win-bridge.service"], check=True)
+    subprocess.run(["systemctl", "--user", "restart", "win-bridge.service"], check=True)
+    where = "$env:LOCALAPPDATA\\win-bridge"
+    print(f"On, port {PORT}. Links open on: {', '.join(allowed)}.\n")
+    print("In Windows PowerShell, this fetches the listener and starts it:\n")
+    print(f"$d=\"{where}\"; $null = New-Item -ItemType Directory -Force $d; iwr -UseBasicParsing http://127.0.0.1:{PORT}/listener.ps1 -Headers @{{'X-Token'='{token()}'}} -OutFile \"$d\\listener.ps1\"; Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',\"$d\\listener.ps1\"\n")
+    print("To start it at every sign-in as well:\n")
+    print(f"Set-Content \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\win-bridge.cmd\" \"@start `\"`\" /min powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `\"{where}\\listener.ps1`\"\"")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    match argv:
+        case ["serve"]:
+            ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+        case ["setup", *asked]:
+            return setup(asked)
+        case ["open", url] if url.startswith("https://"):
+            return 0 if send({"kind": "open", "url": url}) else 1
+        case ["toast", title, *body]:
+            text = " ".join(body)
+            found = LINK.search(text)
+            send({"kind": "toast", "title": title, "body": text, "url": found.group(0) if found else ""})
+        case ["status"]:
+            print("Windows is listening." if listening() else "Windows isn't listening. win-bridge setup shows how to start it.")
+            return 0 if listening() else 1
+        case _:
+            print(__doc__, file=sys.stderr)
+            return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

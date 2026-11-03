@@ -194,6 +194,11 @@ class Tools:
     def notify(self, title: str, body: str) -> None:
         # Best effort: a notification must never stop a run.
         subprocess.run(["herdr", "notification", "show", title, "--body", body, "--sound", "request"], capture_output=True)
+        # And a Windows toast, when win-bridge is on and Windows is listening.
+        try:
+            subprocess.run([f"{Path.home()}/.config/herdr/bin/win-bridge", "toast", title, body], capture_output=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     def agent_status(self, name: str) -> str:
         """The agent's status, or "gone" if herdr no longer knows it."""
