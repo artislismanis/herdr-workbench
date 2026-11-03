@@ -130,6 +130,28 @@ class OldRunFiles(unittest.TestCase):
         self.assertEqual((store.load("r", "1").key, [found.key for found in store.all()]), ("1", ["1"]))
 
 
+class Finding(unittest.TestCase):
+    def setUp(self):
+        self.store = Store(Path(tempfile.mkdtemp()))
+        for repo in ("a", "b"):
+            self.store.save(Run(repo=repo, key="50", repo_path="/", base="main", pipeline={"name": "x", "steps": []}))
+        self.store.save(Run(repo="a", key="7", repo_path="/", base="main", pipeline={"name": "x", "steps": []}))
+
+    def test_a_key_in_one_repo_needs_no_repo(self):
+        self.assertEqual(self.store.find("7").repo, "a")
+
+    def test_repo_slash_key_picks_between_repos(self):
+        self.assertEqual(self.store.find("b/50").repo, "b")
+
+    def test_a_shared_key_says_which_to_name(self):
+        with self.assertRaisesRegex(KeyError, "say which: a/50, b/50"):
+            self.store.find("50")
+
+    def test_no_match_says_so(self):
+        with self.assertRaisesRegex(KeyError, "no run matches c/50"):
+            self.store.find("c/50")
+
+
 class Sweeps(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

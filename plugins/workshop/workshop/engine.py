@@ -41,7 +41,7 @@ class Engine:
 
     def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, until: int = 0, environments: dict[str, str] | None = None, sweeping: str = "") -> Run:
         if self.store.exists(repo, key) and not restart:
-            raise Park(f"{key} already has a run. Use workshop resume {key}, or start it with --restart to redo it from the top.")
+            raise Park(f"{key} already has a run. Use workshop resume {repo}/{key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
             raise Park("Set git user.name and user.email first: workshop commits for the agents.")
         reason = "" if override else source.guard(key)

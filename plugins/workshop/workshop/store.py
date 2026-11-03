@@ -152,9 +152,13 @@ class Store:
         return [run_from(p.read_text(encoding="utf-8")) for p in sorted((self.root / "runs").glob("*.json"))]
 
     def find(self, key: str) -> Run:
-        found = [r for r in self.all() if r.key == key]
-        if len(found) != 1:
-            raise KeyError(f"{len(found)} runs match {key}")
+        """By key, or by repo/key, as the board names runs, when two repos share a key."""
+        repo, _, bare = key.rpartition("/")
+        found = [r for r in self.all() if r.key == bare and repo in ("", r.repo)]
+        if not found:
+            raise KeyError(f"no run matches {key}")
+        if len(found) > 1:
+            raise KeyError(f"{key} has a run in more than one repo, so say which: {', '.join(f'{r.repo}/{r.key}' for r in found)}")
         return found[0]
 
     def event(self, run: Run, kind: str, **fields: Any) -> None:

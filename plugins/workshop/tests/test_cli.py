@@ -321,6 +321,11 @@ class Cli(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertIn("Usage: workshop", err)
 
+    def test_an_unknown_run_is_said_plainly(self):
+        self.config.write_text("[repos]\n", encoding="utf-8")
+        code, err = self.run_main("explain", "r/9")
+        self.assertEqual((code, err), (1, "workshop: no run matches r/9\n"))
+
     def test_a_broken_config_is_an_error_not_a_traceback(self):
         self.config.write_text('key = "a"\nkey = "b"\n', encoding="utf-8")
         code, err = self.run_main("status")
