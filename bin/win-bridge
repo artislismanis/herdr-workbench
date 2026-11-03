@@ -7,7 +7,8 @@ in through a spool directory, never over the port, so a web page can't post
 to it. Only a recent poll counts as someone listening.
 
 Usage:
-  win-bridge setup [host ...]      Turn it on; prints the command to run in Windows PowerShell
+  win-bridge setup [--tab N] [host ...]  Turn it on; prints the command to run in Windows PowerShell.
+                                   N is herdr's tab in Windows Terminal, from 1 (the default)
   win-bridge open <url>            Open a link in the Windows browser
   win-bridge toast <title> [body]  Show a toast; a click goes to its herdr workspace, and a button opens its first https link
   win-bridge status                Is Windows listening?
@@ -116,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403)
         path = urlsplit(self.path).path
         if path == "/listener.ps1":
-            return self.reply(200, LISTENER.read_text().replace("__PORT__", str(PORT)).replace("__TOKEN__", token()).replace("__HOSTS__", (CONFIG / "hosts").read_text().strip()).encode(), "text/plain")
+            return self.reply(200, LISTENER.read_text().replace("__PORT__", str(PORT)).replace("__TOKEN__", token()).replace("__HOSTS__", (CONFIG / "hosts").read_text().strip()).replace("__TAB__", tab()).encode(), "text/plain")
         if path == "/focus":
             go(PLACES.get(parse_qs(urlsplit(self.path).query).get("id", [""])[0], ""))
             return self.reply(204)
@@ -162,6 +163,13 @@ def hosts(asked: list[str]) -> list[str]:
     return found
 
 
+def tab() -> str:
+    try:
+        return str(int((CONFIG / "tab").read_text()))
+    except (OSError, ValueError):
+        return "0"
+
+
 def herdr_toasts() -> str:
     try:
         return tomllib.loads(Path(os.environ.get("HERDR_CONFIG_PATH", HOME / ".config/herdr/config.toml")).read_text()).get("ui", {}).get("toast", {}).get("delivery", "")
@@ -171,6 +179,9 @@ def herdr_toasts() -> str:
 
 def setup(asked: list[str]) -> int:
     CONFIG.mkdir(parents=True, exist_ok=True)
+    if asked[:1] == ["--tab"] and len(asked) > 1 and asked[1].isdigit():
+        (CONFIG / "tab").write_text(str(int(asked[1]) - 1 if int(asked[1]) > 0 else 0))
+        asked = asked[2:]
     if not (CONFIG / "token").exists():
         (CONFIG / "token").touch(mode=0o600)
         (CONFIG / "token").write_text(secrets.token_urlsafe(24))

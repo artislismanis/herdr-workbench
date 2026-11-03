@@ -80,6 +80,7 @@ listen() {
   [[ "$output" == *"\$Port = $WIN_BRIDGE_PORT"* ]]
   [[ "$output" == *"\$Token = 'sekrit'"* ]]
   [[ "$output" == *"\$Hosts = @('github.com')"* ]]
+  [[ "$output" == *"\$Tab = 0 "* ]]
   run get /listener.ps1 wrong
   [ "${lines[0]}" = 403 ]
 }

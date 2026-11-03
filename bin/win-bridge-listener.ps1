@@ -3,6 +3,7 @@
 $Port = __PORT__
 $Token = '__TOKEN__'
 $Hosts = @(__HOSTS__)
+$Tab = __TAB__  # herdr's tab in Windows Terminal, counted from 0
 $App = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
 
 try {
@@ -25,48 +26,41 @@ function Allowed($url) {
 
 function Esc($s) { [Security.SecurityElement]::Escape([string]$s) }
 
-Add-Type -AssemblyName System.Net.Http
-$Http = New-Object System.Net.Http.HttpClient
-$Http.Timeout = [TimeSpan]::FromSeconds(40)
-$Http.DefaultRequestHeaders.Add('X-Token', $Token)
-$Base = "http://127.0.0.1:$Port"
-$Shown = New-Object System.Collections.Queue
-
-# A click on a toast goes to its herdr workspace, then brings Windows Terminal forward.
-function Clicked {
-    foreach ($ev in @(Get-Event | Where-Object { $_.SourceIdentifier -like 'win-bridge-*' })) {
-        Remove-Event -EventIdentifier $ev.EventIdentifier
-        try { $null = $Http.GetAsync("$Base/focus?id=$($ev.MessageData)").Result } catch {}
-        $wt = Get-Process WindowsTerminal -ErrorAction SilentlyContinue | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
-        if ($wt) { try { $null = (New-Object -ComObject WScript.Shell).AppActivate($wt.Id) } catch {} }
-    }
-}
+# Windows PowerShell can't hear a click on its own toast, so a click opens a win-bridge: link
+# instead, registered for you alone, whose handler asks WSL to focus herdr's workspace, then
+# brings Windows Terminal forward on herdr's tab.
+$Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Content -Path "$Dir\go.ps1" -Value @"
+if ("`$args" -notmatch 'id=([0-9a-f]+)') { exit }
+`$id = `$Matches[1]
+try { `$null = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/focus?id=`$id" -Headers @{ 'X-Token' = '$Token' } -TimeoutSec 10 } catch {}
+try { Start-Process wt.exe -ArgumentList '-w', '0', 'focus-tab', '--target', '$Tab' } catch {}
+"@
+try {
+    $key = 'HKCU:\Software\Classes\win-bridge'
+    $null = New-Item -Path "$key\shell\open\command" -Force
+    Set-ItemProperty -Path $key -Name '(default)' -Value 'URL:win-bridge'
+    Set-ItemProperty -Path $key -Name 'URL Protocol' -Value ''
+    Set-ItemProperty -Path "$key\shell\open\command" -Name '(default)' -Value "conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$Dir\go.ps1`" `"%1`""
+    $CanGo = $true
+} catch { $CanGo = $false }
 
 function Toast($e) {
     if (-not $CanToast) { return }
     $link = Allowed $e.url
-    # With a workspace to go to, the click goes there and the link gets a button; without one, the click opens the link.
-    $click = if ($e.focus) { '' } elseif ($link) { " activationType=`"protocol`" launch=`"$(Esc $e.url)`"" } else { '' }
-    $button = if ($e.focus -and $link) { "<actions><action content=`"$(if ($e.url -match '/pull/\d+') { 'Open PR' } else { 'Open link' })`" activationType=`"protocol`" arguments=`"$(Esc $e.url)`"/></actions>" } else { '' }
+    # A click goes to herdr where it can, and the link gets a button; otherwise a click opens the link.
+    $go = $CanGo -and $e.focus -match '^[0-9a-f]+$'
+    $click = if ($go) { " activationType=`"protocol`" launch=`"win-bridge:go?id=$($e.focus)`"" } elseif ($link) { " activationType=`"protocol`" launch=`"$(Esc $e.url)`"" } else { '' }
+    $button = if ($go -and $link) { "<actions><action content=`"$(if ($e.url -match '/pull/\d+') { 'Open PR' } else { 'Open link' })`" activationType=`"protocol`" arguments=`"$(Esc $e.url)`"/></actions>" } else { '' }
     $doc = New-Object Windows.Data.Xml.Dom.XmlDocument
     $doc.LoadXml("<toast$click><visual><binding template=`"ToastGeneric`"><text>$(Esc $e.title)</text><text>$(Esc $e.body)</text></binding></visual>$button</toast>")
-    $toast = New-Object Windows.UI.Notifications.ToastNotification $doc
-    if ($e.focus) {
-        $id = "win-bridge-$($e.focus)"
-        $null = Register-ObjectEvent -InputObject $toast -EventName Activated -SourceIdentifier $id -MessageData $e.focus
-        $Shown.Enqueue($id)
-        while ($Shown.Count -gt 50) { Unregister-Event -SourceIdentifier $Shown.Dequeue() -ErrorAction SilentlyContinue }
-    }
-    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($App).Show($toast)
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($App).Show((New-Object Windows.UI.Notifications.ToastNotification $doc))
 }
 
 $wait = 1
 while ($true) {
     try {
-        # Waits a little at a time, so a click is acted on while the poll is still open.
-        $task = $Http.GetAsync("$Base/next")
-        while (-not $task.Wait(250)) { Clicked }
-        $r = $task.Result
+        $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/next" -Headers @{ 'X-Token' = $Token } -TimeoutSec 40
         $wait = 1
     } catch {
         # WSL may be stopped or the server restarting: back off quietly.
@@ -74,10 +68,9 @@ while ($true) {
         $wait = [Math]::Min($wait * 2, 30)
         continue
     }
-    Clicked
-    if ([int]$r.StatusCode -ne 200) { continue }
+    if ($r.StatusCode -ne 200) { continue }
     try {
-        $e = $r.Content.ReadAsStringAsync().Result | ConvertFrom-Json
+        $e = $r.Content | ConvertFrom-Json
         if ($e.kind -eq 'open' -and (Allowed $e.url)) { Start-Process $e.url }
         elseif ($e.kind -eq 'toast') { Toast $e }
     } catch {}
