@@ -60,9 +60,23 @@ With WSL interop off, nothing in WSL can start a Windows program, so by default 
 ~/.config/herdr/bin/win-bridge setup github.com example.com  # or name the sites
 ```
 
-It prints a command to paste into Windows PowerShell, which fetches the listener and starts it, and another to start it at every sign-in. `win-bridge status` says whether Windows is listening; when it isn't, links are copied as before.
+It prints a few lines to paste into PowerShell on Windows, no admin needed. They fetch the listener and register a scheduled task that runs it now and at every sign-in, hidden by `conhost --headless`, so no window ever shows. It prints how to remove it too. `win-bridge status` says whether Windows is listening; when it isn't, links are copied as before. Re-run the paste after the listener changes.
 
 Windows opens only `https` links to the sites named at setup, so nothing in WSL can make it open anything else. Events reach the server through a folder, not the port, so a web page can't send any. Toasts need PowerShell in FullLanguage mode (`$ExecutionContext.SessionState.LanguageMode`); in ConstrainedLanguage, links still open but toasts don't show.
+
+## Keep WSL running
+
+WSL stops a distro a while after its last terminal closes, which stops workshop's timers and win-bridge with it. A scheduled task that holds a hidden `sleep infinity` keeps it up from sign-in. Paste this into PowerShell on Windows, no admin needed, with your distro's name from `wsl -l -v`:
+
+```powershell
+$distro = "Ubuntu"
+$run = New-ScheduledTaskAction -Execute conhost.exe -Argument "--headless wsl.exe -d $distro --exec sleep infinity"
+$keep = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName WSL-KeepAlive -Action $run -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME) -Settings $keep -Force > $null
+Start-ScheduledTask -TaskName WSL-KeepAlive
+```
+
+`wsl -l -v` should then say Running, and keep saying it after you close every terminal. The VM stays in memory all day, so cap it with `memory=` in `%UserProfile%\.wslconfig` if needed. Nothing runs while Windows sleeps or you're signed out. To remove it: `Unregister-ScheduledTask WSL-KeepAlive -Confirm:$false`.
 
 ## Install
 
