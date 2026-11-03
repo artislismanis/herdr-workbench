@@ -72,11 +72,15 @@ def listening() -> bool:
 def send(event: dict) -> bool:
     if not listening():
         return False
+    put(event | {"at": time.time()})
+    return True
+
+
+def put(event: dict) -> None:
     QUEUE.mkdir(parents=True, exist_ok=True)
     name = f"{time.time_ns()}.json"
-    (QUEUE / f".{name}").write_text(json.dumps(event | {"at": time.time()}))
+    (QUEUE / f".{name}").write_text(json.dumps(event))
     (QUEUE / f".{name}").rename(QUEUE / name)
-    return True
 
 
 def take() -> dict | None:
@@ -153,7 +157,12 @@ class Handler(BaseHTTPRequestHandler):
                     PLACES[event["focus"]] = place
                     while len(PLACES) > 200:
                         PLACES.pop(next(iter(PLACES)))
-                return self.reply(200, json.dumps(event).encode(), "application/json")
+                try:
+                    return self.reply(200, json.dumps(event).encode(), "application/json")
+                except OSError:
+                    # The poll had gone, as when the listener restarts, so the next one gets it.
+                    put(event)
+                    return
             if time.time() > until:
                 return self.reply(204)
             time.sleep(0.5)
