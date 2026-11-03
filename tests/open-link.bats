@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# open-link with a stub wl-copy and win-bridge.
+# open-link and notify-send, with a stub wl-copy and win-bridge.
 
 setup() {
   load helpers
@@ -35,4 +35,26 @@ setup() {
   [ "$(cat "$COPIED.bridge")" = "open https://example.com/a" ]
   [ ! -e "$COPIED" ]
   [[ "$output" == *"Opened in your Windows browser: https://example.com/a"* ]]
+}
+
+@test "notify-send passes herdr's title and body to win-bridge, options and all" {
+  BIN="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$BIN"
+  cp "$REPO_ROOT/bin/notify-send" "$BIN/"
+  printf '#!/usr/bin/env bash\nprintf "%%s|" "$@" >"$COPIED.bridge"\n' >"$BIN/win-bridge"
+  chmod +x "$BIN/win-bridge"
+  ln -s "$BIN/notify-send" "$STUB/notify-send"
+  run "$STUB/notify-send" --app-name Herdr -u normal -- "Agent done" "pr-7 finished"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$COPIED.bridge")" = "toast|Agent done|pr-7 finished|" ]
+}
+
+@test "notify-send without win-bridge listening still succeeds" {
+  BIN="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$BIN"
+  cp "$REPO_ROOT/bin/notify-send" "$BIN/"
+  printf '#!/usr/bin/env bash\nexit 1\n' >"$BIN/win-bridge"
+  chmod +x "$BIN/win-bridge"
+  run "$BIN/notify-send" "Only a title"
+  [ "$status" -eq 0 ]
 }
