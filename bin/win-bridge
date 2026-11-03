@@ -53,6 +53,7 @@ LIVE = 60  # a poll ends every POLL seconds, so longer than that without one mea
 STALE = {"open": 30, "toast": 600}  # a laptop waking up shouldn't open a burst of tabs
 LINK = re.compile(r"https://\S+")
 TITLE = "{hostname}: {workspace}"  # herdr's default ui.window_title
+TAB = "herdr"  # what to name herdr's Windows Terminal tab, so a click finds it for sure
 BOARD = "workshop"  # the workspace a click goes to when the toast's own one can't be told apart
 PLACES: dict[str, str] = {}  # a shown toast's id to the workspace a click on it goes to
 
@@ -117,8 +118,8 @@ def go(label: str) -> str:
         template = tomllib.loads(Path(os.environ.get("HERDR_CONFIG_PATH", HOME / ".config/herdr/config.toml")).read_text()).get("ui", {}).get("window_title", TITLE)
     except (OSError, ValueError):
         template = TITLE
-    # Windows Terminal often names the tab after the distro instead, so that's the second guess.
-    return "\n".join([template.replace("{hostname}", socket.gethostname()).replace("{workspace}", shown), *distro()])
+    # Windows Terminal often names the tab itself: a tab named herdr is unmistakable, then the distro's is a guess.
+    return "\n".join([template.replace("{hostname}", socket.gethostname()).replace("{workspace}", shown), TAB, *distro()])
 
 
 def distro() -> list[str]:
