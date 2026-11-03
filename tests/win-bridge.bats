@@ -80,7 +80,6 @@ listen() {
   [[ "$output" == *"\$Port = $WIN_BRIDGE_PORT"* ]]
   [[ "$output" == *"\$Token = 'sekrit'"* ]]
   [[ "$output" == *"\$Hosts = @('github.com')"* ]]
-  [[ "$output" == *"\$Tab = 0 "* ]]
   run get /listener.ps1 wrong
   [ "${lines[0]}" = 403 ]
 }
@@ -104,13 +103,14 @@ focus_after() {
   run get /next
   id=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("focus", ""))' "${lines[1]}")
   [[ "${lines[1]}" != *'"where"'* ]]
-  get "/focus?id=$id" >/dev/null
+  run get "/focus?id=$id"
 }
 
 @test "a click on herdr's own toast goes to the workspace it names" {
   stub_herdr
   focus_after "claude finished" "pr-7 · 10"
   [ "$(cat "$HOME/focused")" = w2 ]
+  [ "${lines[1]}" = "$(hostname): pr-7" ]
 }
 
 @test "a click on workshop's toast goes to the run's workspace" {
@@ -123,11 +123,30 @@ focus_after() {
   stub_herdr
   focus_after "Workshop: 50 ready" "It's open in hunk"
   [ "$(cat "$HOME/focused")" = w1 ]
+  [ "${lines[1]}" = "$(hostname): workshop" ]
 }
 
 @test "an id the bridge didn't hand out focuses nothing" {
   stub_herdr
   run get "/focus?id=made-up"
-  [ "${lines[0]}" = 204 ]
+  [ "${lines[0]}" = 200 ]
+  [ -z "${lines[1]:-}" ]
   [ ! -e "$HOME/focused" ]
+}
+
+@test "the click handler comes filled in, and only with the token" {
+  run get /go.ps1
+  [ "${lines[0]}" = 200 ]
+  [[ "$output" == *"127.0.0.1:$WIN_BRIDGE_PORT/focus"* ]]
+  [[ "$output" == *"'X-Token' = 'sekrit'"* ]]
+  run get /go.ps1 wrong
+  [ "${lines[0]}" = 403 ]
+}
+
+@test "herdr's own window title is what the click looks for" {
+  stub_herdr
+  mkdir -p "$HOME/.config/herdr"
+  printf '[ui]\nwindow_title = "herdr {workspace}"\n' >"$HOME/.config/herdr/config.toml"
+  focus_after "claude finished" "pr-7 · 10"
+  [ "${lines[1]}" = "herdr pr-7" ]
 }

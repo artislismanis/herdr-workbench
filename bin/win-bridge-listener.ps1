@@ -3,7 +3,6 @@
 $Port = __PORT__
 $Token = '__TOKEN__'
 $Hosts = @(__HOSTS__)
-$Tab = __TAB__  # herdr's tab in Windows Terminal, counted from 0
 $App = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
 
 try {
@@ -27,15 +26,9 @@ function Allowed($url) {
 function Esc($s) { [Security.SecurityElement]::Escape([string]$s) }
 
 # Windows PowerShell can't hear a click on its own toast, so a click opens a win-bridge: link
-# instead, registered for you alone, whose handler asks WSL to focus herdr's workspace, then
-# brings Windows Terminal forward on herdr's tab.
+# instead, registered for you alone, whose handler takes you to herdr.
 $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Content -Path "$Dir\go.ps1" -Value @"
-if ("`$args" -notmatch 'id=([0-9a-f]+)') { exit }
-`$id = `$Matches[1]
-try { `$null = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/focus?id=`$id" -Headers @{ 'X-Token' = '$Token' } -TimeoutSec 10 } catch {}
-try { Start-Process wt.exe -ArgumentList '-w', '0', 'focus-tab', '--target', '$Tab' } catch {}
-"@
+try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/go.ps1" -Headers @{ 'X-Token' = $Token } -OutFile "$Dir\go.ps1" } catch {}
 try {
     $key = 'HKCU:\Software\Classes\win-bridge'
     $null = New-Item -Path "$key\shell\open\command" -Force

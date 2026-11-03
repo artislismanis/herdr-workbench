@@ -1,0 +1,27 @@
+# win-bridge's click handler on Windows, filled in by win-bridge and run through
+# the win-bridge: link a toast click opens. It asks WSL to focus the toast's
+# workspace, then finds herdr's tab by the title WSL says it now has, in
+# whichever Windows Terminal window holds it, and brings that forward.
+if ("$args" -notmatch 'id=([0-9a-f]+)') { exit }
+try {
+    $title = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:__PORT__/focus?id=$($Matches[1])" -Headers @{ 'X-Token' = '__TOKEN__' } -TimeoutSec 10).Content
+} catch { exit }
+if (-not $title) { exit }
+
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+$A = [Windows.Automation.AutomationElement]
+$terminal = New-Object Windows.Automation.PropertyCondition($A::ClassNameProperty, 'CASCADIA_HOSTING_WINDOW_CLASS')
+$tab = New-Object Windows.Automation.PropertyCondition($A::ControlTypeProperty, [Windows.Automation.ControlType]::TabItem)
+# herdr retitles its tab a moment after the focus, so look for a couple of seconds.
+for ($i = 0; $i -lt 10; $i++) {
+    foreach ($window in $A::RootElement.FindAll('Children', $terminal)) {
+        foreach ($t in $window.FindAll('Descendants', $tab)) {
+            if ($t.Current.Name -ne $title) { continue }
+            try { $t.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select() } catch {}
+            try { $window.SetFocus() } catch {}
+            try { $null = (New-Object -ComObject WScript.Shell).AppActivate($title) } catch {}
+            exit
+        }
+    }
+    Start-Sleep -Milliseconds 200
+}

@@ -7,8 +7,7 @@ in through a spool directory, never over the port, so a web page can't post
 to it. Only a recent poll counts as someone listening.
 
 Usage:
-  win-bridge setup [--tab N] [host ...]  Turn it on; prints the command to run in Windows PowerShell.
-                                   N is herdr's tab in Windows Terminal, from 1 (the default)
+  win-bridge setup [host ...]      Turn it on; prints the command to run in Windows PowerShell
   win-bridge open <url>            Open a link in the Windows browser
   win-bridge toast <title> [body]  Show a toast; a click goes to its herdr workspace, and a button opens its first https link
   win-bridge status                Is Windows listening?
@@ -21,6 +20,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -37,6 +37,7 @@ QUEUE = STATE / "queue"
 SEEN = STATE / "seen"
 UNIT = HOME / ".config/systemd/user/win-bridge.service"
 LISTENER = Path(__file__).resolve().parent / "win-bridge-listener.ps1"
+CLICK = Path(__file__).resolve().parent / "win-bridge-go.ps1"
 # A scheduled task, as conhost --headless runs it with no window, where a Startup shortcut flashes one.
 WINDOWS = """$d = "$env:LOCALAPPDATA\\win-bridge"; $null = New-Item -ItemType Directory -Force $d
 iwr -UseBasicParsing http://127.0.0.1:PORT/listener.ps1 -Headers @{'X-Token'='TOKEN'} -OutFile "$d\\listener.ps1"
@@ -51,6 +52,7 @@ POLL = 25
 LIVE = 60  # a poll ends every POLL seconds, so longer than that without one means nobody's there
 STALE = {"open": 30, "toast": 600}  # a laptop waking up shouldn't open a burst of tabs
 LINK = re.compile(r"https://\S+")
+TITLE = "{hostname}: {workspace}"  # herdr's default ui.window_title
 BOARD = "workshop"  # the workspace a click goes to when the toast's own one can't be told apart
 PLACES: dict[str, str] = {}  # a shown toast's id to the workspace a click on it goes to
 
@@ -96,19 +98,26 @@ def where(title: str, body: str) -> str:
     return words[1] if len(words) > 1 and words[0] == "Workshop:" else ""
 
 
-def go(label: str) -> None:
-    """Only to a workspace a toast named, so a click can't be made to run anything else."""
+def go(label: str) -> str:
+    """Only to a workspace a toast named, so a click can't be made to run anything else. Says the title herdr's tab now has."""
     if not label:
-        return
+        return ""
     herdr = shutil.which("herdr", path=f"{HOME}/.local/bin:{os.environ.get('PATH', '')}") or "herdr"
     try:
         spaces = json.loads(subprocess.run([herdr, "workspace", "list"], capture_output=True, text=True, timeout=5).stdout)["result"]["workspaces"]
         found = [space["workspace_id"] for space in spaces if space.get("label") == label]
         found = found if len(found) == 1 else [space["workspace_id"] for space in spaces if space.get("label") == BOARD]
-        if found:
-            subprocess.run([herdr, "workspace", "focus", found[0]], capture_output=True, timeout=5)
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
-        pass
+        if not found:
+            return ""
+        subprocess.run([herdr, "workspace", "focus", found[0]], capture_output=True, timeout=5)
+        shown = next(space["label"] for space in spaces if space["workspace_id"] == found[0])
+    except (OSError, ValueError, KeyError, StopIteration, subprocess.SubprocessError):
+        return ""
+    try:
+        template = tomllib.loads(Path(os.environ.get("HERDR_CONFIG_PATH", HOME / ".config/herdr/config.toml")).read_text()).get("ui", {}).get("window_title", TITLE)
+    except (OSError, ValueError):
+        template = TITLE
+    return template.replace("{hostname}", socket.gethostname()).replace("{workspace}", shown)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -117,10 +126,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403)
         path = urlsplit(self.path).path
         if path == "/listener.ps1":
-            return self.reply(200, LISTENER.read_text().replace("__PORT__", str(PORT)).replace("__TOKEN__", token()).replace("__HOSTS__", (CONFIG / "hosts").read_text().strip()).replace("__TAB__", tab()).encode(), "text/plain")
+            return self.reply(200, LISTENER.read_text().replace("__PORT__", str(PORT)).replace("__TOKEN__", token()).replace("__HOSTS__", (CONFIG / "hosts").read_text().strip()).encode(), "text/plain")
+        if path == "/go.ps1":
+            return self.reply(200, CLICK.read_text().replace("__PORT__", str(PORT)).replace("__TOKEN__", token()).encode(), "text/plain")
         if path == "/focus":
-            go(PLACES.get(parse_qs(urlsplit(self.path).query).get("id", [""])[0], ""))
-            return self.reply(204)
+            return self.reply(200, go(PLACES.get(parse_qs(urlsplit(self.path).query).get("id", [""])[0], "")).encode(), "text/plain")
         if path != "/next":
             return self.reply(404)
         QUEUE.mkdir(parents=True, exist_ok=True)
@@ -163,13 +173,6 @@ def hosts(asked: list[str]) -> list[str]:
     return found
 
 
-def tab() -> str:
-    try:
-        return str(int((CONFIG / "tab").read_text()))
-    except (OSError, ValueError):
-        return "0"
-
-
 def herdr_toasts() -> str:
     try:
         return tomllib.loads(Path(os.environ.get("HERDR_CONFIG_PATH", HOME / ".config/herdr/config.toml")).read_text()).get("ui", {}).get("toast", {}).get("delivery", "")
@@ -179,9 +182,6 @@ def herdr_toasts() -> str:
 
 def setup(asked: list[str]) -> int:
     CONFIG.mkdir(parents=True, exist_ok=True)
-    if asked[:1] == ["--tab"] and len(asked) > 1 and asked[1].isdigit():
-        (CONFIG / "tab").write_text(str(int(asked[1]) - 1 if int(asked[1]) > 0 else 0))
-        asked = asked[2:]
     if not (CONFIG / "token").exists():
         (CONFIG / "token").touch(mode=0o600)
         (CONFIG / "token").write_text(secrets.token_urlsafe(24))
