@@ -773,7 +773,7 @@ class Keys(unittest.TestCase):
         self.store.save(run("1", "parked"))
         self.board.seen = None
         self.board.reload()
-        self.assertIn(" Delivery 1 ", self.board.header().text)
+        self.assertIn(" ▸ Delivery 1 ", self.board.header().text)
 
     def test_r_refreshes_once_at_a_time(self):
         with mock.patch("workshop.board.threading.Thread") as thread:
@@ -1138,7 +1138,7 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.board.tab = 0
         kinds = {line.ref: line.text.split()[2] for line in self.board.listing(WIDE) if line.ref}
-        self.assertEqual([kinds[ref] for ref in (("r", "4"), ("r", "6"), ("#pr", "u"))], ["Delivery", "Operate", "Review"])
+        self.assertEqual([kinds[ref] for ref in (("r", "4"), ("r", "6"), ("#pr", "u"))], ["▸", "⟳", "⌕"])
 
     def test_now_with_nothing_says_so(self):
         self.board.tab = 0

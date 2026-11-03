@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, live, now_view, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
+from .boardview import ASK_AGAIN, RESPOND, SIGNS, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, live, now_view, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .review import decisions
 from .store import Run
@@ -583,7 +583,7 @@ class Board:
         return len(pile), tickets, stopped(self.building()), sum(pull_group(p, self.linked(p)) == "Needs you" for p in self.pr_items()), stopped(r for r in self.runs if r.operating)
 
     def header(self) -> Line:
-        tabs = [part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]
+        tabs = [part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {SIGNS[tab]} {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]
         kind = "PRs" if self.tab == REVIEW else "backlog"
         sources = [self.snapshot.get("prs", {})] if self.tab == REVIEW else self.snapshot.get("repos", {}).values()
         times = [source.get("polled_at", 0) for source in sources]

@@ -29,6 +29,7 @@ ASK_AGAIN = "re-review"  # on your own PR, where it's yours to ask for
 STATUS = {"needs review": "review", "awaiting review": "review", "open": "review", "changes requested": "changes", "waiting for fixes": "changes", "comments to address": "changes", "checks failing": "changes", "new commits": "changes", "re-review requested": "re-review", "you approved": "approved"}  # where a PR is. The group above says whose move it is
 REASONS = {"needs review": "asked of you", "open": "not asked of you", "checks failing": ""}  # the facts beside it say CI failing
 MARKS = {True: ("●", "bold"), False: ("○", "others")}
+SIGNS = {"Now": "✱", "Backlog": "☰", "Delivery": "▸", "Review": "⌕", "Operate": "⟳", "Usage": "⧖"}  # on each tab, and on Now rows to say which tab they belong to. One column wide, so rows line up
 NEXT_UP = ("fix", "decide", "drafted", "your turn", "yours approved", "yours re-review", "yours changes", "theirs re-review", "theirs review")  # closest to done first, as finishing frees someone. Unstopping a run comes before all of it
 CI_DOTS = {"SUCCESS": "green", "FAILURE": "red", "ERROR": "red", "PENDING": "yellow", "EXPECTED": "yellow"}
 PACE_AMBER, PACE_RED = 10, 25  # points ahead of an even pace, so a busy start isn't an alarm
@@ -464,8 +465,8 @@ def run_item(run: Run, title: str, stamp: str) -> Item:
 
 
 def item_row(item: Item, sizes: tuple[int, int], width: int, now: float) -> Line:
-    room = max(width - sizes[0] - sizes[1] - 34, 10)
-    return Line([Span(" "), Span(item.mark[0] + " ", item.mark[1]), Span(cell(item.status[0], 10) + " ", item.status[1]), Span(cell(item.kind, 8) + " ", "dim"), Span(cell(item.name, sizes[0]) + " "), Span(cell(item.title, room) + " "), Span(cell(item.who, sizes[1]) + " ", item.mark[1]), Span(f"{since(item.stamp, now):>4} ", "dim"), item.dot], item.run, item.pr)
+    room = max(width - sizes[0] - sizes[1] - 27, 10)
+    return Line([Span(" "), Span(item.mark[0] + " ", item.mark[1]), Span(cell(item.status[0], 10) + " ", item.status[1]), Span(SIGNS[item.kind] + " ", "dim"), Span(cell(item.name, sizes[0]) + " "), Span(cell(item.title, room) + " "), Span(cell(item.who, sizes[1]) + " ", item.mark[1]), Span(f"{since(item.stamp, now):>4} ", "dim"), item.dot], item.run, item.pr)
 
 
 def now_view(runs: list[Run], prs: list[dict[str, Any]], linked: Callable[[dict[str, Any]], Run | None], title: Callable[[Run], str], queued: list[tuple[str, str]], events: list[dict[str, Any]], now: float, width: int, band: Line) -> list[Line]:
