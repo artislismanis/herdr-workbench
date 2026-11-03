@@ -26,6 +26,7 @@ SWEEPS = "sweeps.json"  # when each ran, and what you've declined
 QUEUE = "queue.json"  # the delivery queue's order by repo, as tickets have no order of their own that every source shares
 SWEEP_EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
+NO_STEPS = {"none", "n/a", "nothing", "no"}
 
 
 class Park(Exception):
@@ -327,7 +328,9 @@ class Engine:
     def _release_steps(self, run: Run, pr: dict[str, Any]) -> list[str]:
         """What the PR and the signed-off design say must be done by hand."""
         ticket = self.source_for(run).get(run.key).body
-        return list(dict.fromkeys(section(pr.get("body", ""), "release steps") + section(ticket, "release steps")))
+        found = section(pr.get("body", ""), "release steps") + section(ticket, "release steps")
+        # Agents write "None." under the heading, which isn't a step for anyone.
+        return list(dict.fromkeys(line for line in found if line.strip(" -*+.").lower() not in NO_STEPS))
 
     def _landed(self, run: Run) -> None:
         run.status, run.landed = "done", "merged"

@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # Posts the agent's hunk notes to the branch's PR as one GitHub review. A note
 # with author pr-level becomes the review's PR-level comment.
-# Usage: hunk-pr-push [--as comment|approve|request-changes|draft] [--body <text>] [--before <command>] [worktree]
+# Usage: hunk-pr-push [--as comment|approve|request-changes|draft] [--body <text>] [--before <command>] [--no-approve <reason>] [worktree]
 # --before runs after your go and just before a visible review, so both land together.
+# --no-approve takes approving off the table, and says why.
 set -euo pipefail
 
 die() { printf 'hunk-pr-push: %s\n' "$*" >&2; exit 1; }
 
-as="" extra="" before="" path="${HERDR_ACTIVE_PANE_ID:+$(herdr pane get "$HERDR_ACTIVE_PANE_ID" | jq -r .result.pane.cwd)}"
+as="" extra="" before="" blocked="" path="${HERDR_ACTIVE_PANE_ID:+$(herdr pane get "$HERDR_ACTIVE_PANE_ID" | jq -r .result.pane.cwd)}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --as) as="$2"; shift 2 ;;
     --body) extra="$2"; shift 2 ;;
     --before) before="$2"; shift 2 ;;
+    --no-approve) blocked="$2"; shift 2 ;;
     *) path="$1"; shift ;;
   esac
 done
@@ -66,7 +68,11 @@ if [ -z "$as" ]; then
   printf '%s inline comment(s):\n' "$count"
   jq -r '.comments[] | "  \(.path):\(.line)  \(.body | split("\n")[0] | .[0:100])"' <<<"$draft"
   echo
-  if [ "$own" = 1 ]; then choices='[c]omment, [d]raft, [n] cancel'; else choices='[c]omment, [a]pprove, [r]equest changes, [d]raft, [n] cancel'; fi
+  [ -z "$blocked" ] || printf '%s\n' "$blocked"
+  choices='[c]omment'
+  [ "$own" = 1 ] || [ -n "$blocked" ] || choices+=', [a]pprove'
+  [ "$own" = 1 ] || choices+=', [r]equest changes'
+  choices+=', [d]raft, [n] cancel'
   read -rn1 -p "$choices: " answer || answer=n
   echo
   case "$answer" in
@@ -85,6 +91,7 @@ case "$as" in
   draft)           event="" ;;
   *) die "unknown outcome: $as" ;;
 esac
+[ "$as" != approve ] || [ -z "$blocked" ] || die "$blocked"
 case "$as" in approve|request-changes)
   [ "$own" = 0 ] || die "GitHub refuses $as from a PR's author."
 esac

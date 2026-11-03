@@ -8,7 +8,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop import __main__ as cli  # noqa: E402
-from workshop.backlog import SNAPSHOT, column, poll  # noqa: E402
+from workshop.backlog import SNAPSHOT, asked_in_chat, column, poll  # noqa: E402
+from workshop.chat import CHAT  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import GitHubSource, Item, JiraSource  # noqa: E402
 from workshop.store import Store  # noqa: E402
@@ -30,6 +31,13 @@ class Stages(unittest.TestCase):
         self.assertEqual(column(item("designed"), {"designed": "spec-ok"}), "new")
 
 
+class Asked(unittest.TestCase):
+    def test_a_taken_ask_isnt_asked_of_you(self):
+        store = Store(Path(tempfile.mkdtemp()))
+        store.write(CHAT, {"found": {"a": {"ts": "1.5"}, "b": {"ts": "2.0", "taken": True}}})
+        self.assertEqual(asked_in_chat(store), {"a": 1.5})
+
+
 class Poll(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -46,7 +54,7 @@ class Poll(unittest.TestCase):
                 raise found
             return mock.Mock(backlog=lambda: found)
 
-        def prs(scope, now, asked=()):
+        def prs(scope, now, asked=None, chat_only=False):
             if isinstance(self.prs, Exception):
                 raise self.prs
             self.scope = scope

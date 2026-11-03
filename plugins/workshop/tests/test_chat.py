@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -15,6 +17,8 @@ from workshop.store import Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
 URL = "https://github.com/o/r/pull/7"
+NOTHING = {"failing": False, "copilot": 0}
+MARKS = {"claim": "eyes", "approved": "tick", "comments": "bubble", "ci": "cross", "copilot": "robot"}
 SETTINGS = {"channels": ["#reviews"], "read_tools": ["mcp__s__read"], "react_tool": "mcp__s__react", "reply_tool": "mcp__s__post"}
 
 
@@ -30,11 +34,11 @@ class Case(unittest.TestCase):
         return {"result": self.answer, "model": model, "turns": 1, "tokens_in": 10, "tokens_out": 1, "minutes": 0.1, "usd": 0.01}
 
     def known(self):
-        self.store.write(CHAT, {"found": {URL: {"channel": "C1", "ts": "1.2"}}})
+        self.store.write(CHAT, {"found": {URL: {"channel": "C1", "ts": "1.2", "root": "1.1"}}})
 
 
 class Finding(Case):
-    GOOD = {"url": URL, "channel": "#reviews", "ts": "1793.0001"}
+    GOOD = {"url": URL, "channel": "#reviews", "ts": "1793.0001", "root": "1793.0001", "reactions": []}
 
     def found(self, items, wanted=lambda url: True):
         self.answer = items if isinstance(items, str) else json.dumps(items)
@@ -91,6 +95,33 @@ class Writing(Case):
         self.assertEqual(self.asked[0][2], ["mcp__s__post"])
         self.assertIn("Approved.", self.asked[0][0])
 
+    def test_a_reply_goes_in_the_thread_of_a_re_review_ask(self):
+        self.known()
+        self.answer = "DONE"
+        self.chat.reply(URL, "Approved.")
+        self.assertIn("timestamp 1.1", self.asked[0][0])
+
+    def test_an_outcome_goes_on_the_ask_and_the_first_message(self):
+        self.known()
+        self.answer = "DONE"
+        self.chat.settle(URL, ["tick"])
+        self.assertEqual(self.asked[0][2], ["mcp__s__react"])
+        self.assertIn("1.2, 1.1", self.asked[0][0])
+
+    def test_your_own_claim_doesnt_read_as_taken(self):
+        self.known()
+        self.answer = "DONE"
+        self.chat.react(URL)
+        known = self.store.read(CHAT)["found"]
+        seen = self.chat.seen([{"url": URL, "channel": "C1", "ts": "1.2", "root": "1.1", "reactions": ["eyes"]}], known)
+        self.assertFalse(seen[URL]["taken"])
+
+    def test_your_own_outcome_doesnt_read_as_taken(self):
+        self.known()
+        self.answer = "DONE"
+        self.chat.settle(URL, ["bubble"])
+        self.assertTrue(self.store.read(CHAT)["found"][URL]["ours"])
+
     def test_no_message_means_nothing_to_do(self):
         self.chat.react(URL)
         self.chat.reply(URL, "x")
@@ -130,9 +161,9 @@ class Checking(Case):
             self.addCleanup(patch.stop)
 
     def test_it_saves_where_each_pr_was_asked(self):
-        self.answer = json.dumps([{"url": URL, "channel": "C1", "ts": "1.2"}])
+        self.answer = json.dumps([{"url": URL, "channel": "C1", "ts": "1.2", "root": "1.2", "reactions": []}])
         cli.check_chat(self.engine, self.cfg)
-        self.assertEqual(self.store.read(CHAT)["found"][URL], {"channel": "C1", "ts": "1.2"})
+        self.assertEqual(self.store.read(CHAT)["found"][URL], {"channel": "C1", "ts": "1.2", "root": "1.2", "ours": False, "taken": False})
 
     def test_only_in_working_hours(self):
         self.engine.throttle.working.return_value = False
@@ -172,6 +203,7 @@ class Replying(Case):
         self.answer = "DONE"
         source = mock.Mock()
         source.decided.return_value = decided
+        source.standing.return_value = NOTHING
         with mock.patch("builtins.input", side_effect=typed) as asked:
             cli.offer_reply(mock.Mock(pr=URL, key="pr-7"), source, self.chat, 1.0)
         return asked
@@ -199,8 +231,89 @@ class Replying(Case):
         self.answer = "nope"
         source = mock.Mock()
         source.decided.return_value = "APPROVED"
-        with mock.patch("builtins.input", return_value=""):
+        source.standing.return_value = NOTHING
+        with mock.patch("builtins.input", side_effect=["", "n"]):
             cli.offer_reply(mock.Mock(pr=URL, key="pr-7"), source, self.chat, 1.0)
+        self.assertEqual(len(self.asked), 1)
+
+    def test_a_failed_reply_can_go_again_and_says_what_went_wrong(self):
+        self.known()
+        self.answer = "nope"
+        source = mock.Mock()
+        source.decided.return_value = "APPROVED"
+        source.standing.return_value = NOTHING
+        out = io.StringIO()
+
+        def typed(prompt):
+            if "try again" in prompt:
+                self.answer = "DONE"
+            return ""
+
+        with mock.patch("builtins.input", typed), contextlib.redirect_stdout(out):
+            cli.offer_reply(mock.Mock(pr=URL, key="pr-7"), source, self.chat, 1.0)
+        self.assertEqual(len(self.asked), 2)
+        self.assertIn("nope", out.getvalue())
+
+
+class Outcomes(unittest.TestCase):
+    def setUp(self):
+        self.chat = Chat(SETTINGS | {"reactions": MARKS}, Store(Path(tempfile.mkdtemp())), mock.Mock())
+
+    def test_an_approval_never_comes_with_the_bubble(self):
+        self.assertEqual(self.chat.outcome("APPROVED", NOTHING), ["tick"])
+
+    def test_comments_ci_and_copilot_can_all_be_true(self):
+        self.assertEqual(self.chat.outcome("CHANGES_REQUESTED", {"failing": True, "copilot": 2}), ["bubble", "cross", "robot"])
+
+    def test_a_reaction_you_didnt_set_is_left_out(self):
+        chat = Chat(SETTINGS, Store(Path(tempfile.mkdtemp())), mock.Mock())
+        self.assertEqual(chat.outcome("APPROVED", {"failing": True, "copilot": 1}), [])
+
+
+class Taken(unittest.TestCase):
+    def setUp(self):
+        self.chat = Chat(SETTINGS | {"reactions": MARKS}, Store(Path(tempfile.mkdtemp())), mock.Mock())
+
+    def ask(self, ts, *reactions):
+        return {"url": URL, "channel": "C1", "ts": ts, "root": "1.0", "reactions": list(reactions)}
+
+    def test_a_review_reaction_from_someone_else_takes_it(self):
+        for mark in ("eyes", "tick", "bubble"):
+            self.assertTrue(self.chat.seen([self.ask("1.0", mark)], {})[URL]["taken"])
+
+    def test_any_other_reaction_doesnt(self):
+        self.assertFalse(self.chat.seen([self.ask("1.0", "tada")], {})[URL]["taken"])
+
+    def test_a_newer_ask_brings_it_back(self):
+        seen = self.chat.seen([self.ask("2.0"), self.ask("1.0", "eyes")], {})
+        self.assertEqual((seen[URL]["ts"], seen[URL]["taken"]), ("2.0", False))
+
+    def test_an_older_message_doesnt_replace_the_ask(self):
+        known = {URL: {"channel": "C1", "ts": "2.0", "root": "1.0", "ours": False, "taken": False}}
+        self.assertEqual(self.chat.seen([self.ask("1.0", "eyes")], known), known)
+
+
+class Finishing(unittest.TestCase):
+    def finish(self, block, standing, chat=None):
+        cfg = {"repos": {"r": {}}, "review": {"block_failing_ci": block}}
+        engine = mock.MagicMock()
+        engine.source_for.return_value.action = "none"
+        engine.source_for.return_value.standing.return_value = standing
+        out = io.StringIO()
+        with mock.patch.object(cli, "post_review", return_value=1) as post, contextlib.redirect_stdout(out):
+            cli.finish_review(engine, mock.Mock(repo="r", key="pr-7", pr=URL, claimed=True), "/w", cfg, Path("/x"))
+        return post.call_args.args, out.getvalue()
+
+    def test_failing_ci_takes_approving_away_when_set(self):
+        self.assertIn("--no-approve", self.finish(True, {"failing": True, "copilot": 0})[0])
+
+    def test_not_unless_its_set(self):
+        self.assertEqual(self.finish(False, {"failing": True, "copilot": 0})[0], ("/w",))
+
+    def test_copilot_comments_warn_and_the_call_stays_yours(self):
+        args, said = self.finish(True, {"failing": False, "copilot": 2})
+        self.assertEqual(args, ("/w",))
+        self.assertIn("Copilot comments unresolved: 2", said)
 
 
 class Settings(unittest.TestCase):

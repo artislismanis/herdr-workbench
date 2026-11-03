@@ -18,6 +18,6 @@ When they say yes, ask one more thing: is it ready for the delivery queue, or do
 
 {queued}
 
-Then write `{run}/design.md`, then stop. Their yes is the sign-off: workshop puts it on the ticket as soon as you finish, and this workspace closes. Write it for the agent who'll build this alone, using `###` headings and nothing higher. Cover the approach and why, the alternatives dropped, what changes where, how each done statement gets tested, and anything the builder must not do. If something must be done by hand when this ships, list it under `### Release steps`.
+Then write `{run}/design.md`, then stop. Their yes is the sign-off: workshop puts it on the ticket as soon as you finish, and this workspace closes. Write it for the agent who'll build this alone, using `###` headings and nothing higher. Cover the approach and why, the alternatives dropped, what changes where, how each done statement gets tested, and anything the builder must not do. If something must be done by hand when this ships, list it under `### Release steps`, and leave the heading out when there's nothing.
 
 Write the file only after that yes and that answer, in one go, with a line that is exactly `QUEUE:` and its place counting this ticket, so `QUEUE: 1` is first, or `QUEUE: hold` if it isn't going in yet, just before with a last line that is exactly `VERDICT: READY`.

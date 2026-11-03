@@ -249,6 +249,15 @@ class Claims(unittest.TestCase):
             self.assertIn(path, run.call_args.args[4])
             self.assertEqual(run.call_args.args[6], field)
 
+    def test_standing_counts_what_copilot_left_open(self):
+        def thread(login, resolved=False):
+            return {"isResolved": resolved, "comments": {"nodes": [{"author": {"login": login}}]}}
+
+        threads = [thread("copilot-pull-request-reviewer"), thread("copilot-pull-request-reviewer", True), thread("them")]
+        pr = {"commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "FAILURE"}}}]}, "reviewThreads": {"nodes": threads}}
+        with mock.patch("workshop.sources.run_json", return_value={"data": {"repository": {"pullRequest": pr}}}):
+            self.assertEqual(PullRequestSource(Path("/r")).standing("pr-7"), {"failing": True, "copilot": 1})
+
     def test_activity_is_other_people_since_then(self):
         pr = {"author": {"login": "them"}, "reviews": [{"author": {"login": "sam"}, "submittedAt": "2026-11-01T02:00:00Z", "state": "CHANGES_REQUESTED"}, {"author": {"login": "old"}, "submittedAt": "2026-10-01T02:00:00Z", "state": "APPROVED"}, {"author": {"login": "me"}, "submittedAt": "2026-11-01T02:00:00Z", "state": "COMMENTED"}],
               "comments": [{"author": {"login": "them"}, "createdAt": "2026-11-01T02:00:00Z"}, {"author": {"login": "alex"}, "createdAt": "2026-11-01T03:00:00Z"}]}
