@@ -389,6 +389,12 @@ class Deploy(unittest.TestCase):
         self.assertNotIn("merged", self.source.moves)
         self.assertIn("They're done", self.engine.next_action(run))
 
+    def test_release_steps_of_none_arent_steps(self):
+        for said in ("None.", "- None", "N/A"):
+            self.merged("main", f"## Release steps\n\n{said}\n")
+            run = self.engine.land(self.delivered())
+            self.assertEqual((run.landed, run.deployed), ("merged", "prod"), said)
+
     def test_release_steps_in_the_design_count_too(self):
         self.merged("main")
         self.source.get = lambda key: Ticket(key, "T", "## Design\n\n### Release steps\n\n- Run the backfill\n\n## Original ticket\n")
