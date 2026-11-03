@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Stands in for notify-send, which herdr runs with [ui.toast] delivery =
+# "system". With WSL interop off nothing here can reach Windows'
+# notifications, so win-bridge shows them when Windows is listening. Without
+# it the notification is dropped, as herdr's own toast setting is yours.
+set -uo pipefail
+
+args=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --) shift; args+=("$@"); break ;;
+    -u|-t|-a|-i|-c|-h|-r|-A|--urgency|--expire-time|--app-name|--icon|--category|--hint|--replace-id|--action) shift 2 ;;
+    -*) shift ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+[ "${#args[@]}" -gt 0 ] || { echo "usage: notify-send [options] <title> [body]" >&2; exit 2; }
+
+# notify-send is a link to this, so look beside the real file.
+"$(dirname "$(readlink -f "$0")")/win-bridge" toast "${args[@]:0:2}" >/dev/null 2>&1
+exit 0

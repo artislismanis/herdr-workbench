@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Toasts and links on Windows from a WSL with interop off.
 
-Windows reaches in, WSL never reaches out: a listener script on Windows
+herdr's notifications arrive through the notify-send beside this. Windows reaches in, WSL never reaches out: a listener script on Windows
 long-polls this server on localhost, which WSL forwards by default. Events go
 in through a spool directory, never over the port, so a web page can't post
 to it. Only a recent poll counts as someone listening.
@@ -128,6 +128,13 @@ def hosts(asked: list[str]) -> list[str]:
     return found
 
 
+def herdr_toasts() -> str:
+    try:
+        return tomllib.loads(Path(os.environ.get("HERDR_CONFIG_PATH", HOME / ".config/herdr/config.toml")).read_text()).get("ui", {}).get("toast", {}).get("delivery", "")
+    except (OSError, ValueError):
+        return ""
+
+
 def setup(asked: list[str]) -> int:
     CONFIG.mkdir(parents=True, exist_ok=True)
     if not (CONFIG / "token").exists():
@@ -144,6 +151,8 @@ def setup(asked: list[str]) -> int:
     print(f"On, port {PORT}. Links open on: {', '.join(allowed)}.\n")
     print("Paste this into PowerShell on Windows, no admin needed. It fetches the listener and runs it now and at every sign-in, with no window:\n")
     print(WINDOWS.replace("PORT", str(PORT)).replace("TOKEN", token()))
+    if herdr_toasts() != "system":
+        print('herdr\'s own notifications, and workshop\'s, which go through herdr, reach Windows once herdr\'s config.toml has this, above the herdr-workbench block, and then herdr server reload-config:\n\n[ui.toast]\ndelivery = "system"\n')
     return 0
 
 

@@ -17,8 +17,9 @@ RULES_DIR="$CLAUDE_DIR/rules/herdr-workbench"
 HERDR_CONFIG="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
 HERDR_SKILL="$CLAUDE_DIR/skills/herdr/SKILL.md"
 HERDR_BIN="$HOME/.config/herdr/bin"
-HERDR_SCRIPTS=(wt-remove-current wt-prune hunk-review-open hunk-pr-notes hunk-pr-push open-link win-bridge win-bridge-listener.ps1)
+HERDR_SCRIPTS=(wt-remove-current wt-prune hunk-review-open hunk-pr-notes hunk-pr-push open-link notify-send win-bridge win-bridge-listener.ps1)
 XDG_OPEN="$HOME/.local/bin/xdg-open"
+NOTIFY_SEND="$HOME/.local/bin/notify-send"
 HERDR_PLUGINS="$HOME/.config/herdr/plugins"
 HUNKDIFF_CONFIG="$HERDR_PLUGINS/config/jhochenbaum.hunkdiff/config.toml"
 HUNK_CONFIG="$HOME/.config/hunk/config.toml"
@@ -56,6 +57,7 @@ herdr plugin uninstall annotate 2>/dev/null || true
 herdr plugin uninstall workshop 2>/dev/null || true
 rm -f "$WORKSHOP_CLI"
 [ ! -L "$XDG_OPEN" ] || rm -f "$XDG_OPEN"
+[ ! -L "$NOTIFY_SEND" ] || rm -f "$NOTIFY_SEND"
 systemctl --user disable --now workshop-tick.timer 2>/dev/null || true
 systemctl --user disable --now workshop-sample.timer 2>/dev/null || true
 systemctl --user disable --now win-bridge.service 2>/dev/null || true
@@ -188,6 +190,10 @@ else
   # gh, herdr's link clicks and the board all look for xdg-open. A real one wins.
   if [ -L "$XDG_OPEN" ] || ! command -v xdg-open >/dev/null 2>&1; then
     ensure_symlink "$HERDR_BIN/open-link" "$XDG_OPEN"
+  fi
+  # herdr's system toasts run notify-send, which win-bridge carries to Windows. A real one wins.
+  if [ -L "$NOTIFY_SEND" ] || ! command -v notify-send >/dev/null 2>&1; then
+    ensure_symlink "$HERDR_BIN/notify-send" "$NOTIFY_SEND"
   fi
   _ensure_plugin worktrunk "$WORKTRUNK_PLUGIN" "$WORKTRUNK_PLUGIN_COMMIT"
   _ensure_plugin jhochenbaum.hunkdiff "$HUNKDIFF_PLUGIN" "$HUNKDIFF_PLUGIN_COMMIT"
