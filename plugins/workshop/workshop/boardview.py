@@ -5,6 +5,7 @@ import textwrap
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from itertools import groupby, zip_longest
 from typing import Any, NamedTuple
 
@@ -428,6 +429,66 @@ def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str
     for heading, items in grouped.items():
         if items:
             lines += [rule(f"{heading} {len(items)}", width), *(pull_row(p, width, name_width, author_width, run) for p, run in items), plain()]
+    return lines
+
+
+def since(stamp: str, now: float) -> str:
+    return ago(max(now - datetime.fromisoformat(stamp).timestamp(), 0)) if stamp else ""
+
+
+@dataclass
+class Item:
+    """One row of the Now tab: a PR or a run, in the same columns."""
+
+    place: tuple[int, str]
+    mark: tuple[str, str]
+    status: tuple[str, str]
+    name: str
+    title: str
+    who: str
+    stamp: str
+    dot: Span
+    run: Run | None = None
+    pr: dict[str, Any] | None = None
+
+
+def pull_item(pr: dict[str, Any], run: Run | None) -> Item:
+    return Item(pull_rank(pr, run), MARKS[pr["mine"]], pull_status(pr, run), pr_name(pr), pr["title"], author(pr), pr["updated"], Span("●", CI_DOTS.get(pr["checks"], "dim")), pr=pr)
+
+
+def run_item(run: Run, title: str, stamp: str) -> Item:
+    colour = "yellow" if run.with_you or run.your_turn else COLOURS[run.status]
+    return Item((rank(run.label), stamp), MARKS[True], (run.label, colour), name(run), title, "you" if run.with_you else step_id(run), stamp, Span(" "), run=run)
+
+
+def item_row(item: Item, sizes: tuple[int, int], width: int, now: float) -> Line:
+    room = max(width - sizes[0] - sizes[1] - 25, 10)
+    return Line([Span(" "), Span(item.mark[0] + " ", item.mark[1]), Span(cell(item.status[0], 10) + " ", item.status[1]), Span(cell(item.name, sizes[0]) + " "), Span(cell(item.title, room) + " "), Span(cell(item.who, sizes[1]) + " ", item.mark[1]), Span(f"{since(item.stamp, now):>4} ", "dim"), item.dot], item.run, item.pr)
+
+
+def now_view(runs: list[Run], prs: list[dict[str, Any]], linked: Callable[[dict[str, Any]], Run | None], title: Callable[[Run], str], queued: list[tuple[str, str]], events: list[dict[str, Any]], now: float, width: int, band: Line) -> list[Line]:
+    """Everything in one list, in the order to do it, so the board doesn't need reading tab by tab."""
+    last = {(e["repo"], e["key"]): e["at"] for e in events}
+    on_prs = {p["url"] for p in prs}
+    groups: dict[str, list[Item]] = {"Needs you": [], "With agents": [], "With people": []}
+    for pr in prs:
+        if pr["move"] != "done":
+            run = linked(pr)
+            groups[pull_group(pr, run)].append(pull_item(pr, run))
+    for run in runs:
+        if not run.landed and not run.on_a_pr and run.pr not in on_prs and heading(run) != "With people" and not (run.pr == "" and run.status == "done"):
+            groups[heading(run)].append(run_item(run, title(run), last.get((run.repo, run.key), "")))
+    shown = [item for key in ("Needs you", "With agents") for item in groups[key]]
+    sizes = max((columns(item.name) for item in shown), default=0), max((columns(item.who) for item in shown), default=0)
+    lines = [band, plain(), Line([*tally(*(len(items) for items in groups.values())).spans, Span(f" {len(queued)} ", "on-dim"), Span(" queued")]), plain()]
+    for heading_name, style in (("Needs you", "Clear now"), ("With agents", "With agents")):
+        items = sorted(groups[heading_name], key=lambda item: item.place)
+        if items:
+            lines += [rule(f"{style} {len(items)}", width), *(item_row(item, sizes, width, now) for item in items), plain()]
+    if not groups["Needs you"]:
+        lines += [plain("  Nothing needs you.", "dim"), plain()]
+    if queued:
+        lines += [rule("Up next", width), *(plain(f"   {cell(ticket, 22)} {clean(text)}", "dim") for ticket, text in queued[:3]), plain()]
     return lines
 
 

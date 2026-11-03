@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, live, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
+from .boardview import ASK_AGAIN, RESPOND, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, live, now_view, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .review import decisions
 from .store import Run
@@ -20,8 +20,8 @@ from .system import Meter
 from .usage import samples
 
 SKIPPED = "skipped.json"
-TABS = ("Backlog", "Delivery", "Review", "Operate", "Usage")  # the order work moves through, then how it went
-BACKLOG, DELIVERY, REVIEW, OPERATE, USAGE = range(5)
+TABS = ("Now", "Backlog", "Delivery", "Review", "Operate", "Usage")  # what to do, the order work moves through, then how it went
+NOW, BACKLOG, DELIVERY, REVIEW, OPERATE, USAGE = range(6)
 TOP = 1  # a gap under herdr's tab bar
 WHEEL = 3
 MESSAGE_SECONDS = 5
@@ -83,7 +83,7 @@ class Board:
         self.engine, self.store, self.cfg, self.clock = engine, engine.store, cfg, clock
         self.meter = Meter()
         self.caught = 0.0
-        self.tab, self.offset = DELIVERY, 0
+        self.tab, self.offset = NOW, 0
         self.picked: tuple[str, str] | None = None
         self.open: tuple[str, str] | None = None
         self.viewing = ""
@@ -138,7 +138,7 @@ class Board:
         return tuple(str(p) for p in sorted(found, key=lambda p: p.stat().st_mtime, reverse=True))
 
     def panelled(self, width: int) -> bool:
-        return width >= PANEL_WIDTH and self.tab in (DELIVERY, REVIEW, OPERATE) and not self.open
+        return width >= PANEL_WIDTH and self.tab in (NOW, DELIVERY, REVIEW, OPERATE) and not self.open
 
     def list_width(self, width: int) -> int:
         return width * LIST_SHARE // 100
@@ -228,7 +228,13 @@ class Board:
             return self.detail(self.open, width)
         return self.listing(width)
 
+    def queued(self) -> list[tuple[str, str]]:
+        found = [(repo, i) for repo, r in self.snapshot.get("repos", {}).items() for i in r["items"] if i["column"] == "queued" and not self.store.exists(repo, i["key"])]
+        return [(f"{repo}/{i['key']}", i["title"]) for repo, i in sorted(found, key=lambda pair: self.engine.queue_place(pair[0], pair[1]["key"]))]
+
     def listing(self, width: int) -> list[Line]:
+        if self.tab == NOW:
+            return now_view(self.runs, self.pr_items(), self.linked, self.title, self.queued(), self.events, self.clock(), width, self.band(width))
         if self.tab == USAGE:
             return usage_view(samples(self.store.root), self.events, self.meter.read(), self.clock(), width)
         if self.tab == DELIVERY:
@@ -573,7 +579,8 @@ class Board:
 
     def counts(self) -> tuple[int, ...]:
         tickets = sum(not self.store.exists(repo, i["key"]) for repo, r in self.snapshot.get("repos", {}).items() for i in r["items"])
-        return tickets, stopped(self.building()), sum(pull_group(p, self.linked(p)) == "Needs you" for p in self.pr_items()), stopped(r for r in self.runs if r.operating)
+        pile = {r.pr or r.key for r in self.runs if heading(r) == "Needs you"} | {p["url"] for p in self.pr_items() if pull_group(p, self.linked(p)) == "Needs you"}
+        return len(pile), tickets, stopped(self.building()), sum(pull_group(p, self.linked(p)) == "Needs you" for p in self.pr_items()), stopped(r for r in self.runs if r.operating)
 
     def header(self) -> Line:
         tabs = [part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]
@@ -598,7 +605,7 @@ class Board:
         offers = [("a re-review", AI_REVIEW)] if self.askable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
-        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run.pane if run else self.tab != REVIEW) + [("o link", ord("o"))] * bool(self.link(lines)) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run.pane if run else self.tab not in (NOW, REVIEW)) + [("o link", ord("o"))] * bool(self.link(lines)) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def note(self, width: int) -> list[Line]:

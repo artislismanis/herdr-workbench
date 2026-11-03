@@ -715,19 +715,19 @@ class Keys(unittest.TestCase):
         self.assertTrue(self.board.press(ord("q")))
         self.assertFalse(self.board.press(ord("q")))
 
-    def test_it_opens_on_delivery_with_tabs_in_workflow_order(self):
-        self.assertEqual(self.board.tab, 1)
+    def test_it_opens_on_now_with_tabs_in_workflow_order(self):
+        self.assertEqual(self.board.tab, 0)
         self.assertLess(self.board.header().text.index("Backlog"), self.board.header().text.index("Delivery"))
         self.assertLess(self.board.header().text.index("Delivery"), self.board.header().text.index("Review"))
 
-    def test_shift_tab_goes_to_backlog_where_nothing_opens(self):
-        self.board.press(curses.KEY_BTAB)
+    def test_backlog_is_where_nothing_opens(self):
+        self.board.press(ord("\t"))
         self.board.press(10)
-        self.assertEqual((self.board.tab, self.board.open), (0, None))
+        self.assertEqual((self.board.tab, self.board.open), (1, None))
 
     def test_shift_tab_goes_back_and_wraps_round(self):
         self.board.press(curses.KEY_BTAB)
-        self.assertEqual(self.board.tab, 0)
+        self.assertEqual(self.board.tab, 5)
         self.board.press(curses.KEY_BTAB)
         self.assertEqual(self.board.tab, 4)
 
@@ -735,6 +735,7 @@ class Keys(unittest.TestCase):
         self.store.save(run("1", pane="w1:p1", pr="u"))
         self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 200.0, "error": "", "items": [pr()]}})
         self.board.reload()
+        self.board.tab = DELIVERY
         self.board.press(ord("\t"))
         self.assertIn("PRs 5m old", self.board.header().text)
         self.board.press(10)
@@ -1081,7 +1082,7 @@ class Keys(unittest.TestCase):
         text = joined(self.board.listing(WIDE))
         self.assertIn("r/8", text)
         self.assertIn("r/sweep-docs-1", text)
-        self.assertEqual(self.board.counts()[3], 1)
+        self.assertEqual(self.board.counts()[4], 1)
 
     def test_a_delivered_draft_stays_on_delivery_until_you_let_it_go(self):
         self.on_pr()
@@ -1113,6 +1114,25 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.board.tab = DELIVERY
         self.assertNotIn("o link", self.board.footer().text)
+
+    def test_now_lists_runs_and_prs_in_one_order_and_each_once(self):
+        self.store.save(run("3", "parked", pr="u"))
+        self.store.save(run("4", "waiting"))
+        self.store.save(run("5", "done", pr="z"))
+        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 200.0, "error": "", "items": [pr("u"), pr("v"), pr("w", mine=True, state="approved")]}})
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab = 0
+        rows = self.board.choices(self.board.listing(WIDE))
+        self.assertEqual(rows.count(("#pr", "u")), 1)
+        self.assertEqual(rows[0], ("#pr", "u"))
+        self.assertLess(rows.index(("r", "4")), rows.index(("r", "5")))
+        self.assertLess(rows.index(("r", "5")), rows.index(("#pr", "w")))
+        self.assertLess(rows.index(("#pr", "w")), rows.index(("#pr", "v")))
+
+    def test_now_with_nothing_says_so(self):
+        self.board.tab = 0
+        self.assertIn("Nothing needs you", joined(self.board.listing(WIDE)))
 
     def test_your_own_pr_has_no_ai_review(self):
         for state in ("approved", "checks failing", "awaiting review"):
@@ -1247,7 +1267,7 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.board.tab = DELIVERY
-        self.assertEqual(self.board.counts()[1], 1)
+        self.assertEqual(self.board.counts()[2], 1)
         self.assertEqual(list(self.board.run_actions(self.board.runs[-1]).values()), ["d drop"])
 
     def at_gate(self):
