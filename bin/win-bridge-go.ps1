@@ -10,6 +10,23 @@ try {
 if (-not $titles) { exit }
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+# Windows lets a program bring a window forward only just after a key press, so this presses Alt first.
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class Front {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int how);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+}
+'@
+function Forward([IntPtr]$window) {
+    if ([Front]::IsIconic($window)) { $null = [Front]::ShowWindow($window, 9) }
+    [Front]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+    $null = [Front]::SetForegroundWindow($window)
+    [Front]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+}
 $A = [Windows.Automation.AutomationElement]
 $terminal = New-Object Windows.Automation.PropertyCondition($A::ClassNameProperty, 'CASCADIA_HOSTING_WINDOW_CLASS')
 $tab = New-Object Windows.Automation.PropertyCondition($A::ControlTypeProperty, [Windows.Automation.ControlType]::TabItem)
@@ -20,8 +37,7 @@ for ($i = 0; $i -lt 10; $i++) {
             foreach ($t in $window.FindAll('Descendants', $tab)) {
                 if ($t.Current.Name -ne $title) { continue }
                 try { $t.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select() } catch {}
-                try { $window.SetFocus() } catch {}
-                try { $null = (New-Object -ComObject WScript.Shell).AppActivate($window.Current.Name) } catch {}
+                Forward ([IntPtr]$window.Current.NativeWindowHandle)
                 exit
             }
         }
