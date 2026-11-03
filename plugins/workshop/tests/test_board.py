@@ -1130,6 +1130,16 @@ class Keys(unittest.TestCase):
         self.assertLess(rows.index(("r", "5")), rows.index(("#pr", "w")))
         self.assertLess(rows.index(("#pr", "w")), rows.index(("#pr", "v")))
 
+    def test_now_rows_say_which_tab_they_belong_to(self):
+        self.store.save(run("4", "waiting"))
+        self.store.save(run("6", "waiting", sweeping="docs"))
+        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 200.0, "error": "", "items": [pr("u")]}})
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab = 0
+        kinds = {line.ref: line.text.split()[2] for line in self.board.listing(WIDE) if line.ref}
+        self.assertEqual([kinds[ref] for ref in (("r", "4"), ("r", "6"), ("#pr", "u"))], ["Delivery", "Operate", "Review"])
+
     def test_now_with_nothing_says_so(self):
         self.board.tab = 0
         self.assertIn("Nothing needs you", joined(self.board.listing(WIDE)))
