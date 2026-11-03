@@ -38,6 +38,8 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop board` | The board. `prefix+shift+b` in herdr opens it in its own workspace |
 | `workshop doctor [--no-launch]` | Finds what would stop a run |
 
+A `<key>` can also be `repo/key`, as the board names runs, which you need when two repos each have a run with that key.
+
 A `decide` run stopped as planned, at a gate or with a question. A `fix` run stopped because something went wrong. Neither counts towards `max_active`, so agents can keep starting tickets while your pile grows. `max_waiting` stops that: with that many items waiting on you, no new tickets or sweeps start, and the board says `held`. Reviews and replies you start yourself still run. It's off by default.
 
 ## Safety

@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <key> | resume <key> | pr <url> [--claimed|--silent] | reply <url> | claim <key> | review <key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <key> | reject <key> <note> | answer <key> <text> | retry <key> [note] | pass <key> [note] | drop <key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -400,7 +400,7 @@ def finish_review(engine: Engine, run: Run, path: str, cfg: dict[str, Any], root
     else:
         for seen in source.activity(run.key, run.begun):
             print(f"Since you started: {seen}")
-        code = post_review(path, *held, "--before", f"{Path.home()}/.local/bin/workshop claim {run.key}")
+        code = post_review(path, *held, "--before", f"{Path.home()}/.local/bin/workshop claim {run.repo}/{run.key}")
     if code == 0:
         waited(root, lambda: engine.posted(engine.store.load(run.repo, run.key)))
     if code == 0 and settings["after_post"] == "chat-reply":
