@@ -270,6 +270,23 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(chat.outcome("APPROVED", {"failing": True, "copilot": 1}), [])
 
 
+class Fallback(Case):
+    def test_a_team_emoji_falls_back_to_the_standard_one(self):
+        self.chat = Chat(SETTINGS | {"reactions": MARKS}, self.store, self.ask)
+        self.known()
+        self.answer = "DONE"
+        self.chat.settle(URL, ["tick", "cross"])
+        prompt = self.asked[0][0]
+        self.assertIn('"tick, else white_check_mark", "cross, else x"', prompt)
+        self.assertIn("isn't an emoji in this workspace", prompt)
+
+    def test_a_standard_emoji_is_asked_for_as_it_is(self):
+        self.known()
+        self.answer = "DONE"
+        self.chat.react(URL)
+        self.assertIn("reactions: eyes, to each", self.asked[0][0])
+
+
 class Taken(unittest.TestCase):
     def setUp(self):
         self.chat = Chat(SETTINGS | {"reactions": MARKS}, Store(Path(tempfile.mkdtemp())), mock.Mock())
@@ -280,6 +297,9 @@ class Taken(unittest.TestCase):
     def test_a_review_reaction_from_someone_else_takes_it(self):
         for mark in ("eyes", "tick", "bubble"):
             self.assertTrue(self.chat.seen([self.ask("1.0", mark)], {})[URL]["taken"])
+
+    def test_the_standard_one_a_team_emoji_fell_back_to_takes_it_too(self):
+        self.assertTrue(self.chat.seen([self.ask("1.0", "white_check_mark")], {})[URL]["taken"])
 
     def test_any_other_reaction_doesnt(self):
         self.assertFalse(self.chat.seen([self.ask("1.0", "tada")], {})[URL]["taken"])

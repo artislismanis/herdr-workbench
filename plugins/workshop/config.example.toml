@@ -37,7 +37,7 @@
 #
 # Reactions on the ask, by name. The claim is the only one used by default, and any other reaction here means the review is taken.
 # With after_post = "chat-reply", approved or comments goes on after you post, with ci and copilot if they apply.
-# [chat.reactions]
+# [chat.reactions]           # your team's emoji names; one that doesn't exist falls back to the standard one shown
 # claim = "eyes"
 # approved = "white_check_mark"
 # comments = "speech_balloon"
