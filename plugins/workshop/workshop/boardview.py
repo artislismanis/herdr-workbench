@@ -448,6 +448,7 @@ class Item:
     who: str
     stamp: str
     dot: Span
+    kind: str = "Review"
     run: Run | None = None
     pr: dict[str, Any] | None = None
 
@@ -458,12 +459,13 @@ def pull_item(pr: dict[str, Any], run: Run | None) -> Item:
 
 def run_item(run: Run, title: str, stamp: str) -> Item:
     colour = "yellow" if run.with_you or run.your_turn else COLOURS[run.status]
-    return Item((rank(run.label), stamp), MARKS[True], (run.label, colour), name(run), title, "you" if run.with_you else step_id(run), stamp, Span(" "), run=run)
+    kind = "Review" if run.on_a_pr else "Operate" if run.operating else "Delivery"  # the tab it lives on
+    return Item((rank(run.label), stamp), MARKS[True], (run.label, colour), name(run), title, "you" if run.with_you else step_id(run), stamp, Span(" "), kind, run=run)
 
 
 def item_row(item: Item, sizes: tuple[int, int], width: int, now: float) -> Line:
-    room = max(width - sizes[0] - sizes[1] - 25, 10)
-    return Line([Span(" "), Span(item.mark[0] + " ", item.mark[1]), Span(cell(item.status[0], 10) + " ", item.status[1]), Span(cell(item.name, sizes[0]) + " "), Span(cell(item.title, room) + " "), Span(cell(item.who, sizes[1]) + " ", item.mark[1]), Span(f"{since(item.stamp, now):>4} ", "dim"), item.dot], item.run, item.pr)
+    room = max(width - sizes[0] - sizes[1] - 34, 10)
+    return Line([Span(" "), Span(item.mark[0] + " ", item.mark[1]), Span(cell(item.status[0], 10) + " ", item.status[1]), Span(cell(item.kind, 8) + " ", "dim"), Span(cell(item.name, sizes[0]) + " "), Span(cell(item.title, room) + " "), Span(cell(item.who, sizes[1]) + " ", item.mark[1]), Span(f"{since(item.stamp, now):>4} ", "dim"), item.dot], item.run, item.pr)
 
 
 def now_view(runs: list[Run], prs: list[dict[str, Any]], linked: Callable[[dict[str, Any]], Run | None], title: Callable[[Run], str], queued: list[tuple[str, str]], events: list[dict[str, Any]], now: float, width: int, band: Line) -> list[Line]:
