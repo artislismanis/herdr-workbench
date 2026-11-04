@@ -8,7 +8,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.usage import DAY, KEEP_DAYS, SAMPLES, sample, samples, top, totals  # noqa: E402
+from workshop.usage import DAY, KEEP_DAYS, SAMPLES, by_day, sample, samples, top, totals  # noqa: E402
 
 
 class Sampling(unittest.TestCase):
@@ -54,3 +54,15 @@ class Totals(unittest.TestCase):
         now = datetime(2026, 11, 2, 10).timestamp()
         event = {"at": "2026-11-02T09:00:00Z", "usd": 1.0, "step": "tasks"}
         self.assertEqual(top([event], now), ("not recorded", "tasks"))
+
+
+class Days(unittest.TestCase):
+    def test_each_day_has_a_slot_and_an_empty_one_is_a_gap(self):
+        now = datetime(2026, 11, 4, 12).timestamp()
+        rows = [{"at": now - 2 * DAY, "cpu": 5, "ram": 10, "five": 30, "agents": 2}, {"at": now, "cpu": 50, "ram": 20, "five": 60, "agents": 1}]
+        found = by_day(rows, [], now, 4)
+        self.assertEqual([day and day["five"] for day in found], [None, 30, None, 60])
+
+
+if __name__ == "__main__":
+    unittest.main()
