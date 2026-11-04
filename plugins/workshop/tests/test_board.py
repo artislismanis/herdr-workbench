@@ -1389,6 +1389,17 @@ class Keys(unittest.TestCase):
         self.board.press(27)
         self.assertEqual(len([line for line in self.board.lines(WIDE) if line.run]), 2)
 
+    def test_a_tab_gets_a_dot_when_something_new_needs_you_there(self):
+        self.assertNotIn("•", self.board.header().text)
+        self.store.save(run("3", "parked"))
+        self.board.seen = None
+        self.board.reload()
+        tabs = [span.text for span in self.board.header().spans if span.action]
+        self.assertEqual([tab.split()[1] for tab in tabs if "•" in tab], ["Delivery"])
+        self.board.tab = DELIVERY
+        self.board.header()
+        self.assertNotIn("•", self.board.header().text)
+
     def test_no_prepare_key_away_from_the_backlog(self):
         self.board.tab = REVIEW
         self.assertNotIn("p prepare", self.board.footer().text)

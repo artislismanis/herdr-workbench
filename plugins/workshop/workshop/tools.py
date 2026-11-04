@@ -197,6 +197,11 @@ class Tools:
         if notes:
             run("hunk", "session", "comment", "apply", "--repo", str(work), "--stdin", stdin=json.dumps({"comments": notes}))
 
+    def mark(self, pane: str, label: str) -> None:
+        """The run's state beside its workspace in herdr's sidebar, as the $workshop token. Best effort: a closed workspace is fine."""
+        token = ["--token", f"workshop={label}"] if label else ["--clear-token", "workshop"]
+        subprocess.run(["herdr", "workspace", "report-metadata", pane.split(":")[0], "--source", "workshop", *token], capture_output=True)
+
     def notify(self, title: str, body: str) -> None:
         # Best effort: a notification must never stop a run.
         subprocess.run(["herdr", "notification", "show", title, "--body", body, "--sound", "request"], capture_output=True)

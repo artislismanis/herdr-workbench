@@ -16,17 +16,18 @@ from typing import Any
 
 from .backlog import SNAPSHOT, poll
 from .board import show
-from .boardview import full_pile
+from .boardview import full_pile, waiting
 from .chat import CHAT, Chat
 from .doctor import doctor
 from .engine import PREFIX, STOPS, SWEEP_EVERY, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
+from .remind import remind
 from .schedule import schedule
 from .shell import ToolError, run, run_json
 from .sources import CLAIMS, CiSource, PrepareSource, PullRequestSource, ReplySource, Source, SweepSource, make_source
 from .stats import stats
 from .store import Run, Store
-from .throttle import Throttle, usage_path
+from .throttle import DEFAULTS, Throttle, usage_path
 from .system import Meter, agents_open
 from .tools import Tools
 from .usage import sample
@@ -251,6 +252,16 @@ def check_tickets(engine: Engine) -> None:
 
 def running(engine: Engine) -> list[Run]:
     return [r for r in engine.store.all() if r.status == "running" and not r.preparing]  # a talk waits on you, so it takes no slot
+
+
+def look_after(engine: Engine, cfg: dict[str, Any]) -> None:
+    """Every 5 minutes, with no API calls: reminds you of what's waited, and puts each run's state back in herdr's sidebar, which forgets it on a restart."""
+    runs = engine.store.all()
+    for run in runs:
+        engine.show(run)
+    limits = DEFAULTS | cfg.get("throttle", {})
+    found = waiting(runs, engine.store.read(SNAPSHOT).get("prs", {}).get("items", []), engine.reviewable, engine.store.history())
+    remind(engine.store, found, time.time(), engine.tools.notify, (tuple(limits["work_hours"]), limits["work_days"]))
 
 
 def read_limits(engine: Engine) -> None:
@@ -607,6 +618,7 @@ def main(argv: list[str]) -> int:
             case "sample":
                 read_limits(engine)
                 sample(root, engine.throttle.snapshot(), agents_open(), Meter())
+                look_after(engine, cfg)
             case "sweep":
                 waited(root, lambda: print(engine.explain(begin_sweep(engine, cfg, argv[1], argv[2]))))
             case "review":

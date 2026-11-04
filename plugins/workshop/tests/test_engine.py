@@ -89,6 +89,14 @@ class Briefs(unittest.TestCase):
         self.tools.statuses[run.agent] = "idle"
         return self.engine.advance(run)
 
+    def test_the_sidebar_follows_the_run(self):
+        run = self.finish("Tasks.\n\nVERDICT: READY\n")
+        self.assertEqual(self.tools.marked[run.pane], "working")
+        self.engine.save(replace(run, status="parked"))
+        self.assertEqual(self.tools.marked[run.pane], "fix")
+        self.engine.save(replace(run, status="done", landed="merged"))
+        self.assertEqual(self.tools.marked[run.pane], "")
+
     def test_a_report_for_a_gate_without_a_brief_goes_back_once(self):
         run = self.finish("Tasks.\n\nVERDICT: READY\n")
         self.assertEqual((run.status, run.current["id"]), ("running", "tasks"))
@@ -1330,7 +1338,10 @@ class FakeTools:
         self.lost, self.boards, self.rerequested = set(), [], []
         self.heads, self.ancestor = ["one", "two"], True
         self.ci, self.ci_head = [], ""
+        self.marked = {}
 
+    def mark(self, pane, label):
+        self.marked[pane] = label
 
     def start_command(self, command, work, output, finished, then=""):
         self.commands.append(command)
