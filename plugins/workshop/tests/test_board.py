@@ -728,6 +728,11 @@ class Colours(unittest.TestCase):
         self.assertEqual(pairs[styles["on-others"]], (0, 6))
         self.assertEqual(pairs[styles["row-"]], (-1, 8))
 
+    def test_others_rows_stay_darker_than_the_selection(self):
+        styles, pairs = self.hues(256)
+        self.assertEqual(pairs[styles["row-theirs"]], (0, 8))
+        self.assertEqual(styles["theirs"], styles["dim"])
+
     def test_bright_colours_fall_back_on_eight(self):
         styles, pairs = self.hues(8)
         self.assertEqual(pairs[styles["red"]], (1, -1))
