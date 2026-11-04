@@ -11,7 +11,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
-from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Board  # noqa: E402
+from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Ask, Board  # noqa: E402
 from workshop.boardview import Line, Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, pipe, pull, pull_status, pull_story, pulls, refs, run_style, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
@@ -867,6 +867,50 @@ class Keys(unittest.TestCase):
         self.assertIn("› Run it again", joined(self.board.note(80)))
         self.assertEqual(self.sent(), ("retry", "1"))
 
+    def test_a_stop_offers_a_talk_and_it_leaves_the_card_for_later(self):
+        self.stopped()
+        self.board.press(ord("a"))
+        self.assertIn("Talk it through", joined(self.board.note(80)))
+        while self.board.asking.options[self.board.choice][1] != "talk":
+            self.board.press(curses.KEY_DOWN)
+        self.assertEqual(self.sent(), ("talk", "1"))
+        self.assertIsNone(self.board.asking)
+        self.assertEqual(self.board.follow, "")
+
+    def test_a_talk_is_never_the_default(self):
+        self.board.begin_note(Ask("1", "Which API?", (), (("Talk it through with Claude first", "talk", ""),), "Answer", "answer"))
+        self.assertEqual(self.board.choice, 1)
+
+    def click_pr(self, url, at=600.0, **found):
+        self.store.write("shown.json", {"url": url, "at": at, **found})
+        self.board.seen = None
+        self.board.reload()
+
+    def test_a_clicked_pr_is_selected_on_review(self):
+        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 1.0, "error": "", "items": [pr()]}})
+        self.click_pr("u")
+        self.assertEqual((self.board.tab, self.board.open), (REVIEW, ("#pr", "u")))
+
+    def test_a_clicked_draft_from_delivery_selects_its_run(self):
+        self.store.save(run("3", "done", pr="d"))
+        self.click_pr("d")
+        self.assertEqual((self.board.tab, self.board.open), (DELIVERY, ("r", "3")))
+
+    def test_a_clicked_pr_not_on_the_board_shows_what_the_click_fetched(self):
+        self.click_pr("x", pr=pr(url="x", title="Someone's change"))
+        self.assertIn("Someone's change", joined(self.board.lines(WIDE)))
+
+    def test_an_old_click_selects_nothing(self):
+        self.click_pr("u", at=100.0)
+        self.assertIsNone(self.board.open)
+
+    def test_the_status_line_says_which_repo_the_pile_is_in(self):
+        self.store.save(run("3", "parked"))
+        self.store.save(Run(repo="q", key="9", repo_path="/", base="main", pipeline=PIPELINE, status="parked"))
+        self.board.seen = None
+        self.board.reload()
+        self.assertRegex(self.board.status().text, r"waiting: (r 1, q 1|q 1, r 1)")
+
     def test_words_on_a_stop_steer_the_next_try(self):
         self.stopped()
         self.board.press(ord("a"))
@@ -1561,7 +1605,9 @@ class Keys(unittest.TestCase):
         self.at_gate()
         self.board.press(ord("a"))
         self.board.press(curses.KEY_DOWN)
+        self.board.press(curses.KEY_DOWN)
         self.assertIn("› Say what to change", joined(self.board.note(100)))
+        self.board.press(curses.KEY_UP)
         self.board.press(curses.KEY_UP)
         self.assertIn("› Start building", joined(self.board.note(100)))
         self.type_in("rename it")
@@ -1570,6 +1616,7 @@ class Keys(unittest.TestCase):
     def test_your_own_words_need_words(self):
         self.at_gate()
         self.board.press(ord("a"))
+        self.board.press(curses.KEY_DOWN)
         self.board.press(curses.KEY_DOWN)
         self.board.press(10)
         self.assertIsNotNone(self.board.asking)

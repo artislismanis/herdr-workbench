@@ -7,6 +7,7 @@ import sys
 import textwrap
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
@@ -22,6 +23,8 @@ from .throttle import DEFAULTS
 from .usage import samples
 
 SKIPPED = "skipped.json"
+SHOWN = "shown.json"  # a PR link clicked anywhere in herdr, for the board to select
+FRESH_CLICK = 30  # seconds a click still counts when the board opens because of it
 TABS = ("Now", "Backlog", "Delivery", "Review", "Operate", "Usage")  # what to do, the order work moves through, then how it went
 NOW, BACKLOG, DELIVERY, REVIEW, OPERATE, USAGE = range(6)
 TOP = 1  # a gap under herdr's tab bar
@@ -49,6 +52,7 @@ AI_REVIEW_OTHER = ord("A")  # the mode you don't usually use
 CLAIM = ord("m")
 PREPARE = ord("p")
 FIND = ord("/")
+TALK = "talk"
 CHOOSE_REPO = "choose-repo"  # stays on the board: its answer leads to the next question
 RENEWED = ("re-review", "new commits")
 ENTERS = (10, 13, curses.KEY_ENTER)
@@ -110,11 +114,12 @@ class Board:
         self.drafts: dict[tuple[str, str], str] = {}  # what esc left, for when you come back
         self.regions: list[tuple[int, int, int, Action]] = []
         self.finding, self.filter = False, ""  # typing a filter, and what the list is narrowed to
+        self.handled = clock() - FRESH_CLICK  # a click that opened the board still selects; older ones don't
         self.reload()
         self.looked = self.piles()  # what each tab held when you last looked, so what's arrived since gets a dot
 
     def stamp(self) -> tuple[int, ...]:
-        paths = (self.store.root / "runs", self.store.root / "events.jsonl", self.store.root / SNAPSHOT, self.store.root / SKIPPED)
+        paths = (self.store.root / "runs", self.store.root / "events.jsonl", self.store.root / SNAPSHOT, self.store.root / SKIPPED, self.store.root / SHOWN)
         return tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in paths)
 
     def reload(self) -> None:
@@ -123,6 +128,10 @@ class Board:
             waiting = self.picked and self.picked in self.your_pile()
             self.runs, self.events = self.store.all(), self.store.history()
             self.snapshot, self.skipped = self.store.read(SNAPSHOT), self.store.read(SKIPPED)
+            self.clicked = self.store.read(SHOWN)
+            if self.clicked.get("at", 0) > self.handled:
+                self.handled = self.clicked["at"]
+                self.show(self.clicked["url"])
             if waiting and self.picked not in self.your_pile():  # dealt with, so the next one is ready
                 self.picked, self.viewing, self.side, self.earlier = None, "", 0, False
 
@@ -175,6 +184,15 @@ class Board:
         path = self.store.files(run) / name
         return (name, path.read_text(encoding="utf-8", errors="replace")) if path.exists() else ("", "")
 
+    def show(self, url: str) -> None:
+        """Where the clicked PR is on the board: its row on Review, or the delivery that made it. Anywhere else, its detail from the click's one call."""
+        ref = ("#pr", url)
+        run = next((r for r in self.building() if r.pr == url and not r.landed), None)
+        tab, ref = (DELIVERY, (run.repo, run.key)) if run and not any(p["url"] == url for p in self.pr_items()) else (REVIEW, ref)
+        self.tab, self.picked, self.open, self.viewing, self.filter = tab, ref, ref, "", ""
+        if self.clicked.get("error"):
+            self.say(self.clicked["error"])
+
     def ticket(self, ref: tuple[str, str] | None) -> dict[str, Any] | None:
         if not ref or ref[0] != "#ticket":
             return None
@@ -184,7 +202,7 @@ class Board:
     def detail(self, ref: tuple[str, str] | None, width: int) -> list[Line]:
         if (item := self.ticket(ref)) and ref:
             return ticket_view(ref[1], item, self.skipped, width)
-        if pr := next((p for p in self.pr_items() if ("#pr", p["url"]) == ref), None):
+        if pr := next((p for p in self.pr_items() if ("#pr", p["url"]) == ref), None) or (self.clicked.get("pr") if ref == ("#pr", self.clicked.get("url")) else None):
             return pull(pr, width, self.pull_context(pr, width), self.linked(pr))
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:
@@ -453,6 +471,11 @@ class Board:
         return {ANSWER: "a answer", DROP: "d drop"}
 
     def answers(self, run: Run) -> list[Ask]:
+        """Each card can also open a talk about it, for when one answer isn't enough."""
+        talk = (("Talk it through with Claude first", TALK, ""),)
+        return [found._replace(options=(*found.options, *talk)) for found in self.cards(run)]
+
+    def cards(self, run: Run) -> list[Ask]:
         """One card per decision, each with how it fits in. No brief from the agent means the reason, and the report stays above, because a wall of it here helps nobody."""
         options, typed, command = self.engine.choices(run)
         report = self.stop_report(run)[1]
@@ -520,7 +543,7 @@ class Board:
     def begin_note(self, asking: Ask) -> None:
         self.asking, self.typed = asking, self.drafts.get(asking.key + asking.command, "")
         self.cursor = len(self.typed)
-        self.choice = len(asking.options) if self.typed or not asking.options else 0
+        self.choice = len(asking.options) if self.typed or all(command == TALK for _, command, _ in asking.options) else 0  # a talk is offered, never the default
 
     def insert(self, text: str) -> None:
         self.typed = self.typed[: self.cursor] + text + self.typed[self.cursor :]
@@ -545,6 +568,10 @@ class Board:
             typing = self.choice == len(asking.options)
             command, words = (asking.command, self.typed.strip()) if typing else asking.options[self.choice][1:]
             # While another command runs, the words stay put for a second enter.
+            if command == TALK and not self.refreshing:  # the run stays stopped, and its card is here when you come back
+                self.asking, self.series = None, False
+                self.send(TALK, asking.key)
+                return
             if (words or not typing) and not self.refreshing:
                 self.drafts.pop(asking.key + asking.command, None)
                 if command == CHOOSE_REPO:
@@ -668,7 +695,9 @@ class Board:
         times = [source.get("polled_at", 0) for source in sources]
         age = f"{kind} {ago(self.clock() - min(times))} old" if times and min(times) else f"{kind} not polled"
         held = self.engine.throttle.hold_new(len([r for r in self.runs if r.status == "running"])) or full_pile(self.runs, self.snapshot.get("prs", {}).get("items", []), self.cfg.get("max_waiting", 0))
-        return Line([*usage_line(self.engine.throttle.pace(), self.meter.read()), Span(f"  {age}", "dim"), Span(f"   held: {held}" if held else "", "yellow")])
+        repos = Counter(found.repo for found in self.waiting())
+        spread = "   waiting: " + ", ".join(f"{repo} {count}" for repo, count in repos.most_common()) if len(repos) > 1 else ""  # which repo the pile is in, once there's more than one
+        return Line([*usage_line(self.engine.throttle.pace(), self.meter.read()), Span(f"  {age}", "dim"), Span(spread, "dim"), Span(f"   held: {held}" if held else "", "yellow")])
 
     def footer(self, width: int = 120) -> Line:
         if self.refreshing:
