@@ -234,7 +234,7 @@ The same poll saves your open PRs, PRs you're asked to review or have reviewed, 
 
 ## Run files
 
-Briefs, reports and notes live in `~/.local/state/workshop/runs/<repo>--<key>/`, not in the repo, so they outlive the worktree. Each round's report, notes and replies are kept as `<name>-<n>`. On the board a file sits under the step that wrote it, the latest round shows, and `+n older` opens the earlier rounds in place. Only what the run started from and what people added sit with the ticket. Agents reach the folder through `--add-dir`. Each agent step is typed one line pointing at `prompt-<step>.md`, the full prompt it was given, kept round by round and left off the board.
+Briefs, reports and notes live in `~/.local/state/workshop/runs/<repo>--<key>/`, not in the repo, so they outlive the worktree. Each round's report, notes and replies are kept as `<name>-<n>`. On the board a file sits under the step that wrote it, the latest round shows, and `+n older` opens the earlier rounds in place. Only what the run started from and what people added sit with the ticket. Agents reach the folder through `--add-dir`. Each agent step is typed one line pointing at `prompt-<step>-<n>.md`, the full prompt for that round, a new file each round so an agent that keeps its session never mistakes it for one it has done. They stay off the board.
 
 A step can set `output`, the file it writes, and `publish`: `pr` makes it the PR description and `ticket` posts it as a ticket comment.
 

@@ -887,25 +887,28 @@ class DeliveryRounds(unittest.TestCase):
     def test_the_agent_gets_one_typed_line_and_its_prompt_in_a_file(self):
         self.built()
         files = self.engine.store.files(self.run)
-        self.assertEqual(self.tools.lines[-1], f"Read `{files / 'prompt-ai-review.md'}` and follow it.")
-        self.assertIn("Be sceptical", (files / "prompt-ai-review.md").read_text())
-        self.assertIn("Build the change", (files / "prompt-build.md").read_text())
+        self.assertEqual(self.tools.lines[-1], f"Read `{files / 'prompt-ai-review-1.md'}` and follow it.")
+        self.assertIn("Be sceptical", (files / "prompt-ai-review-1.md").read_text())
+        self.assertIn("Build the change", (files / "prompt-build-1.md").read_text())
 
     def test_a_skill_first_is_typed_so_it_runs_as_one(self):
         (self.root / ".workshop" / "prompts").mkdir(parents=True)
         (self.root / ".workshop" / "prompts" / "ai-review.md").write_text("/our-review --strict\n\nLook hard at the tests.\n")
         self.built()
-        written = self.engine.store.files(self.run) / "prompt-ai-review.md"
+        written = self.engine.store.files(self.run) / "prompt-ai-review-1.md"
         self.assertEqual(self.tools.lines[-1], f"/our-review --strict Then read `{written}` and follow it.")
         self.assertTrue(written.read_text().startswith("Look hard at the tests."))
 
-    def test_each_round_keeps_what_it_was_told(self):
+    def test_each_round_is_told_with_a_line_it_has_not_seen(self):
         self.built()
         self.reviewed("CHANGES_NEEDED")
         self.built()
         files = self.engine.store.files(self.run)
         self.assertIn("Be sceptical", (files / "prompt-ai-review-1.md").read_text())
-        self.assertIn("git diff tree1 tree2", (files / "prompt-ai-review.md").read_text())
+        self.assertIn("git diff tree1 tree2", (files / "prompt-ai-review-2.md").read_text())
+        self.assertIn("asked for changes", (files / "prompt-build-2.md").read_text())
+        builds = [line for line in self.tools.lines if "prompt-build" in line]
+        self.assertEqual(len(set(builds)), len(builds))
 
     def test_a_review_that_stopped_hasnt_reviewed_anything(self):
         self.built()

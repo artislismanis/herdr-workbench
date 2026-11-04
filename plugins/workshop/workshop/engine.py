@@ -887,8 +887,9 @@ class Engine:
             text = text.replace(mark, value)
         run.next_prompt, run.sent_back = "", ""
         # One short typed line: a long paste reaches the agent as pasted text, where a /skill is only words.
-        sent = self.store.files(run) / f"prompt-{step['id']}.md"
-        self._keep_earlier(sent)
+        # A new name each round: an agent that keeps its session reads the same line twice as nothing new to do.
+        told = sum(1 for path in self.store.files(run).glob("prompt-*.md") if re.fullmatch(rf"prompt-{re.escape(step['id'])}-\d+\.md", path.name))
+        sent = self.store.files(run) / f"prompt-{step['id']}-{told + 1}.md"
         first, _, rest = text.partition("\n")
         skill = first if re.fullmatch(r"/[\w:.-]+( .*)?", first) else ""
         sent.write_text((rest if skill else text).strip() + "\n", encoding="utf-8")
