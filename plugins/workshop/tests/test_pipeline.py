@@ -9,7 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.pipeline import MARK, PipelineError, expand, load, pipeline_source, prompt_source, prompt_text, validate  # noqa: E402
+from workshop.pipeline import MARK, PipelineError, load, pipeline_source, prompt_source, prompt_text, validate  # noqa: E402
 
 
 def agent(**extra):
@@ -254,10 +254,9 @@ class StepLists(unittest.TestCase):
         self.rejects('steps = ["qa"]\n', "goto names an unknown step: implement")
         self.rejects("steps = []\n", "non-empty")
 
-    def test_a_pipeline_of_whole_steps_still_loads(self):
-        self.assertEqual(expand({"name": "x", "steps": [agent()]}, "x"), {"name": "x", "steps": [agent()]})
-        (self.mine / "x.toml").write_text('name = "x"\n[[steps]]\nid = "build"\nkind = "agent"\nprompt = "implement.md"\n')
-        self.assertEqual(load("x")["steps"], [agent()])
+    def test_steps_are_names(self):
+        self.rejects('[[steps]]\nid = "build"\nkind = "agent"\nprompt = "implement.md"\n', "steps is a list of step names")
+        self.rejects("ticket_stage = \"Plan\"\n", "steps is a list of step names")
 
     def test_yours_for_the_repo_beats_the_repos_which_beats_yours_and_workshops(self):
         self.assertEqual(pipeline_source("ticket", self.repo, "r"), "workshop")

@@ -154,10 +154,10 @@ def blocks() -> dict[str, dict[str, Any]]:
     return tomllib.loads(STEPS.read_text(encoding="utf-8"))["step"]
 
 
-def expand(raw: Any, name: str) -> Any:
+def expand(raw: dict[str, Any], name: str) -> dict[str, Any]:
     """A list of step names to the steps themselves: workshop's, changed by any [step.<name>] table, and yours, which a table defines."""
-    if not isinstance(raw, dict) or not isinstance(raw.get("steps"), list) or not all(isinstance(step, str) for step in raw["steps"]):
-        return raw  # [[steps]] tables, each a whole step, which still load
+    if not isinstance(raw.get("steps"), list) or not all(isinstance(step, str) for step in raw["steps"]):
+        raise PipelineError(f'{name}: steps is a list of step names, like ["implement", "qa", "open-pr"]')
     tables = raw.get("step", {})
     if not isinstance(tables, dict) or not all(isinstance(table, dict) and isinstance(table.get("then", {}), dict) for table in tables.values()):
         raise PipelineError(f"{name}: each [step.<name>] is a table of settings")
