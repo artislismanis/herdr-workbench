@@ -1228,6 +1228,31 @@ class Keys(unittest.TestCase):
             thread.call_args.kwargs["target"]()
         self.tools.workshop.assert_called_once_with("reply", url)
 
+    def test_failing_ci_on_your_pr_offers_a_fix_before_a_reply(self):
+        self.on_pr(mine=True, state="checks failing", checks="FAILURE", threads=2)
+        self.assertIn("a fix CI", self.board.footer().text)
+        url = self.board.picked[1]
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(ord("a"))
+            thread.call_args.kwargs["target"]()
+        self.tools.workshop.assert_called_once_with("fix-ci", url)
+
+    def test_a_fix_under_way_offers_no_second_one(self):
+        self.on_pr(mine=True, state="checks failing", checks="FAILURE")
+        self.store.save(run("ci-7", pr=self.board.picked[1], fixing=True))
+        self.board.seen = None
+        self.board.reload()
+        self.assertNotIn("a fix CI", self.board.footer().text)
+
+    def test_a_delivered_draft_with_failing_ci_offers_a_fix_from_delivery(self):
+        self.on_pr(url="https://example.test/pr/9", mine=True, state="draft", checks="ERROR")
+        self.store.save(run("9", status="done", pr="https://example.test/pr/9"))
+        self.board.engine.delivered.return_value = True
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab, self.board.picked = DELIVERY, ("r", "9")
+        self.assertIn("a fix CI", self.board.footer().text)
+
     def test_a_reply_under_way_offers_no_second_one(self):
         self.on_pr(mine=True, state="changes requested")
         self.store.save(run("reply-7", pr=self.board.picked[1], replying=True))

@@ -392,10 +392,10 @@ def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
         return f"{advice}. g opens it in hunk, beside the agent, so you can ask it anything. prefix+shift+u there posts what you keep.".removeprefix(". ")
     if run and run.with_you:
         return "Check the fix and the replies below. g opens the fix in hunk, beside the agent: tell it what to change. prefix+shift+u there pushes the fix and sends the replies."
+    if pr["mine"] and pr["state"] == "checks failing":
+        return "CI is failing. a has an agent find out why and fix it, for you to check before it's pushed."
     if pr["mine"] and pr["state"] in RESPOND:
         return "a has an agent draft the fixes and replies, for you to check."
-    if pr["mine"] and pr["state"] == "checks failing":
-        return "CI is failing. The PR's checks say why."
     if pr["mine"] and pr["state"] == "approved":
         return "It's approved, so it's ready to merge."
     if pr["move"] == "you" and not pr["mine"] and pr["state"] != "draft":

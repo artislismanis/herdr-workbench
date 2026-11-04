@@ -23,7 +23,7 @@ from .engine import PREFIX, STOPS, SWEEP_EVERY, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
 from .schedule import schedule
 from .shell import ToolError, run, run_json
-from .sources import CLAIMS, PrepareSource, PullRequestSource, ReplySource, Source, SweepSource, make_source
+from .sources import CLAIMS, CiSource, PrepareSource, PullRequestSource, ReplySource, Source, SweepSource, make_source
 from .stats import stats
 from .store import Run, Store
 from .throttle import Throttle, usage_path
@@ -37,7 +37,7 @@ DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see
 TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "rerequest": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "rerequest": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 SHOWN_SECONDS = 1  # long enough to see it worked, with nothing to dismiss
@@ -80,6 +80,8 @@ def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
             return SweepSource(make_source(run.repo, repo, cfg.get("jira", {})), run.sweeping, declined)
         if run.replying:
             return ReplySource(path)
+        if run.fixing:
+            return CiSource(path)
         return PullRequestSource(path, review_settings(cfg, repo)["claim"], chat_of(cfg)) if run.reviewing else make_source(run.repo, repo, cfg.get("jira", {}))
 
     return find
@@ -124,6 +126,16 @@ def begin_reply(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
     key = f"reply-{number}"
     again = engine.store.exists(name, key) and engine.review_ready(engine.store.load(name, key))
     return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("reply_pipeline", "reply"), path, name), source, restart=again, pr=url.rstrip("/"), replying=True)
+
+
+def begin_fix_ci(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
+    name, number = repo_of(cfg, url)
+    repo = cfg["repos"][name]
+    path = Path(repo["path"]).expanduser()
+    source = CiSource(path)
+    key = f"ci-{number}"
+    again = engine.store.exists(name, key) and engine.store.load(name, key).status == "done"
+    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("ci_pipeline", "fix-ci"), path, name), source, restart=again, commands=repo.get("commands"), pr=url.rstrip("/"), fixing=True)
 
 
 def take_me_to(engine: Engine, run: Run) -> None:
@@ -586,6 +598,8 @@ def main(argv: list[str]) -> int:
                 engine.tools.rerequest(Path(cfg["repos"][name]["path"]).expanduser(), number)
             case "reply":
                 waited(root, lambda: print(engine.explain(begin_reply(engine, cfg, argv[1]))))
+            case "fix-ci":
+                waited(root, lambda: print(engine.explain(begin_fix_ci(engine, cfg, argv[1]))))
             case "claim":
                 waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
             case "prepare":

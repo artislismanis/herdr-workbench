@@ -144,6 +144,16 @@ class Validate(unittest.TestCase):
         validate({"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "nope.md"}]})
         self.rejects({"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "Nope"}]}, "a prompt is a file name")
 
+    def test_a_ci_step_takes_a_time_limit_and_a_rule_for_failing(self):
+        steps = [agent(id="fix"), {"id": "ci", "kind": "ci", "minutes": 30, "then": {"FAILED": {"goto": "fix", "max": 2}}}]
+        validate({"name": "x", "steps": steps})
+        self.rejects({"name": "x", "steps": [agent(id="fix"), {"id": "ci", "kind": "ci", "prompt": "x.md"}]}, "a ci step takes only")
+        self.rejects({"name": "x", "steps": [agent(id="fix"), {"id": "ci", "kind": "ci", "then": {"PASS": {"park": "no"}}}]}, "then names PASS")
+
+    def test_the_fix_ci_pipeline_checks_locally_before_it_pushes(self):
+        self.assertEqual([(s["id"], s["kind"]) for s in load("fix-ci")["steps"]], [("fix-ci", "agent"), ("qa", "command"), ("ci", "ci")])
+        self.assertEqual(load("fix-ci")["steps"][1]["then"]["FAILED"]["goto"], "fix-ci")
+
     def test_draft_pr_takes_no_options(self):
         self.rejects({"name": "x", "steps": [{"id": "p", "kind": "draft_pr", "prompt": "x"}]}, "takes no options")
 

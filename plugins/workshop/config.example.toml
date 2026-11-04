@@ -72,6 +72,7 @@ label = "ai"
 # environments = { main = "prod", dev = "preprod" }  # replaces the default, which also has master and preprod
 # review_pipeline = "review" # the same, for AI review of a PR
 # reply_pipeline = "reply"   # and for answering comments on your own PR
+# ci_pipeline = "fix-ci"     # and for fixing your PR's failing CI
 # [repos.my-app.commands]
 # qa = "npm test"            # the qa step runs this. Without it, the step is skipped
 

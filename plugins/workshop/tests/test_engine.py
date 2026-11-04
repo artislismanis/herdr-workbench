@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.engine import PREFIX, STEP_TIMEOUT, Engine, Park  # noqa: E402
+from workshop.engine import CI_SETTLE, PREFIX, STEP_TIMEOUT, Engine, Park, ci_state  # noqa: E402
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, Item, PrepareSource, PullRequestSource, SweepSource, Ticket  # noqa: E402
@@ -1087,6 +1087,121 @@ class Replies(unittest.TestCase):
         self.assertIn("prefix+shift+u", self.engine.next_action(run))
 
 
+class FixingCi(unittest.TestCase):
+    URL = "https://example.test/o/r/pull/7"
+    RED = [{"name": "test", "state": "FAILURE", "link": "https://ci.test/1"}]
+    GREEN = [{"name": "test", "state": "SUCCESS", "link": "https://ci.test/2"}, {"name": "lint", "state": "SKIPPED", "link": ""}]
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.tools, self.source = FakeTools(self.root), mock.Mock()
+        self.source.get.return_value = Ticket("ci-7", "Mine", "Adds a thing", self.URL)
+        self.source.guard.return_value = ""
+        self.tools.behind, self.tools.pr = 1, {"isDraft": True}
+        self.now = 1000.0
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: self.now)
+
+    def start(self):
+        return self.engine.start("r", "ci-7", self.root, "main", load("fix-ci"), self.source, pr=self.URL, fixing=True)
+
+    def agent_says(self, run, verdict):
+        (self.engine.store.files(run) / "fix-ci.md").write_text(f"test failed: a typo\n\nVERDICT: {verdict}\n")
+        self.tools.statuses[run.agent] = "idle"
+        return self.engine.advance(run)
+
+    def later(self, run, seconds=CI_SETTLE + 1):
+        self.now += seconds
+        return self.engine.advance(run)
+
+    def test_a_drafts_fix_is_pushed_and_watched_until_it_passes(self):
+        run = self.start()
+        self.assertIn("gh pr checks https://example.test/o/r/pull/7", self.tools.prompts[0][1])
+        self.assertIn("You may rerun failed checks. Do not commit, push", self.tools.prompts[0][1])
+        run = self.agent_says(run, "FIXED")
+        self.assertEqual((self.tools.commits, self.tools.pushes, run.current["id"], run.phase), (["Fix CI on 7"], 1, "ci", "pushed"))
+        self.tools.ci = self.RED
+        self.assertEqual(self.engine.advance(run).current["id"], "ci")  # too soon to count what CI says
+        self.tools.ci = self.GREEN
+        run = self.later(run)
+        self.assertEqual((run.status, run.label, self.tools.removed), ("done", "green", [self.tools.work]))
+        self.assertIn("Workshop: ci-7 green", self.tools.notes)
+
+    def test_once_your_team_can_see_the_pr_the_fix_waits_for_your_go(self):
+        self.tools.pr = {"isDraft": False}
+        run = self.agent_says(self.start(), "FIXED")
+        self.assertEqual((run.status, run.label, self.tools.pushes), ("waiting", "decide", 0))
+        self.assertEqual(self.tools.reviews, [("p1", "origin/their-branch")])
+        self.assertEqual(self.engine.choices(run)[0], [("Push it", "approve", "")])
+        run = self.engine.approve(run)
+        self.assertEqual((run.status, self.tools.pushes, run.phase), ("running", 1, "pushed"))
+
+    def test_saying_what_to_change_sends_it_back_to_the_agent(self):
+        self.tools.pr = {"isDraft": False}
+        run = self.engine.reject(self.agent_says(self.start(), "FIXED"), "Fix the typo, don't rename it")
+        self.assertEqual((run.current["id"], self.tools.pushes), ("fix-ci", 0))
+        self.assertIn("Fix the typo", (self.engine.store.files(run) / "feedback.md").read_text())
+        self.assertIn("feedback.md", self.tools.prompts[-1][1])
+
+    def test_still_red_goes_back_with_what_failed_then_stops_after_two_rounds(self):
+        run = self.agent_says(self.start(), "FIXED")
+        self.tools.ci = self.RED
+        run = self.later(run)
+        self.assertEqual(run.current["id"], "fix-ci")
+        self.assertIn("- test: FAILURE https://ci.test/1", (self.engine.store.files(run) / "ci.md").read_text())
+        self.assertIn("CI is failing on", self.tools.prompts[-1][1])
+        for _ in range(2):
+            run = self.later(self.agent_says(run, "FIXED"))
+        self.assertEqual(run.status, "parked")
+        self.assertIn("ci still says FAILED after 2 rounds", run.reason)
+
+    def test_a_rerun_pushes_nothing_and_waits_for_the_checks(self):
+        self.tools.behind = 0
+        run = self.agent_says(self.start(), "RERUN")
+        self.assertEqual((run.current["id"], run.phase, self.tools.pushes, self.tools.commands), ("ci", "pushed", 0, []))
+        self.tools.ci = [{"name": "test", "state": "IN_PROGRESS", "link": ""}]
+        self.assertEqual(self.later(run).status, "running")
+
+    def test_ci_that_never_finishes_or_never_starts_stops(self):
+        for checks, why in (([{"name": "test", "state": "QUEUED", "link": ""}], "hasn't finished after 60 minutes"), ([], "No checks ran")):
+            with self.subTest(why=why):
+                self.setUp()
+                run = self.agent_says(self.start(), "FIXED")
+                self.tools.ci = checks
+                run = self.later(run, 61 * 60)
+                self.assertEqual(run.status, "parked")
+                self.assertIn(why, run.reason)
+
+    def test_what_only_a_person_can_fix_stops_with_the_agents_report(self):
+        run = self.agent_says(self.start(), "NEEDS_YOU")
+        self.assertEqual((run.status, self.tools.pushes), ("parked", 0))
+        self.assertIn("only a person can do", run.reason)
+
+    def test_someone_elses_push_stops_it_rather_than_go_on(self):
+        run = self.agent_says(self.start(), "FIXED")
+        self.tools.ci, self.tools.ci_head = self.GREEN, "theirs1"
+        run = self.later(run)
+        self.assertEqual(run.status, "parked")
+        self.assertIn("someone else has pushed", run.reason)
+
+    def test_a_pr_workshop_delivered_is_fixed_in_its_checkout_which_stays(self):
+        delivery = Run(repo="r", key="7", repo_path=str(self.root), base="main", pipeline=load("ticket"), worktree=str(self.root / "delivered"), branch="workshop/7", pr=self.URL, status="done")
+        self.engine.store.save(delivery)
+        run = self.agent_says(self.start(), "FIXED")
+        self.assertEqual((run.worktree, run.branch, self.tools.worktrees), (str(self.root / "delivered"), "workshop/7", 0))
+        self.tools.ci = self.GREEN
+        run = self.later(run)
+        self.assertEqual((run.label, self.tools.removed, self.tools.closed_workspaces), ("green", [], ["p1"]))
+
+    def test_your_own_checkout_is_never_taken_over(self):
+        self.tools.pr_worktree = lambda repo, number, base: (self.root, "my-branch")
+        run = self.start()
+        self.assertEqual(run.status, "parked")
+        self.assertIn(f"my-branch is checked out in {self.root}", run.reason)
+
+    def test_one_failure_is_enough_and_skipped_checks_pass(self):
+        self.assertEqual([ci_state(c) for c in ([], [{"state": "SUCCESS"}, {"state": "NEUTRAL"}, {"state": "SKIPPED"}], [{"state": "PENDING"}, {"state": "SUCCESS"}], [{"state": "IN_PROGRESS"}, {"state": "ERROR"}])], ["none", "passed", "pending", "failed"])
+
+
 class Commands(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -1214,6 +1329,7 @@ class FakeTools:
         self.removed, self.closed_workspaces, self.remove_fails = [], [], False
         self.lost, self.boards, self.rerequested = set(), [], []
         self.heads, self.ancestor = ["one", "two"], True
+        self.ci, self.ci_head = [], ""
 
 
     def start_command(self, command, work, output, finished, then=""):
@@ -1297,6 +1413,9 @@ class FakeTools:
 
     def pr_state(self, url):
         return self.pr
+
+    def checks(self, url):
+        return self.ci_head or self.heads[0], list(self.ci)
 
     reaches = False
 

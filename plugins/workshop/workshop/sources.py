@@ -592,6 +592,13 @@ class ReplySource(PullRequestSource):
             run("gh", "api", "-X", "POST", f"repos/{{owner}}/{{repo}}/pulls/{number_of(key)}/comments/{comment}/replies", "-f", f"body={text}", cwd=self.repo)
 
 
+class CiSource(ReplySource):
+    """Your own PR with failing checks. The agent reads them itself, with whatever the repo's CI uses."""
+
+    def get(self, key: str) -> Ticket:
+        return PullRequestSource.get(self, key)
+
+
 class PrepareSource:
     """A talk about a ticket. It reads the ticket, and changes it only through publish and signed, which your go calls."""
 

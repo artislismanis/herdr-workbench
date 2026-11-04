@@ -14,6 +14,7 @@ from typing import Any, NamedTuple, Protocol
 from .backlog import SNAPSHOT
 from .boardview import ASK_AGAIN, RESPOND, SIGNS, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, live, now_view, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
+from .prs import FAILING
 from .review import decisions
 from .store import Run
 from .system import Meter
@@ -184,7 +185,7 @@ class Board:
     def pr_items(self) -> list[dict[str, Any]]:
         """A draft from delivery is still your self-review, on Delivery, until you let it go. Other drafts aren't in review, but a run on a PR shows nowhere else."""
         drafts = {r.pr for r in self.runs if self.engine.reviewable(r)}
-        return [p for p in self.snapshot.get("prs", {}).get("items", []) if p["url"] not in drafts and (p["state"] != "draft" or ((run := self.linked(p)) and run.on_a_pr and live(run)))]
+        return [p for p in self.snapshot.get("prs", {}).get("items", []) if ((run := self.linked(p)) and run.on_a_pr and live(run)) or (p["url"] not in drafts and p["state"] != "draft")]
 
     def run_of(self, ref: tuple[str, str] | None) -> Run | None:
         """The run behind a row. On a PR, what's working on it now comes before the delivery that made it."""
@@ -277,6 +278,9 @@ class Board:
         if key == AI_REVIEW and (pr := self.askable(lines)):
             self.send("rerequest", pr)
             return True
+        if key == AI_REVIEW and (pr := self.fixable(lines)):
+            self.send("fix-ci", pr)
+            return True
         if key == AI_REVIEW and (pr := self.answerable(lines)):
             self.send("reply", pr)
             return True
@@ -368,6 +372,16 @@ class Board:
         wanted = self.open or self.selected(lines)
         pr = next((p for p in self.pr_items() if ("#pr", p["url"]) == wanted), None)
         return pr["url"] if pr and pr["mine"] and pr["state"] == ASK_AGAIN else ""
+
+    def fixable(self, lines: list[Line]) -> str:
+        """Your PR with failing CI: its row, or the delivery that made the draft. CI comes before comments, as a fix can change what they're about."""
+        wanted = self.open or self.selected(lines)
+        run = self.run_of(wanted)
+        url = wanted[1] if wanted and wanted[0] == "#pr" else run.pr if run and self.engine.delivered(run) else ""
+        pr = next((p for p in self.snapshot.get("prs", {}).get("items", []) if p["url"] == url), None)
+        if pr is None or not pr["mine"] or pr["checks"] not in FAILING:
+            return ""
+        return "" if any(r.fixing and r.pr == url and r.status != "done" for r in self.runs) else url
 
     def answerable(self, lines: list[Line]) -> str:
         """The selected PR, if it's yours with comments an agent could answer."""
@@ -603,6 +617,7 @@ class Board:
         offers = [("a ai review", AI_REVIEW), (f"A ai review, {self.other_mode()}", AI_REVIEW_OTHER)] if self.unreviewed(lines) else []
         offers = [("a ai reply", AI_REVIEW)] if self.answerable(lines) else offers
         offers = [("a re-review", AI_REVIEW)] if self.askable(lines) else offers
+        offers = [("a fix CI", AI_REVIEW)] if self.fixable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run.pane if run else self.tab not in (NOW, REVIEW)) + [("o link", ord("o"))] * bool(self.link(lines)) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
