@@ -48,6 +48,14 @@ Start-ScheduledTask -TaskName win-bridge
 
 To remove it: Unregister-ScheduledTask win-bridge -Confirm:$false; Remove-Item -Recurse "$env:LOCALAPPDATA\\win-bridge"
 """
+# WSL stops a distro a while after its last terminal closes, and the bridge with it. A hidden sleep keeps it up.
+KEEP = """$run = New-ScheduledTaskAction -Execute conhost.exe -Argument "--headless wsl.exe -d DISTRO --exec sleep infinity"
+$keep = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName WSL-KeepAlive-DISTRO -Action $run -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME) -Settings $keep -Force > $null
+Start-ScheduledTask -TaskName WSL-KeepAlive-DISTRO
+
+To remove it: Unregister-ScheduledTask WSL-KeepAlive-DISTRO -Confirm:$false
+"""
 POLL = 25
 LIVE = 60  # a poll ends every POLL seconds, so longer than that without one means nobody's there
 STALE = {"open": 30, "toast": 600}  # a laptop waking up shouldn't open a burst of tabs
@@ -209,13 +217,16 @@ def setup(asked: list[str]) -> int:
     # Windows checks links against these before opening them, so nothing in WSL can make it open anything else.
     (CONFIG / "hosts").write_text(", ".join(f"'{h}'" for h in allowed if re.fullmatch(r"[A-Za-z0-9.-]+", h)))
     UNIT.parent.mkdir(parents=True, exist_ok=True)
-    UNIT.write_text(f"[Unit]\nDescription=win-bridge: toasts and links on Windows\n\n[Service]\nExecStart={Path(__file__).resolve()} serve\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n")
+    UNIT.write_text(f"[Unit]\nDescription=win-bridge: toasts and links on Windows\n\n[Service]\nEnvironment=WIN_BRIDGE_PORT={PORT}\nExecStart={Path(__file__).resolve()} serve\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n")
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
     subprocess.run(["systemctl", "--user", "enable", "--now", "win-bridge.service"], check=True)
     subprocess.run(["systemctl", "--user", "restart", "win-bridge.service"], check=True)
     print(f"On, port {PORT}. Links open on: {', '.join(allowed)}.\n")
     print("Paste this into PowerShell on Windows, no admin needed. It fetches the listener and runs it now and at every sign-in, with no window:\n")
     print(WINDOWS.replace("PORT", str(PORT)).replace("TOKEN", token()))
+    if name := os.environ.get("WSL_DISTRO_NAME", ""):
+        print("To keep this distro running from sign-in, so toasts and workshop's timers don't stop when you close your terminals, paste this too:\n")
+        print(KEEP.replace("DISTRO", name))
     if herdr_toasts() != "system":
         print('herdr\'s own notifications, and workshop\'s, which go through herdr, reach Windows once herdr\'s config.toml has this, above the herdr-workbench block, and then herdr server reload-config:\n\n[ui.toast]\ndelivery = "system"\n')
     return 0

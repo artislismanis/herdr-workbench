@@ -159,3 +159,14 @@ focus_after() {
   [ "${lines[2]}" = herdr ]
   [ "${lines[3]}" = TestEnv ]
 }
+
+@test "setup prints the listener task and, in a distro, the keep-alive task for it" {
+  stub_systemctl
+  run env WSL_DISTRO_NAME=TestEnv "$REPO_ROOT/bin/win-bridge" setup github.com
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Register-ScheduledTask -TaskName win-bridge"* ]]
+  [[ "$output" == *"--headless wsl.exe -d TestEnv --exec sleep infinity"* ]]
+  [[ "$output" == *"-TaskName WSL-KeepAlive-TestEnv"* ]]
+  [ "$(cat "$HOME/.config/win-bridge/distro")" = TestEnv ]
+  grep -qx "Environment=WIN_BRIDGE_PORT=$WIN_BRIDGE_PORT" "$HOME/.config/systemd/user/win-bridge.service"
+}
