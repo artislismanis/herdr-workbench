@@ -199,7 +199,8 @@ class Board:
         return next((p["checks"] for p in self.snapshot.get("prs", {}).get("items", []) if p["url"] == url), "") if url else ""
 
     def building(self) -> list[Run]:
-        return [r for r in self.runs if not r.on_a_pr and not r.operating]
+        """Delivery holds a ticket until its PR is opened to your team. From then the PR is on Review, so it isn't shown twice."""
+        return [r for r in self.runs if not r.on_a_pr and not r.operating and not r.opened]
 
     def schedule(self) -> list[dict[str, Any]]:
         seen = self.store.read(SWEEPS)

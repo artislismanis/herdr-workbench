@@ -1471,6 +1471,13 @@ class Keys(unittest.TestCase):
         self.board.header()
         self.assertEqual(new(), [])
 
+    def test_a_pr_opened_to_the_team_leaves_delivery_for_review(self):
+        self.store.save(run("5", "done", pr="u", opened=True))
+        self.store.save(run("6", "done", pr="d"))
+        self.board.seen = None
+        self.board.reload()
+        self.assertEqual({r.key for r in self.board.building()} & {"5", "6"}, {"6"})
+
     def test_no_prepare_key_away_from_the_backlog(self):
         self.board.tab = REVIEW
         self.assertNotIn("p prepare", self.board.footer().text)
