@@ -8,12 +8,12 @@ import textwrap
 import threading
 import time
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, now_view, only, operations, plain, pr_rows, pull, pull_group, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
+from .boardview import ASK_AGAIN, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, now_view, only, operations, plain, pr_rows, pull, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .prs import FAILING
 from .review import decisions
@@ -77,10 +77,6 @@ class Ask(NamedTuple):
 
 ANSWER = ord("a")
 DROP = ord("d")
-
-
-def stopped(runs: Iterable[Run]) -> int:
-    return sum(r.status in ("parked", "waiting") or r.your_turn or r.with_you for r in runs)
 
 
 class Board:
@@ -264,6 +260,7 @@ class Board:
         now, work = self.clock(), self.work()
         if self.tab == NOW:
             lines = now_view(self.runs, self.pr_items(), self.linked, self.title, self.queued(), self.events, now, width, self.ci, work)
+            return [*self.repo_chips(), *(only(lines, self.filter) if self.filter else lines)]
         elif self.tab == DELIVERY:
             lines = deliveries(self.building(), self.events, self.title, width, now, self.ci, work)
         elif self.tab == OPERATE:
@@ -280,6 +277,23 @@ class Board:
     def selected(self, lines: list[Line]) -> tuple[str, str] | None:
         choices = self.choices(lines)
         return self.picked if self.picked in choices else choices[0] if choices else None
+
+    def grid(self, across: int, down: int, lines: list[Line]) -> None:
+        """Backlog cards sit in columns: up and down within one, left and right to the same place in the next."""
+        cards: dict[tuple[str, str], tuple[int, int]] = {}
+        for y, line in enumerate(lines):
+            for x, ref in refs(line):
+                cards.setdefault(ref, (x, y))
+        if not cards:
+            return
+        here = cards.get(self.selected(lines) or ("", ""), min(cards.values()))
+        edges = sorted({x for x, _ in cards.values()})
+        stack = [ref for ref, _ in sorted(cards.items(), key=lambda found: found[1][1]) if cards[ref][0] == here[0]]
+        place = next((n for n, ref in enumerate(stack) if cards[ref] == here), 0)
+        column = edges[max(0, min(edges.index(here[0]) + across, len(edges) - 1))]
+        stack = [ref for ref, _ in sorted(cards.items(), key=lambda found: found[1][1]) if cards[ref][0] == column] or stack
+        self.picked = stack[max(0, min(place + down, len(stack) - 1))]
+        self.viewing, self.side, self.earlier = "", 0, False
 
     def move(self, by: int, lines: list[Line]) -> None:
         choices = self.choices(lines)
@@ -332,7 +346,11 @@ class Board:
         if key == FIND and self.tab != USAGE and not self.open:
             self.finding, self.picked = True, None
             return True
-        if key in (curses.KEY_UP, ord("k")):
+        if key in (curses.KEY_UP, ord("k"), curses.KEY_DOWN, ord("j")) and self.tab == BACKLOG and not self.open:
+            self.grid(0, -1 if key in (curses.KEY_UP, ord("k")) else 1, lines)
+        elif key in (curses.KEY_LEFT, ord("h"), curses.KEY_RIGHT, ord("l")) and self.tab == BACKLOG and not self.open:
+            self.grid(-1 if key in (curses.KEY_LEFT, ord("h")) else 1, 0, lines)
+        elif key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
         elif key in (curses.KEY_DOWN, ord("j")):
             self.move(1, lines)
@@ -661,27 +679,33 @@ class Board:
     def refresh(self) -> None:
         self.send("refresh")
 
-    def counts(self) -> tuple[int, ...]:
-        tickets = sum(not self.store.exists(repo, i["key"]) for repo, r in self.snapshot.get("repos", {}).items() for i in r["items"])
-        pile = {r.pr or r.key for r in self.runs if heading(r) == "Needs you"} | {p["url"] for p in self.pr_items() if pull_group(p, self.linked(p)) == "Needs you"}
-        return len(pile), tickets, stopped(self.building()), sum(pull_group(p, self.linked(p)) == "Needs you" for p in self.pr_items()), stopped(r for r in self.runs if r.operating)
-
     def header(self) -> Line:
+        """Each tab's count is what waits on you there, and turns yellow when something new has arrived since you last looked."""
         piles = self.piles()
         self.looked[self.tab] = piles[self.tab]
-        fresh = [bool(pile - looked) for pile, looked in zip(piles, self.looked, strict=True)]
-        return Line([part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {SIGNS[tab]} {tab} {count}{' •' if fresh[i] else ''} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))])
+        parts = []
+        for i, tab in enumerate(TABS):
+            style = "tab-on" if i == self.tab and not self.open else "tab"
+            count = f"{len(piles[i])} " if piles[i] else ""
+            parts += [Span(f" {SIGNS[tab]} {tab} ", style, f"tab:{i}"), Span(count, "row-yellow" if piles[i] - self.looked[i] else style, f"tab:{i}"), Span(" ")]
+        return Line(parts)
 
     def status(self) -> Line:
-        """One quiet line under the tabs, the same on every tab: what's left of the limits and machine, how old the list is, and why new work waits."""
-        kind = "PRs" if self.tab == REVIEW else "backlog"
-        sources = [self.snapshot.get("prs", {})] if self.tab == REVIEW else self.snapshot.get("repos", {}).values()
-        times = [source.get("polled_at", 0) for source in sources]
-        age = f"{kind} {ago(self.clock() - min(times))} old" if times and min(times) else f"{kind} not polled"
+        """One quiet line under the tabs, the same on every tab: what's left of the limits and machine, when the lists were last fetched, and why new work waits."""
+        sources = {**{f"{name}'s backlog": found for name, found in self.snapshot.get("repos", {}).items()}, **({"PRs": self.snapshot["prs"]} if "prs" in self.snapshot else {})}
+        times = [found.get("polled_at", 0) for found in sources.values() if found.get("polled_at")]
+        age = f"updated {ago(self.clock() - min(times))} ago" if times else "not updated yet"
+        failed = [name for name, found in sources.items() if found.get("error")]
         held = self.engine.throttle.hold_new(len([r for r in self.runs if r.status == "running"])) or full_pile(self.runs, self.snapshot.get("prs", {}).get("items", []), self.cfg.get("max_waiting", 0))
+        return Line([*usage_line(self.engine.throttle.pace(), self.meter.read()), Span(f"  {age}", "dim"), Span(f"   couldn't update {', '.join(failed)}" if failed else "", "yellow"), Span(f"   held: {held}" if held else "", "yellow")])
+
+    def repo_chips(self) -> list[Line]:
+        """Where your pile is, once it spans repos. A click narrows the list to one, and again to undo."""
         repos = Counter(found.repo for found in self.waiting())
-        spread = "   waiting: " + ", ".join(f"{repo} {count}" for repo, count in repos.most_common()) if len(repos) > 1 else ""  # which repo the pile is in, once there's more than one
-        return Line([*usage_line(self.engine.throttle.pace(), self.meter.read()), Span(f"  {age}", "dim"), Span(spread, "dim"), Span(f"   held: {held}" if held else "", "yellow")])
+        if len(repos) < 2:
+            return []
+        chips = [part for repo, count in repos.most_common() for part in (Span(f" {repo} {count} ", "tab-on" if self.filter == repo else "tab", f"filter:{repo}"), Span(" "))]
+        return [Line([Span(" "), *chips]), plain()]
 
     def footer(self, width: int = 120) -> Line:
         if self.refreshing:
@@ -690,8 +714,8 @@ class Board:
             return Line([Span(self.message, "yellow")])
         if self.finding:
             return Line([Span(f" / {self.filter}{CURSOR}", "bold"), Span("   enter keeps it, esc clears it", "dim")])
-        moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), ("enter open", 10)]
         lines = self.lines(width)
+        moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), *[("enter open", 10)] * bool(self.choices(lines))]
         run = self.target(lines)
         stopped = moves[:1] * bool(self.open) + [(label, key) for key, label in self.run_actions(run).items()]
         offers = [("a ai review", AI_REVIEW), (f"A ai review, {self.other_mode()}", AI_REVIEW_OTHER)] if self.unreviewed(lines) else []
@@ -741,12 +765,18 @@ class Board:
                 else:
                     self.enter(action)
                 return True
-            kind, _, value = action.partition(":")
-            if kind == "tab":
-                self.tab, self.open, self.viewing, self.offset, self.side = int(value), None, "", 0, 0
-                return True
-            return self.press(int(value), width)
+            return self.click_action(action, width)
         return True
+
+    def click_action(self, action: str, width: int = 120) -> bool:
+        kind, _, value = action.partition(":")
+        if kind == "tab":
+            self.tab, self.open, self.viewing, self.offset, self.side = int(value), None, "", 0, 0
+            return True
+        if kind == "filter":
+            self.filter, self.picked = "" if self.filter == value else value, None
+            return True
+        return self.press(int(value), width)
 
     def mouse(self, x: int, y: int, state: int, width: int) -> bool:
         if state & (curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED):

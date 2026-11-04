@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Ask, Board  # noqa: E402
-from workshop.boardview import Line, Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, pipe, pull, pull_status, pull_story, pulls, refs, run_style, spark, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
+from workshop.boardview import Line, Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, columns_of, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -73,11 +73,13 @@ class Text(unittest.TestCase):
         self.assertTrue(any(t.startswith("◐ verify") for t in lines))
 
     def test_a_dropped_run_shows_where_it_stopped(self):
-        self.assertTrue("".join(s.text for s in pipe(run(status="done", landed="dropped", step=1))).startswith("●─◐─○"))
+        found = run(status="done", landed="dropped", step=1)
+        self.assertEqual([stage_state(found, g)[0] for g in stage_groups(found.pipeline["steps"])][:2], ["●", "◐"])
 
     def test_the_step_strip_shows_where_a_run_is(self):
-        self.assertTrue("".join(s.text for s in pipe(run(step=1))).startswith("●─◐─○"))
-        self.assertTrue("".join(s.text for s in pipe(run(status="done", step=3))).startswith("●─●─●"))
+        marks = lambda found: [stage_state(found, g)[0] for g in stage_groups(found.pipeline["steps"])]  # noqa: E731
+        self.assertEqual(marks(run(step=1))[:3], ["●", "◐", "○"])
+        self.assertEqual(marks(run(status="done", step=3))[:3], ["●", "●", "●"])
 
 
 class PullDetail(unittest.TestCase):
@@ -126,18 +128,20 @@ class Deliveries(unittest.TestCase):
         spans = usage_line({}, {"cpu": 40, "ram": 80})
         self.assertEqual([s.style for s in spans if "%" in s.text], ["", "yellow"])
 
-    def test_a_sparkline_scales_to_its_top_and_leaves_gaps(self):
-        self.assertEqual(spark([0, 50, None, 100], 100), "▁▅ █")
-        self.assertEqual(spark([1, 2]), "▅█")
-        self.assertEqual(spark([None, None]), "  ")
+    def test_a_column_is_built_in_eighths_and_nothing_recorded_is_empty(self):
+        rows = columns_of([100, 50, None, 0], 100, 1)
+        self.assertEqual([row[0] for row in rows], ["█"] * 4)
+        self.assertEqual([row[2] for row in rows], [" ", " ", "█", "█"])
+        self.assertEqual({row[4] for row in rows} | {row[6] for row in rows}, {" "})
 
     def test_the_usage_tab_leads_with_trends(self):
         now = datetime(2026, 11, 4, 12).timestamp()
         rows = [{"at": now - 3600, "cpu": 5, "ram": 10, "five": 30, "agents": 2}, {"at": now, "cpu": 50, "ram": 20, "five": 60, "agents": 1}]
         text = joined(usage_view(rows, [], None, now, WIDE))
         self.assertLess(text.index("Last 24 hours, by the hour"), text.index("Totals"))
-        self.assertRegex(text, r"5h use +\s*[▁-█ ]+ +peak 60%")
-        self.assertIn("Last 1 day, by the day", text)
+        self.assertIn("5h limit used", text)
+        self.assertIn("peak 60%", text)
+        self.assertIn("Last 7 days, by the day", text)
 
     def test_the_usage_tab_says_when_theres_nothing_yet(self):
         self.assertIn("No samples yet", joined(usage_view([], [], None, 1000.0)))
@@ -148,7 +152,8 @@ class Deliveries(unittest.TestCase):
         spent = [event("spent", step="ai-review", usd=1.5, model="claude-sonnet-5-5") | {"at": datetime.fromtimestamp(now - 60, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}]
         text = joined(usage_view(rows, spent, {"cores": 16, "memory": 47.0}, now))
         self.assertIn("16 cores", text)
-        self.assertRegex(text, r"10:00\s+61%\s+20%\s+59%\s+4\s+\$1.50")
+        self.assertIn("peak 59%", text)
+        self.assertRegex(text, r"Today +peak cpu 61% +ram 20% +4 agents at once +\$1.50")
         self.assertIn("Most of this week's spend: claude-sonnet-5-5, on ai-review", text)
 
     def test_only_the_latest_landed_runs_stay(self):
@@ -161,13 +166,13 @@ class Deliveries(unittest.TestCase):
         self.assertLessEqual(max(columns(line.text) for line in lines if line.run), 120)
 
     def test_the_log_leaves_out_cost_lines_and_marks_trouble(self):
-        lines = deliveries([run()], [event("spent", step="plan"), event("parked")], lambda r: "", WIDE)
+        lines = recent([event("spent", step="plan"), event("parked")], 10)
         self.assertEqual(lines[-1].style, "red")
         self.assertNotIn("spent", joined(lines))
 
     def test_the_latest_activity_comes_first(self):
         events = [event("claimed"), event("step", step="plan", state="done"), event("finished")]
-        lines = texts(deliveries([], events, lambda r: "", WIDE))
+        lines = texts(recent(events, 10))
         self.assertIn("finished", lines[-3])
         self.assertIn("claimed", lines[-1])
 
@@ -397,7 +402,6 @@ class Drill(unittest.TestCase):
         staged.pipeline = {**PIPELINE, "ticket_stage": "Intake"}
         where = texts(drill(staged, [], "T", "", "/f", 90, ("/f/brief.md",)))
         self.assertTrue(any(t.startswith(" Intake   done") for t in where))
-        self.assertEqual([s.text for s in pipe(staged) if s.text in ("●", "◐", "○")].count("●"), len(PIPELINE["steps"]) + 1)
 
 
     def test_unpriced_cost_is_labelled(self):
@@ -434,15 +438,14 @@ class PRs(unittest.TestCase):
 
     def test_a_row_says_whose_it_is(self):
         mine, theirs = self.rows(pr("a", mine=True, state="approved"), pr("b"))
-        self.assertEqual(mine.text[1], "⬥")
-        self.assertEqual(theirs.text[1], "⬦")
+        self.assertEqual((mine.text[1], theirs.text[1]), ("⌕", "⌕"))
         self.assertEqual(next(span for span in mine.spans if "you" in span.text.split()).style, mine.spans[1].style)
         self.assertEqual(next(span for span in theirs.spans if "them" in span.text).style, theirs.spans[1].style)
         self.assertNotEqual(mine.spans[1].style, theirs.spans[1].style)
 
     def test_a_row_is_mark_status_pr_title_author_ci(self):
         row = self.rows(pr(state="comments to address", mine=True))[0]
-        self.assertRegex(row.text, r"^ ⬥ changes    ⌕ r#7 A change +you +0s ●$")
+        self.assertRegex(row.text, r"^ ⌕ respond    r#7 A change +you +0s ●$")
         self.assertEqual(columns(row.text), WIDE - 2)
 
     def test_a_narrow_row_drops_who_before_the_title(self):
@@ -459,11 +462,22 @@ class PRs(unittest.TestCase):
         row = next(line for line in pulls({"prs": {"error": "", "items": [long]}}, 71) if line.pr)
         self.assertEqual(columns(row.text), 69)
 
-    def test_a_status_says_where_a_pr_is(self):
-        words = {"review": ("needs review", "awaiting review", "open"), "changes": ("changes requested", "waiting for fixes", "comments to address", "checks failing", "new commits"), "re-review": ("re-review", "re-review requested"), "approved": ("approved", "you approved"), "merged": ("merged",)}
-        for word, states in words.items():
-            for state in states:
-                self.assertEqual(pull_status(pr(state=state), None)[0], word)
+    def test_away_from_you_a_pr_is_waiting_or_how_it_ended(self):
+        for state in ("needs review", "changes requested", "re-review requested", "approved"):
+            self.assertEqual(pull_status(pr(state=state, move="others"), None)[0], "waiting")
+        self.assertEqual(pull_status(pr(state="merged", move="done"), None)[0], "merged")
+        self.assertEqual(pull_status(pr(state="closed", move="done"), None)[0], "closed")
+
+    def test_every_run_says_one_of_the_words(self):
+        for found in (run(status="running"), run(status="parked"), run(status="waiting"), run(status="done", pr="u"), run(status="done", pr="u", landed="merged"), run(status="done", pr="u", landed="merged", deployed="prod"), run(status="done", landed="dropped"), run(status="done", pr="u", reviewing=True, reviewed="a", posted="a")):
+            self.assertIn(doing(found), WORDS)
+        self.assertEqual(doing(run(status="done", pr="u", landed="merged", deployed="prod")), "done")
+        self.assertEqual(doing(run(status="done", pr="u", opened=True)), "waiting")
+
+    def test_waiting_on_you_says_what_you_do_next(self):
+        moves = {("needs review", False): "review", ("re-review requested", False): "review", ("changes requested", True): "respond", ("re-review", True): "respond", ("checks failing", True): "fix", ("approved", True): "merge"}
+        for (state, mine), word in moves.items():
+            self.assertEqual(pull_status(pr(state=state, mine=mine), None)[0], word)
 
     def test_every_status_of_yours_under_needs_you_says_what_next(self):
         for state in ("changes requested", "comments to address", "checks failing", "re-review", "approved"):
@@ -473,7 +487,8 @@ class PRs(unittest.TestCase):
         items = [pr("new"), pr("theirs", state="re-review"), pr("feedback", mine=True, state="changes requested"), pr("ask", mine=True, state="re-review"), pr("merge", mine=True, state="approved"), pr("old", updated="2026-10-01T10:00:00Z"), pr("stopped"), pr("waits"), pr("draft")]
         runs = {"stopped": run("pr-1", "parked", pr="stopped", reviewing=True), "waits": run("pr-2", "waiting", pr="waits", reviewing=True), "draft": run("pr-3", "done", pr="draft", reviewing=True)}
         lines = pulls({"prs": {"error": "", "items": items}}, WIDE, lambda p: runs.get(p["url"]))
-        self.assertEqual([line.pr["url"] for line in lines if line.pr], ["stopped", "waits", "draft", "merge", "ask", "feedback", "theirs", "old", "new"])
+        self.assertEqual([line.pr["url"] for line in lines if line.pr], ["stopped", "waits", "draft", "merge", "feedback", "ask", "old", "new", "theirs"])
+        self.assertEqual([line.text.split()[1] for line in lines if line.pr], ["fix", "decide", "check", "merge", "respond", "respond", "review", "review", "review"])
 
     def test_delivery_needs_you_goes_the_same_way(self):
         rows = [line.run.key for line in deliveries([run("1", "done", pr="u"), run("2", "waiting"), run("3", "parked")], [], lambda r: "", WIDE) if line.run]
@@ -496,16 +511,16 @@ class PRs(unittest.TestCase):
 
     def test_the_detail_gives_the_reason_beside_the_word(self):
         comments = pull(pr(state="comments to address", mine=True, checks=""), WIDE)
-        self.assertIn(" changes    comments to address   no CI", joined(comments))
+        self.assertIn(" respond    comments to address   no CI", joined(comments))
         failing = pull(pr(state="checks failing", mine=True, checks="FAILURE"), WIDE)
-        self.assertIn(" changes    CI failing", joined(failing))
+        self.assertIn(" fix    CI failing", joined(failing))
         self.assertNotIn(" re-review    re-review", joined(pull(pr(state="re-review"), WIDE)))
 
     def test_the_detail_keeps_status_author_and_reviewer_apart(self):
         lines = pull(pr(state="you approved", move="others", reviews={"me": "APPROVED"}, me="me"), WIDE)
         text = joined(lines)
         self.assertIn("Author: them", text)
-        self.assertIn(" approved    you approved", text)
+        self.assertIn(" waiting    you approved", text)
         self.assertIn("you: approved", text)
 
     def test_someone_getting_there_first_stands_out(self):
@@ -531,12 +546,12 @@ class PRs(unittest.TestCase):
     def test_a_finished_review_needs_you(self):
         lines = pulls({"prs": {"error": "", "items": [pr(move="others")]}}, WIDE, lambda p: run("pr-7", "done", pr="u", reviewing=True))
         self.assertIn("Needs you 1", joined(lines))
-        self.assertIn("drafted", next(line for line in lines if line.pr).text)
+        self.assertIn("check", next(line for line in lines if line.pr).text)
 
     def test_a_posted_review_goes_by_whose_move_it_is(self):
         posted = run("pr-7", "done", pr="u", reviewing=True, reviewed="abc", posted="abc")
         self.assertIn("With people 1", joined(pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: posted)))
-        self.assertIn("changes", next(line for line in pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: posted) if line.pr).text)
+        self.assertIn("waiting", next(line for line in pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: posted) if line.pr).text)
 
     def test_the_detail_leads_with_the_next_move_then_the_briefing(self):
         done = run("pr-7", "done", pr="u", reviewing=True)
@@ -577,10 +592,11 @@ class PRs(unittest.TestCase):
         rows = [line.text for line in lines if line.text.strip().startswith("r/")]
         self.assertIn("r/2", rows[0])
 
-    def test_usage_leads_with_totals(self):
+    def test_usage_keeps_totals_and_has_no_hourly_table(self):
         now = datetime(2026, 11, 2, 10, 30).timestamp()
         text = joined(usage_view([{"at": now - 60, "cpu": 1.0, "ram": 1.0, "five": 1, "agents": 1}], [], None, now))
-        self.assertLess(text.index("Totals"), text.index("Each of the last 24 hours"))
+        self.assertIn("Totals", text)
+        self.assertNotIn("Each of the last 24 hours", text)
 
     def test_draft_replies_sit_under_the_step_that_wrote_them(self):
         steps = [{"id": "reply", "stage": "Review", "kind": "agent", "prompt": "reply-pr.md", "output": "reply.md"}]
@@ -646,7 +662,7 @@ class Strip(unittest.TestCase):
     def marks(self, **fields):
         staged = run(**fields)
         staged.pipeline = {"name": "x", "steps": self.STEPS}
-        return [(s.text, s.style) for s in pipe(staged) if s.text in "●◐○" and s.text]
+        return [stage_state(staged, g)[:2] for g in stage_groups(self.STEPS)]
 
     def test_one_mark_per_stage(self):
         self.assertEqual(self.marks(step=1), [("◐", "green"), ("○", "dim"), ("○", "dim")])
@@ -793,7 +809,7 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.board.tab = DELIVERY
         self.board.press(ord("\t"))
-        self.assertIn("PRs 5m old", self.board.status().text)
+        self.assertIn("updated 5m ago", self.board.status().text)
         self.board.press(10)
         self.assertEqual(self.board.open, ("#pr", "u"))
         self.assertIn("Reviews", joined(self.board.lines(100)))
@@ -819,10 +835,10 @@ class Keys(unittest.TestCase):
         self.assertNotIn("no workspace", self.board.footer().text)
 
     def test_a_new_file_shows_on_the_next_reload_and_opening_makes_no_calls(self):
-        self.assertIn("not polled", self.board.status().text)
+        self.assertIn("not updated yet", self.board.status().text)
         self.store.write(SNAPSHOT, {"repos": {"r": {"polled_at": 200.0, "error": "", "items": []}}})
         self.board.reload()
-        self.assertIn("backlog 5m old", self.board.status().text)
+        self.assertIn("updated 5m ago", self.board.status().text)
         self.tools.assert_not_called()
 
     def test_what_a_step_was_told_stays_off_the_board(self):
@@ -899,7 +915,12 @@ class Keys(unittest.TestCase):
         self.store.save(Run(repo="q", key="9", repo_path="/", base="main", pipeline=PIPELINE, status="parked"))
         self.board.seen = None
         self.board.reload()
-        self.assertRegex(self.board.status().text, r"waiting: (r 1, q 1|q 1, r 1)")
+        self.board.tab = 0
+        chips = [span for line in self.board.listing(WIDE)[:1] for span in line.spans if span.action]
+        self.assertEqual(sorted(span.text.split()[0] for span in chips), ["q", "r"])
+        self.board.click_action(chips[0].action)
+        self.assertEqual(self.board.filter, chips[0].text.split()[0])
+        self.assertNotIn("waiting:", self.board.status().text)
 
     def test_words_on_a_stop_steer_the_next_try(self):
         self.stopped()
@@ -1053,7 +1074,7 @@ class Keys(unittest.TestCase):
     def test_the_status_follows_the_title_and_pr(self):
         lines = texts(drill(run(status="done", opened=True, pr="http://p/1"), [], "T", "", "/f", 90, handover="- New flag\nRecommendation: approve"))
         self.assertTrue(lines[1].startswith("PR:"))
-        self.assertIn("in review", lines[2])
+        self.assertIn("waiting", lines[2])
         self.assertLess(2, next(i for i, t in enumerate(lines) if "Recommendation" in t))
 
     def draft(self):
@@ -1139,7 +1160,7 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.assertEqual(self.board.advice(self.board.run_of(self.board.picked)), "AI: approve")
-        self.assertIn(" drafted ", joined(self.board.detail(self.board.picked, WIDE)))
+        self.assertIn(" check ", joined(self.board.detail(self.board.picked, WIDE)))
 
     def test_a_delivered_draft_is_drafted_until_you_let_it_go(self):
         draft = run("5", "done", pr="u")
@@ -1166,7 +1187,7 @@ class Keys(unittest.TestCase):
         text = joined(self.board.listing(WIDE))
         self.assertIn("r/8", text)
         self.assertIn("r/sweep-docs-1", text)
-        self.assertEqual(self.board.counts()[4], 1)
+        self.assertEqual(len(self.board.piles()[OPERATE]), 1)
 
     def test_a_delivered_draft_stays_on_delivery_until_you_let_it_go(self):
         self.on_pr()
@@ -1221,7 +1242,7 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.board.tab = 0
-        kinds = {line.ref: line.text.split()[2] for line in self.board.listing(WIDE) if line.ref}
+        kinds = {line.ref: line.text.split()[0] for line in self.board.listing(WIDE) if line.ref}
         self.assertEqual([kinds[ref] for ref in (("r", "4"), ("r", "6"), ("#pr", "u"))], ["▸", "⟳", "⌕"])
 
     def test_now_with_nothing_says_so(self):
@@ -1388,12 +1409,20 @@ class Keys(unittest.TestCase):
         self.on_backlog()
         lines = self.board.lines(WIDE)
         self.assertEqual(self.board.choices(lines), [("#ticket", f"b/{n}") for n in "1234"])
+        at = lambda: self.board.selected(self.board.lines(WIDE))[1]  # noqa: E731
         self.board.press(curses.KEY_DOWN, WIDE)
-        self.assertEqual(self.board.selected(self.board.lines(WIDE)), ("#ticket", "b/2"))
+        self.assertEqual(at(), "b/1")  # New has one card, so down stays
+        self.board.press(curses.KEY_RIGHT, WIDE)
+        self.assertEqual(at(), "b/2")  # Planned is empty, so right goes on to Designed
+        self.board.press(curses.KEY_RIGHT, WIDE)
+        self.board.press(curses.KEY_DOWN, WIDE)
+        self.assertEqual(at(), "b/4")
+        self.board.press(curses.KEY_UP, WIDE)
+        self.assertEqual(at(), "b/3")
 
     def test_enter_opens_a_card_and_p_prepares_it(self):
         self.on_backlog()
-        self.board.press(curses.KEY_DOWN, WIDE)
+        self.board.press(curses.KEY_RIGHT, WIDE)
         self.board.press(10, WIDE)
         self.assertIn("p starts the next Prepare talk", joined(self.board.lines(WIDE)))
         self.board.press(ord("p"), WIDE)
@@ -1431,15 +1460,16 @@ class Keys(unittest.TestCase):
         self.assertEqual([w.ref for w in self.board.waiting()], [("#pr", "u")])
 
     def test_a_tab_gets_a_dot_when_something_new_needs_you_there(self):
-        self.assertNotIn("•", self.board.header().text)
+        new = lambda: [self.board.header().spans[n - 1].text.split()[1] for n, span in enumerate(self.board.header().spans) if span.style == "row-yellow"]  # noqa: E731
+        self.assertEqual(new(), [])
         self.store.save(run("3", "parked"))
         self.board.seen = None
         self.board.reload()
-        tabs = [span.text for span in self.board.header().spans if span.action]
-        self.assertEqual([tab.split()[1] for tab in tabs if "•" in tab], ["Delivery"])
+        self.assertEqual(new(), ["Delivery"])
+        self.assertIn("Delivery 1", self.board.header().text)
         self.board.tab = DELIVERY
         self.board.header()
-        self.assertNotIn("•", self.board.header().text)
+        self.assertEqual(new(), [])
 
     def test_no_prepare_key_away_from_the_backlog(self):
         self.board.tab = REVIEW
@@ -1450,7 +1480,7 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.board.tab = DELIVERY
-        self.assertEqual(self.board.counts()[2], 1)
+        self.assertEqual(len(self.board.piles()[DELIVERY]), 1)
         self.assertEqual(list(self.board.run_actions(self.board.runs[-1]).values()), ["d drop"])
 
     def at_gate(self):
