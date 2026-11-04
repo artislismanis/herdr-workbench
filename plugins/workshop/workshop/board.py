@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, now_view, only, operations, plain, pr_rows, pull, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
+from .boardview import ASK_AGAIN, DONE_DAYS, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, now_view, only, operations, plain, pr_rows, pull, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .prs import FAILING
 from .review import decisions
@@ -200,11 +200,11 @@ class Board:
 
     def building(self) -> list[Run]:
         """Delivery holds a ticket until its PR is opened to your team. From then the PR is on Review, so it isn't shown twice."""
-        return [r for r in self.runs if not r.on_a_pr and not r.operating and not r.opened]
+        return [r for r in self.runs if not r.on_a_pr and not r.operating and not r.opened and not r.preparing]  # preparing is the Backlog's
 
     def schedule(self) -> list[dict[str, Any]]:
         seen = self.store.read(SWEEPS)
-        return [{"repo": name, "sweep": sweep, "cadence": cadence, "every": SWEEP_EVERY.get(cadence, 0), "last": seen.get(f"{name}/{sweep}", {}).get("last", 0)} for name, repo in self.cfg["repos"].items() for sweep, cadence in repo.get("sweeps", {}).items()]
+        return [{"repo": name, "sweep": sweep, "cadence": cadence, "every": SWEEP_EVERY.get(cadence, 0), "last": seen.get(f"{name}/{sweep}", {}).get("last", 0), "going": any(r.repo == name and r.sweeping == sweep and not r.landed for r in self.runs)} for name, repo in self.cfg["repos"].items() for sweep, cadence in repo.get("sweeps", {}).items()]
 
     def pr_items(self) -> list[dict[str, Any]]:
         return pr_rows(self.runs, self.snapshot.get("prs", {}).get("items", []), self.engine.reviewable)
@@ -255,17 +255,17 @@ class Board:
 
     def listing(self, width: int) -> list[Line]:
         if self.tab == USAGE:
-            return usage_view(samples(self.store.root), self.events, self.meter.read(), self.clock(), width)
+            return usage_view(samples(self.store.root), self.events, self.meter.read(), self.clock(), width, self.engine.throttle.pace())
         if self.tab == BACKLOG:
-            return backlog(self.snapshot, self.skipped, self.store.exists, width, self.engine.queue_place, self.filter)
+            return backlog(self.snapshot, self.skipped, self.store.exists, width, self.engine.queue_place, self.filter, {f"{r.repo}/{r.key.removeprefix('prep-')}": r for r in self.runs if r.preparing and not r.landed})
         now, work = self.clock(), self.work()
         if self.tab == NOW:
             lines = now_view(self.runs, self.pr_items(), self.linked, self.title, self.queued(), self.events, now, width, self.ci, work)
             return [*self.repo_chips(), *(only(lines, self.filter) if self.filter else lines)]
         elif self.tab == DELIVERY:
-            lines = deliveries(self.building(), self.events, self.title, width, now, self.ci, work)
+            lines = deliveries(self.building(), self.events, self.title, width, now, self.ci, work, self.cfg.get("done_days", DONE_DAYS))
         elif self.tab == OPERATE:
-            lines = operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), now, width, self.ci, work)
+            lines = operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), now, width, self.ci, work, self.cfg.get("done_days", DONE_DAYS))
         else:
             lines = pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked, now, work)
         return only(lines, self.filter) if self.filter else lines
@@ -403,7 +403,10 @@ class Board:
             self.say(str(failed))
 
     def enter(self, ref: tuple[str, str] | None) -> None:
-        if ref and ref[0] == "#file":
+        if ref and ref[0] == "#sweep":
+            repo, _, sweep = ref[1].partition("/")
+            self.begin_note(Ask(repo, f"Run the {sweep} sweep on {repo} now?", (), (("Run it now", "sweep", sweep),), "", "sweep"))
+        elif ref and ref[0] == "#file":
             self.viewing, self.offset, self.side = ref[1], 0, 0
         elif ref and not self.open:
             self.picked, self.open, self.offset = ref, ref, 0
@@ -549,6 +552,8 @@ class Board:
         self.choice = len(asking.options) if self.typed or all(command == TALK for _, command, _ in asking.options) else 0  # a talk is offered, never the default
 
     def insert(self, text: str) -> None:
+        if self.asking and not self.asking.typed:
+            return
         self.typed = self.typed[: self.cursor] + text + self.typed[self.cursor :]
         self.cursor += len(text)
         if self.asking:
@@ -591,7 +596,7 @@ class Board:
                 self.follow = asking.key
                 self.send(*filter(None, (command, asking.key, f"{asking.within}/{words}" if asking.within else words)))
         elif key in (curses.KEY_UP, curses.KEY_DOWN):
-            self.choice = max(0, min(self.choice + (1 if key == curses.KEY_DOWN else -1), len(asking.options)))
+            self.choice = max(0, min(self.choice + (1 if key == curses.KEY_DOWN else -1), len(asking.options) - (not asking.typed)))
         elif key in BACKSPACES:
             self.cut(max(self.cursor - 1, 0), self.cursor)
         elif key == curses.KEY_DC:
@@ -716,7 +721,7 @@ class Board:
         if self.finding:
             return Line([Span(f" / {self.filter}{CURSOR}", "bold"), Span("   enter keeps it, esc clears it", "dim")])
         lines = self.lines(width)
-        moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), *[("enter open", 10)] * bool(self.choices(lines))]
+        moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), *[("enter run now" if (self.selected(lines) or ("",))[0] == "#sweep" else "enter open", 10)] * bool(self.choices(lines))]
         run = self.target(lines)
         stopped = moves[:1] * bool(self.open) + [(label, key) for key, label in self.run_actions(run).items()]
         offers = [("a ai review", AI_REVIEW), (f"A ai review, {self.other_mode()}", AI_REVIEW_OTHER)] if self.unreviewed(lines) else []
@@ -742,7 +747,7 @@ class Board:
         lines += [plain(f" {text}") for text in context]
         lines += [plain()]
         lines += [plain(f" {'›' if i == self.choice else ' '} {label}", "bold" if i == self.choice else "") for i, (label, _, _) in enumerate(asking.options)]
-        lines += [plain(f" {'›' if typing else ' '} {asking.typed}:", "bold" if typing else "")]
+        lines += [plain(f" {'›' if typing else ' '} {asking.typed}:", "bold" if typing else "")] if asking.typed else []  # a plain yes or no has no words of your own
         marked = self.typed[: self.cursor] + (CURSOR if typing else "") + self.typed[self.cursor :]
         rows = [part for line in marked.split("\n") for part in textwrap.wrap(clean(line), room, drop_whitespace=False, replace_whitespace=False, break_on_hyphens=False) or [""]]
         here = next((i for i, row in enumerate(rows) if CURSOR in row), 0)

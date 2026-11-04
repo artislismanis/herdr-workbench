@@ -12,8 +12,10 @@ from .system import Meter
 
 SAMPLES = "usage.jsonl"
 KEEP_DAYS = 30
-HOURS = 24
 DAY = 24 * 60 * 60
+WINDOWS = {"5h": 5 * 60 * 60, "7d": 7 * DAY}
+LOADS = (("0-2", 0, 2), ("3-4", 3, 4), ("5-8", 5, 8), ("9+", 9, 10**6))  # agents open at once
+ENOUGH_USE = 50  # points of the 5h limit, before its cost to the week means much
 
 
 def sample(root: Path, limits: dict[str, float], agents: int, meter: Meter, clock: Callable[[], float] = time.time, wait: Callable[[float], None] = time.sleep) -> None:
@@ -55,22 +57,6 @@ def _spend(events: list[dict[str, Any]]) -> float:
     return sum(e.get("usd") or 0 for e in events)
 
 
-def by_hour(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
-    """The last hours with anything in them, oldest first."""
-    since = now - HOURS * 60 * 60
-    def hour(at: float) -> datetime:
-        return datetime.fromtimestamp(at).replace(minute=0, second=0, microsecond=0)
-    grouped: dict[datetime, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        if row["at"] >= since:
-            grouped[hour(row["at"])].append(row)
-    spending: dict[datetime, list[dict[str, Any]]] = defaultdict(list)
-    for event in events:
-        if (at := spent_at(event)) >= since:
-            spending[hour(at)].append(event)
-    return [{"hour": when, **_peaks(grouped[when]), "spend": _spend(spending[when])} for when in sorted({*grouped, *spending})]
-
-
 def by_day(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float, days: int = KEEP_DAYS) -> list[dict[str, Any]]:
     """Each of the last days, oldest first, with None for a day with nothing in it, so a trend shows its gaps."""
     today = datetime.fromtimestamp(now).date()
@@ -101,3 +87,35 @@ def top(events: list[dict[str, Any]], now: float) -> tuple[str, str]:
         models[event.get("model") or "not recorded"] += event.get("usd") or 0
         steps[event["step"]] += event.get("usd") or 0
     return (models.most_common(1) or [("", 0)])[0][0], (steps.most_common(1) or [("", 0)])[0][0]
+
+
+def outlook(window: str, used: float, left: float) -> tuple[float | None, float]:
+    """Where the window ends up at today's rate, and if that's past 100%, how long until it runs out. Too early in a window, the rate means nothing."""
+    elapsed = WINDOWS[window] - left
+    if not left or elapsed < WINDOWS[window] / 24:
+        return None, 0
+    rate = used / elapsed
+    projected = used + rate * left
+    return round(projected), (100 - used) / rate if projected > 100 and rate else 0
+
+
+def week_cost(rows: list[dict[str, Any]], now: float) -> float | None:
+    """Points of the week a full 5h window takes, from how the two rose together this week. A reset of either is left out."""
+    recent = [r for r in rows if r["at"] >= now - 7 * DAY]
+    five = week = 0.0
+    for before, after in zip(recent, recent[1:]):
+        rose, also = after.get("five", 0) - before.get("five", 0), after.get("week", 0) - before.get("week", 0)
+        if rose > 0 and also >= 0 and after["at"] - before["at"] < 3600:
+            five, week = five + rose, week + also
+    return 100 * week / five if five >= ENOUGH_USE else None
+
+
+def by_load(rows: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
+    """This week's busiest CPU and RAM by how many agents were open, to see whether more at once strains the machine."""
+    recent = [r for r in rows if r["at"] >= now - 7 * DAY and "agents" in r]
+    found = []
+    for name, low, high in LOADS:
+        group = [r for r in recent if low <= r["agents"] <= high]
+        if group:
+            found.append({"agents": name, "samples": len(group), "cpu": max(r["cpu"] for r in group), "ram": max(r["ram"] for r in group)})
+    return found

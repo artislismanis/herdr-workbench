@@ -14,7 +14,7 @@ from .pipeline import shipped
 from .review import section
 from .store import Run
 from .throttle import DAYS, DEFAULTS, ahead
-from .usage import KEEP_DAYS, by_day, by_hour, top, totals
+from .usage import DAY, KEEP_DAYS, by_day, by_load, outlook, spent_at, top, totals, week_cost
 
 Usage = dict[str, tuple[float, float]]
 Work = tuple[tuple[int, int], list[str]]  # working hours and days, from the throttle's settings
@@ -48,7 +48,7 @@ BAD_VERDICTS = ("CHANGES_NEEDED", "BLOCKED", "FAILED")
 COMPANIONS = ("notes.json", "replies.json", "proposals.json")  # what the last agent writes beside its report, round by round
 FILE_NOTES = {"replies.json": "draft replies", "proposals.json": "proposals", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "line notes", "ask.md": "the open question"}
 LIMITED = "GitHub's hourly limit is used up, so this is from the last update. It clears within the hour."
-LANDED = 5
+DONE_DAYS = 3  # how long a finished run stays in view, unless the config's done_days says otherwise
 KANBAN_WIDTH = 80
 WHO_WIDTH = 100  # narrower than this, the who column goes, as the title says more. By width, so every tab drops it together
 STALE_AMBER = 3600  # working seconds waiting on you
@@ -235,7 +235,8 @@ def machine_style(value: float) -> str:
 def usage_line(usage: Usage, machine: dict[str, Any] | None) -> list[Span]:
     """What you've got left, quietly, under the tabs. A number is coloured only when it needs a look."""
     parts = [(window, used, calm(limit_style(window, used, left)), f" ({to_go(left)})" if left else "") for window, (used, left) in usage.items()]
-    parts += [(name.upper(), machine[name], calm(machine_style(machine[name])), "") for name in ("cpu", "ram")] if machine else []
+    sizes = {"cpu": f" of {machine.get('cores')}" if machine and machine.get("cores") else "", "ram": f" of {machine.get('memory'):.0f}G" if machine and machine.get("memory") else ""}
+    parts += [(name.upper(), machine[name], calm(machine_style(machine[name])), sizes[name]) for name in ("cpu", "ram")] if machine else []
     return [span for name, value, style, time in parts for span in (Span(f" {name} ", "dim"), Span(f"{value:.0f}%", style), Span(time, "dim"), Span(" "))]
 
 
@@ -267,41 +268,94 @@ def chart(title: str, note: str, values: list[float | None], top: float, ticks: 
     return [*lines, plain(f"  {' ' * gutter} └" + "─" * span, "dim"), plain(f"  {' ' * gutter}  " + "".join(under).rstrip(), "dim"), plain()]
 
 
-def trends(rows: list[dict[str, Any]], spent: list[dict[str, Any]], now: float, width: int) -> list[Line]:
-    """The 5h limit and spend over the last day, hour by hour on one time axis, then spend day by day. The limit is scaled to 100%, so a quiet day looks quiet."""
-    hours = {row["hour"]: row for row in by_hour(rows, spent, now)}
-    start = datetime.fromtimestamp(now).replace(minute=0, second=0, microsecond=0)
-    slots = [start - timedelta(hours=back) for back in range(23, -1, -1)]
-    five = [hours[h]["five"] if h in hours else None for h in slots]
-    spend = [hours[h]["spend"] if h in hours else None for h in slots]
+def spend_by_day(rows: list[dict[str, Any]], spent: list[dict[str, Any]], now: float, width: int) -> list[Line]:
     days = by_day(rows, spent, now, 7)  # a week, as in the totals below
     daily = [day["spend"] if day else None for day in days]
     first = datetime.fromtimestamp(now).date() - timedelta(days=len(days) - 1)
-    hour_top, day_top = max((v for v in spend if v), default=0), max((v for v in daily if v), default=0)
-    ticks = {"five": ("100%", "50%"), "spend": (f"${hour_top:.2f}", f"${hour_top / 2:.2f}"), "daily": (f"${day_top:.0f}", f"${day_top / 2:.0f}")}
-    gutter = max(columns(tick) for pair in ticks.values() for tick in pair)
-    wide = 2 if gutter + 6 + 3 * len(slots) <= width else 1
-    by_hours = [(n, slot.strftime("%H:%M")) for n, slot in enumerate(slots) if n % 6 == 0]
+    top_day = max((v for v in daily if v), default=0)
+    ticks = (f"${top_day:.0f}", f"${top_day / 2:.0f}")
     by_days = [(n, (first + timedelta(days=n)).strftime("%a")) for n in range(len(days))]
-    return [
-        rule("Last 24 hours, by the hour", width),
-        *chart("5h limit used", f"peak {max((v for v in five if v is not None), default=0):.0f}%", five, 100, ticks["five"], by_hours, gutter, wide),
-        *chart("Spend", f"${sum(v for v in spend if v):.2f}", spend, hour_top, ticks["spend"], by_hours, gutter, wide),
-        rule("Last 7 days, by the day", width),
-        *chart("Spend", f"${sum(v for v in daily if v):.2f}", daily, day_top, ticks["daily"], by_days, gutter, DAY_WIDE),
-    ]
+    return [rule("Spend, last 7 days", width), *chart("Spend", f"${sum(v for v in daily if v):.2f}", daily, top_day, ticks, by_days, max(columns(t) for t in ticks), DAY_WIDE)]
 
 
-def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine: dict[str, Any] | None, now: float, width: int = 120) -> list[Line]:
-    """Machine, limits and work side by side, to show whether WSL needs more and what uses the limits."""
+def bar(value: float, wide: int) -> str:
+    filled = round(max(0.0, min(value, 100.0)) / 100 * wide)
+    return "█" * filled + "░" * (wide - filled)
+
+
+LIMIT_BAR, LOAD_BAR = 20, 12
+SPARE = 30  # points of the week left at this pace that are worth spending
+
+
+def advice(usage: Usage, now: float) -> str:
+    """One thing to do about the two limits together. The week is the hard one: a 5h window comes back in hours."""
+    (five, five_left), (week, week_left) = usage.get("5h", (0, 0)), usage.get("7d", (0, 0))
+    five_end, five_out = outlook("5h", five, five_left)
+    week_end, week_out = outlook("7d", week, week_left)
+    if week_out:
+        return f"the week runs out {datetime.fromtimestamp(now + week_out):%a %H:%M}, before its reset. Start only what matters."
+    if five_out:
+        return f"the 5h limit runs out before its reset at {datetime.fromtimestamp(now + five_left):%H:%M}. The week has room, so wait for that rather than slow down."
+    if week_end is not None and week_end <= 100 - SPARE:
+        return f"the week will have {100 - week_end:.0f}% to spare. Run sweeps and prepare tickets now."
+    if five_end is None and week_end is None:
+        return "too early in both windows to tell."
+    return "on pace for both. Carry on."
+
+
+def limits_view(usage: Usage, rows: list[dict[str, Any]], now: float, width: int) -> list[Line]:
+    """The 5h and weekly limits together: what's left, whether this pace lasts to each reset, and what to do about it."""
+    lines = [rule("Limits", width)]
+    for window, label in (("5h", "5h"), ("7d", "Week")):
+        used, left = usage.get(window, (0, 0))
+        style = calm(limit_style(window, used, left))
+        reset = f"resets {datetime.fromtimestamp(now + left):%a %H:%M} ({to_go(left)})" if left else "no reset yet"
+        end, out = outlook(window, used, left)
+        if end is None:
+            said = "too early in the window to tell the pace"
+        elif out:
+            said = f"at this pace: runs out in {to_go(out)}, {to_go(left - out)} before the reset"
+        else:
+            said = f"at this pace: {end:.0f}% by the reset, lasts" + (f", {100 - end:.0f}% spare" if window == "7d" else "")
+        lines += [Line([Span(f"  {label:6}"), Span(bar(used, LIMIT_BAR), style or "mine"), Span(f" {used:3.0f}% used   ", style), Span(reset, "dim")]), plain(f"        {said}", "red" if out else "dim")]
+    week, week_left = usage.get("7d", (0, 0))
+    if (cost := week_cost(rows, now)) and week_left:
+        windows = (100 - week) / cost
+        lines += [plain(), plain(f"  Room: the week has about {windows:.0f} full 5h windows left, {windows / max(week_left / DAY, 1):.1f} a day."), plain(f"        A full 5h window takes about {cost:.0f}% of the week.", "dim")]
+    return [*lines, plain(), Line([Span("  Tip:  ", "bold"), Span(advice(usage, now))]), plain()]
+
+
+def machine_view(rows: list[dict[str, Any]], machine: dict[str, Any] | None, now: float, width: int) -> list[Line]:
+    """Peaks by how many agents were open, against what WSL has, to see whether more at once uses it up."""
+    cores, memory = (machine or {}).get("cores"), (machine or {}).get("memory")
+    lines = [rule(f"Machine: {cores} cores, {memory:.0f}G of memory" if cores and memory else "Machine", width)]
+    found = by_load(rows, now)
+    if not found:
+        return [*lines, plain("  No samples with agents in them yet.", "dim"), plain()]
+    ram_of = lambda pct: f" {pct * memory / 100:.0f}G" if memory else ""  # noqa: E731
+    cpu_of = lambda pct: f" {pct * cores / 100:.1f} cores" if cores else ""  # noqa: E731
+    lines.append(plain(f"  {'agents':8} {'samples':>7}   {'RAM peak':{LOAD_BAR + 12}}   CPU peak", "dim"))
+    for row in found:
+        ram, cpu = calm(machine_style(row["ram"])), calm(machine_style(row["cpu"]))
+        lines.append(Line([Span(f"  {row['agents']:8} {row['samples']:>7}   "), Span(bar(row["ram"], LOAD_BAR), ram or "mine"), Span(cell(f" {row['ram']:3.0f}%{ram_of(row['ram'])}", 12), ram), Span("   "), Span(bar(row["cpu"], LOAD_BAR), cpu or "mine"), Span(f" {row['cpu']:3.0f}%{cpu_of(row['cpu'])}", cpu)]))
+    worst = max(found, key=lambda row: max(row["ram"], row["cpu"]))
+    if max(worst["ram"], worst["cpu"]) <= MACHINE_AMBER:
+        said = f"  Headroom: the busiest moment used {worst['ram']:.0f}% of RAM{f' ({ram_of(worst["ram"]).strip()})' if memory else ''} and {worst['cpu']:.0f}% of CPU. More agents at once haven't strained WSL."
+        return [*lines, plain(said, "dim"), plain()]
+    name = "RAM" if worst["ram"] >= worst["cpu"] else "CPU"
+    return [*lines, plain(f"  Headroom: with {worst['agents']} agents open, {name} reached {max(worst['ram'], worst['cpu']):.0f}%. Give WSL more, or run fewer at once.", "yellow"), plain()]
+
+
+def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine: dict[str, Any] | None, now: float, width: int = 120, usage: Usage | None = None) -> list[Line]:
+    """Limits first, as they're what runs out, then spend, then whether the machine keeps up."""
     spent = [e for e in events if e["type"] == "spent"]
-    lines = [plain(f"  {machine['cores']} cores, {machine['memory']:.0f}G of memory", "dim"), plain()] if machine else []
+    lines = limits_view(usage or {}, rows, now, width)
     if not rows and not spent:
         return [*lines, plain("  No samples yet. One arrives every 5 minutes.", "dim")]
-    lines += [*trends(rows, spent, now, width), rule("Totals", width)]
+    lines += [*spend_by_day(rows, spent, now, width), *machine_view(rows, machine, now, width), rule("Totals", width)]
     for label, days in (("Today", 1), ("Week", 7), ("Month", KEEP_DAYS)):
         found = totals(rows, spent, now, days)
-        lines.append(plain(f"  {label:8}peak cpu {found['cpu']:.0f}%   ram {found['ram']:.0f}%   {found['agents']:.0f} agents at once   ${found['spend']:.2f}"))
+        lines.append(plain(f"  {label:8}{found['agents']:.0f} agents at once   ${found['spend']:.2f}"))
     model, step = top(spent, now)
     lines += [plain(f"  Most of this week's spend: {model}, on {step}", "dim")] if model else []
     return lines
@@ -326,13 +380,13 @@ def heading(run: Run) -> str:
     return "Needs you" if run.with_you or run.your_turn else HEADINGS[run.status]
 
 
-def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
-    return run_groups(runs, events, title, width, now, ci, work) or [plain("  No tickets picked up yet.", "dim")]
+def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK, keep_days: float = DONE_DAYS) -> list[Line]:
+    return run_groups(runs, events, title, width, now, ci, work, keep_days) or [plain("  No tickets picked up yet.", "dim")]
 
 
-def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
+def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK, keep_days: float = DONE_DAYS) -> list[Line]:
     last = {(e["repo"], e["key"]): e["at"] for e in events}
-    landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
+    landed = sorted((r for r in runs if r.landed and (r.repo, r.key) in last and now - spent_at({"at": last[(r.repo, r.key)]}) <= keep_days * DAY), key=lambda r: last[(r.repo, r.key)])
     active = sorted((r for r in runs if not r.landed), key=lambda r: (rank(doing(r)), last.get((r.repo, r.key), "")) if heading(r) == "Needs you" else (len(NEXT_UP) + 1 + ORDER.index(r.status), ""))
     groups = {name: [r for r in active if heading(r) == name] for name in dict.fromkeys(heading(r) for r in active)} | ({"Done lately": landed} if landed else {})
     items = {name: [run_item(r, title(r), last.get((r.repo, r.key), ""), ci(r.pr)) for r in group] for name, group in groups.items()}
@@ -346,27 +400,33 @@ def rows_under(groups: dict[str, list["Item"]], width: int, now: float, work: Wo
     return [line for heading_name, items in groups.items() if items for line in (rule(f"{heading_name} {len(items)}", width), *(item_row(item, sizes, width, now, work) for item in items), plain())]
 
 
-def operations(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], schedule: list[dict[str, Any]], now: float, width: int = 120, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
+def operations(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], schedule: list[dict[str, Any]], now: float, width: int = 120, ci: Callable[[str], str] = lambda url: "", work: Work = WORK, keep_days: float = DONE_DAYS) -> list[Line]:
     """After the merge: getting it live, then looking after it. What a sweep turns up becomes a ticket on the Backlog."""
-    lines = run_groups(runs, events, title, width, now, ci, work) or [plain("  Nothing merged or swept yet.", "dim"), plain()]
+    lines = run_groups(runs, events, title, width, now, ci, work, keep_days) or [plain("  Nothing merged or swept yet.", "dim"), plain()]
     return [*lines, rule("Sweeps", width), *(sweep_row(item, now) for item in schedule)] if schedule else [*lines, rule("Sweeps", width), plain("  None scheduled. A repo lists them in its config, as `sweeps = { docs = \"monthly\" }`.", "dim")]
 
 
 def sweep_row(item: dict[str, Any], now: float) -> Line:
+    """Enter runs one now, whatever its calendar says."""
     last = f"ran {ago(now - item['last'])} ago" if item["last"] else "not run yet"
     left = item["last"] + item["every"] - now if item["last"] else 0
-    return plain(f"  {cell(item['repo'], 22)} {cell(item['sweep'], 9)} {cell(item['cadence'], 9)} {cell(last, 16)} {'next in ' + to_go(left) if left > 0 else 'due'}")
+    then = "running now" if item.get("going") else "" if not item["every"] else "next in " + to_go(left) if left > 0 else "due"
+    cadence = "by hand" if not item["every"] else item["cadence"]
+    return Line([Span(f"  {cell(item['repo'], 22)} {cell(item['sweep'], 9)} {cell(cadence, 9)} {cell(last, 16)} {then}".rstrip(), "", ("#sweep", f"{item['repo']}/{item['sweep']}"))])
 
 
-def card(ticket: str, item: dict[str, Any], skipped: dict[str, str]) -> list[tuple[str, str, tuple[str, str] | str]]:
-    ref = ("#ticket", ticket)
+def card(ticket: str, item: dict[str, Any], skipped: dict[str, str], talk: Run | None = None) -> list[tuple[str, str, tuple[str, str] | str]]:
+    """A ticket being prepared is that run's card: it says what the talk needs, and opens the run to answer it."""
+    ref = (talk.repo, talk.key) if talk else ("#ticket", ticket)
     found: list[tuple[str, str, tuple[str, str] | str]] = [(ticket, "dim", ref), (item["title"], "", ref)]
+    if talk:
+        found.append((doing(talk), "yellow" if heading(talk) == "Needs you" else "dim", ref))
     if ticket in skipped:
         found.append((f"skipped: {skipped[ticket]}", "yellow", ref))
     return [*found, ("", "", "")]
 
 
-def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable[[str, str], bool], width: int = 120, place: Callable[[str, str], int] = lambda repo, key: 0, keep: str = "") -> list[Line]:
+def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable[[str, str], bool], width: int = 120, place: Callable[[str, str], int] = lambda repo, key: 0, keep: str = "", preparing: dict[str, Run] | None = None) -> list[Line]:
     repos = snapshot.get("repos", {})
     if not repos:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
@@ -378,15 +438,16 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
         for column, items in found.items():
             lines.append(rule(f"{column.title()} {len(items)}", width))
             for ticket, item in items:
-                why = f"  skipped: {skipped[ticket]}" if ticket in skipped else ""
-                lines.append(Line([Span(f"  {cell(ticket, 22)} {clean(item['title'])}{clean(why)}", "yellow" if why else "", ("#ticket", ticket))]))
+                talk = (preparing or {}).get(ticket)
+                why = f"  skipped: {skipped[ticket]}" if ticket in skipped else f"  {doing(talk)}" if talk else ""
+                lines.append(Line([Span(f"  {cell(ticket, 22)} {clean(item['title'])}{clean(why)}", "yellow" if why else "", (talk.repo, talk.key) if talk else ("#ticket", ticket))]))
         return lines
     size = (width - 1) // len(COLUMNS) - COLUMN_GAP
     gap = Span(" " * COLUMN_GAP)
     heads = [(f" {column.title()} {len(items)} ", COLUMN_COLOURS[column]) for column, items in found.items()]
     lines.append(Line([part for title, colour in heads for part in (Span(title, f"on-{colour}"), Span(" " + "─" * max(size - columns(title) - 1, 0), "dim"), gap)]))
     lines.append(plain())
-    cards = [[row for ticket, item in items for row in card(ticket, item, skipped)] for items in found.values()]
+    cards = [[row for ticket, item in items for row in card(ticket, item, skipped, (preparing or {}).get(ticket))] for items in found.values()]
     for row in zip_longest(*cards, fillvalue=("", "", "")):
         lines.append(Line([part for text, style, ref in row for part in (Span(cell(text, size), style, ref), gap)]))
     return lines
@@ -461,7 +522,7 @@ def waiting(runs: list[Run], items: list[dict[str, Any]], reviewable: Callable[[
         if pull_group(pr, run) == "Needs you":
             found.append(Waiting(("#pr", pr["url"]), pr_name(pr), pull_status(pr, run)[0], pr.get("since") or pr["updated"], "Review", pr["repo"]))
     # A run on a PR that's listed is that PR's row, so it isn't counted twice.
-    return found + [Waiting((r.repo, r.key), name(r), doing(r), last.get((r.repo, r.key), ""), "Review" if r.on_a_pr else "Operate" if r.operating else "Delivery", r.repo) for r in runs if heading(r) == "Needs you" and not (r.on_a_pr and r.pr in shown)]
+    return found + [Waiting((r.repo, r.key), name(r), doing(r), last.get((r.repo, r.key), ""), "Review" if r.on_a_pr else "Operate" if r.operating else "Backlog" if r.preparing else "Delivery", r.repo) for r in runs if heading(r) == "Needs you" and not (r.on_a_pr and r.pr in shown)]
 
 
 def full_pile(runs: list[Run], items: list[dict[str, Any]], limit: int) -> str:
@@ -477,13 +538,6 @@ def pr_name(pr: dict[str, Any]) -> str:
 
 def author(pr: dict[str, Any]) -> str:
     return "you" if pr["mine"] else pr["author"]
-
-
-def waits_on(pr: dict[str, Any]) -> str:
-    """Who a PR waits on: yours on its reviewers, theirs on its author."""
-    if pr["move"] != "others" or not pr["mine"]:
-        return author(pr)
-    return ", ".join(pr["waiting_on"]) or "reviewers"
 
 
 def pull_status(pr: dict[str, Any], run: Run | None) -> tuple[str, str]:
@@ -572,14 +626,14 @@ class Item:
 def pull_item(pr: dict[str, Any], run: Run | None) -> Item:
     waiting = pull_group(pr, run) == "Needs you"
     stamp = pr.get("since") or pr["updated"] if waiting else pr["updated"]
-    return Item(pull_rank(pr, run), OWNER[pr["mine"]], pull_status(pr, run), pr_name(pr), pr["title"], author(pr) if live(run) else waits_on(pr), stamp, Span("●", CI_DOTS.get(pr["checks"], "dim")), pr=pr, waiting=waiting, tone="yellow" if pr["beaten"] else "")
+    return Item(pull_rank(pr, run), OWNER[pr["mine"]], pull_status(pr, run), pr_name(pr), pr["title"], author(pr), stamp, Span("●", CI_DOTS.get(pr["checks"], "dim")), pr=pr, waiting=waiting, tone="yellow" if pr["beaten"] else "")
 
 
 def run_item(run: Run, title: str, stamp: str, checks: str = "") -> Item:
     colour = "dim" if run.landed else "yellow" if run.with_you or run.your_turn else COLOURS[run.status]
-    kind = "Review" if run.on_a_pr else "Operate" if run.operating else "Delivery"  # the tab it lives on
+    kind = "Review" if run.on_a_pr else "Operate" if run.operating else "Backlog" if run.preparing else "Delivery"  # the tab it lives on
     dot = Span("●", CI_DOTS.get(checks, "dim")) if run.pr else Span(" ")
-    return Item((rank(doing(run)), stamp), OWNER[True], (doing(run), colour), name(run), title, "you" if run.with_you else "reviewers" if doing(run) == "waiting" and run.pr else "" if run.status == "done" else step_id(run), stamp, dot, kind, run=run, waiting=heading(run) == "Needs you" and not run.landed)
+    return Item((rank(doing(run)), stamp), OWNER[True], (doing(run), colour), name(run), title, "you" if run.with_you or doing(run) == "waiting" and run.pr else "" if run.status == "done" else step_id(run), stamp, dot, kind, run=run, waiting=heading(run) == "Needs you" and not run.landed)
 
 
 def working(start: float, end: float, work: Work = WORK) -> float:

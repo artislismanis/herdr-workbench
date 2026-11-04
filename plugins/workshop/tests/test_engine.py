@@ -605,6 +605,21 @@ class Prepare(unittest.TestCase):
         self.assertEqual(self.ticket.tags, ["ai"])
         self.assertEqual(self.engine.store.read("queue.json"), {"r": ["3", "7", "4"]})
 
+    def test_leaving_the_queue_talk_holds(self):
+        self.ticket.label, self.ticket.queue, self.ticket.tags = "ai", ["3", "7"], ["ai"]
+        self.engine.store.write("queue.json", {"r": ["3", "7"]})
+        run = self.engine.start("r", "prep-7", self.root, "main", load("prepare"), self.source, preparing=True, at=2, until=3)
+        self.tools.statuses.pop(run.step_agent, None)
+        run = self.engine.advance(run)
+        self.assertEqual((run.status, run.your_turn, self.ticket.tags), ("done", False, ["ai"]))
+        self.assertEqual(self.engine.store.read("queue.json"), {"r": ["3", "7"]})
+
+    def test_leaving_a_design_talk_still_stops(self):
+        run = self.engine.start("r", "prep-7", self.root, "main", load("prepare"), self.source, preparing=True, at=1, until=2)
+        self.tools.statuses.pop(run.step_agent, None)
+        run = self.engine.advance(run)
+        self.assertEqual(run.status, "parked")
+
     def test_the_last_go_ends_the_run_with_no_pr(self):
         run = self.finished()
         self.assertEqual((run.status, run.landed, run.pr), ("done", "designed", ""))

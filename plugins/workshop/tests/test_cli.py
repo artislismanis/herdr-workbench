@@ -69,6 +69,35 @@ class Filling(unittest.TestCase):
         self.assertEqual(self.tick(["1", "2"], held=lambda active: "held" if active else ""), ["1"])
 
 
+class Refresh(unittest.TestCase):
+    def test_a_talk_whose_agent_has_gone_is_noticed(self):
+        talk = mock.Mock(status="running", phase="prompted", current={"interactive": True})
+        working = mock.Mock(status="running", phase="prompted", current={"interactive": False})
+        engine = mock.Mock()
+        engine.store.all.return_value = [talk, working]
+        cli.advance_talks(engine)
+        engine.advance.assert_called_once_with(talk)
+
+
+class SweepByHand(unittest.TestCase):
+    def begin(self, runs, exists=False):
+        engine = mock.Mock()
+        engine.clock.return_value = 86400.0
+        engine.store.read.return_value = {}
+        engine.store.all.return_value = runs
+        engine.store.exists.return_value = exists
+        with mock.patch.object(cli, "make_source"), mock.patch.object(cli, "load"):
+            cli.begin_sweep(engine, {"repos": {"r": {"path": "/x"}}}, "r", "docs")
+        return engine.start.call_args.kwargs
+
+    def test_one_already_run_today_runs_again(self):
+        self.assertTrue(self.begin([mock.Mock(repo="r", sweeping="docs", landed="dropped")], exists=True)["restart"])
+
+    def test_one_still_going_is_not_doubled(self):
+        with self.assertRaisesRegex(cli.Park, "still going"):
+            self.begin([mock.Mock(repo="r", sweeping="docs", landed="", key="sweep-docs-19700101")])
+
+
 class SweepBrief(unittest.TestCase):
     def test_what_you_declined_reaches_the_next_sweeps_brief(self):
         state = tempfile.mkdtemp()
@@ -122,8 +151,11 @@ class Sweeping(unittest.TestCase):
         self.engine.store.all.return_value = [mock.Mock(status="waiting", preparing=False, sweeping="docs", landed="", repo="r")]
         self.assertEqual(self.due(30), 0)
 
+    def test_a_manual_sweep_never_starts_by_itself(self):
+        self.assertEqual(self.due(every="manual"), 0)
+
     def test_an_unknown_cadence_says_so(self):
-        with self.assertRaisesRegex(KeyError, "weekly or monthly"):
+        with self.assertRaisesRegex(KeyError, "weekly, monthly or manual"):
             self.due(every="daily")
 
 

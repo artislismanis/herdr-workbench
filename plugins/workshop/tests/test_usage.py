@@ -8,7 +8,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.usage import DAY, KEEP_DAYS, SAMPLES, by_day, sample, samples, top, totals  # noqa: E402
+from workshop.usage import DAY, KEEP_DAYS, SAMPLES, by_day, by_load, outlook, sample, samples, top, totals, week_cost  # noqa: E402
 
 
 class Sampling(unittest.TestCase):
@@ -66,3 +66,43 @@ class Days(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Outlook(unittest.TestCase):
+    HOUR = 3600
+
+    def test_a_steady_pace_that_lasts(self):
+        # 6% in the first 24 minutes, 4h36m to go: 15% an hour reaches 75%
+        self.assertEqual(outlook("5h", 6, 4.6 * self.HOUR), (75, 0))
+
+    def test_a_pace_that_runs_out_says_when(self):
+        self.assertEqual(outlook("5h", 50, 4 * self.HOUR), (250, self.HOUR))
+
+    def test_too_early_to_tell(self):
+        self.assertEqual(outlook("5h", 3, 5 * self.HOUR - 60), (None, 0))
+
+    def test_no_reset_known(self):
+        self.assertEqual(outlook("7d", 20, 0), (None, 0))
+
+
+class WeekCost(unittest.TestCase):
+    def rows(self, *pairs):
+        return [{"at": n * 300.0, "five": five, "week": week} for n, (five, week) in enumerate(pairs)]
+
+    def test_what_a_full_5h_window_takes_from_the_week(self):
+        rows = self.rows(*[(n * 10, 20 + n) for n in range(11)])
+        self.assertAlmostEqual(week_cost(rows, 3300.0), 10.0)
+
+    def test_resets_dont_count(self):
+        rows = self.rows((0, 20), (60, 26), (0, 26), (60, 32), (60, 0))
+        self.assertAlmostEqual(week_cost(rows, 1200.0), 10.0)
+
+    def test_too_little_use_to_say(self):
+        self.assertIsNone(week_cost(self.rows((0, 20), (10, 21)), 300.0))
+
+
+class Load(unittest.TestCase):
+    def test_peaks_by_how_many_agents_were_open(self):
+        rows = [{"at": 100.0, "cpu": 5, "ram": 10, "agents": 1}, {"at": 200.0, "cpu": 9, "ram": 20, "agents": 4}, {"at": 300.0, "cpu": 3, "ram": 15, "agents": 3}, {"at": 400.0, "cpu": 1, "ram": 99}]
+        found = by_load(rows, 400.0)
+        self.assertEqual([(b["agents"], b["samples"], b["cpu"], b["ram"]) for b in found], [("0-2", 1, 5, 10), ("3-4", 2, 9, 20)])

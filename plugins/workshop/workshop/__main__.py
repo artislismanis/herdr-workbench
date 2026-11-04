@@ -19,7 +19,7 @@ from .board import show
 from .boardview import full_pile, waiting
 from .chat import CHAT, Chat
 from .doctor import doctor
-from .engine import PREFIX, STOPS, SWEEP_EVERY, SWEEPS, Engine, Park
+from .engine import MANUAL, PREFIX, STOPS, SWEEP_EVERY, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
 from .remind import remind
 from .schedule import schedule
@@ -177,13 +177,16 @@ def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
 
 def begin_sweep(engine: Engine, cfg: dict[str, Any], name: str, sweep: str) -> Run:
     repo = cfg["repos"][name]
+    if going := next((r for r in engine.store.all() if r.repo == name and r.sweeping == sweep and not r.landed), None):
+        raise Park(f"The {sweep} sweep on {name} is still going, as {going.key}.")
     seen = engine.store.read(SWEEPS)
     entry = seen.setdefault(f"{name}/{sweep}", {})
     source = SweepSource(make_source(name, repo, cfg.get("jira", {})), sweep, [])
     entry["last"] = engine.clock()  # before it starts, so one that can't doesn't try again every tick
     engine.store.write(SWEEPS, seen)
     key = f"sweep-{sweep}-{time.strftime('%Y%m%d', time.gmtime(engine.clock()))}"
-    return engine.start(name, key, Path(repo["path"]).expanduser(), repo.get("base", "main"), load(f"sweep-{sweep}", Path(repo["path"]).expanduser(), name), source, commands=repo.get("commands"), sweeping=sweep)
+    # A second one the same day takes the finished one's key.
+    return engine.start(name, key, Path(repo["path"]).expanduser(), repo.get("base", "main"), load(f"sweep-{sweep}", Path(repo["path"]).expanduser(), name), source, restart=engine.store.exists(name, key), commands=repo.get("commands"), sweeping=sweep)
 
 
 def start_sweeps(engine: Engine, cfg: dict[str, Any]) -> None:
@@ -191,8 +194,10 @@ def start_sweeps(engine: Engine, cfg: dict[str, Any]) -> None:
     seen = engine.store.read(SWEEPS)
     for name, repo in cfg["repos"].items():
         for sweep, every in repo.get("sweeps", {}).items():
-            if every not in SWEEP_EVERY:
-                raise KeyError(f"{name}'s {sweep} sweep runs weekly or monthly, not {every}")
+            if every not in (*SWEEP_EVERY, MANUAL):
+                raise KeyError(f"{name}'s {sweep} sweep runs weekly, monthly or manual, not {every}")
+            if every == MANUAL:
+                continue
             waiting = any(r.repo == name and r.sweeping == sweep and not r.landed for r in engine.store.all())
             if waiting or engine.clock() - seen.get(f"{name}/{sweep}", {}).get("last", 0) < SWEEP_EVERY[every] or no_room(engine, cfg):
                 continue
@@ -231,6 +236,13 @@ def check_chat(engine: Engine, cfg: dict[str, Any]) -> None:
 def being_prepared(engine: Engine, name: str, key: str) -> bool:
     prep = f"prep-{key}"
     return engine.store.exists(name, prep) and not engine.store.load(name, prep).landed
+
+
+def advance_talks(engine: Engine) -> None:
+    """Cheap enough for a refresh: one look at each talk's agent, so one you closed is noticed without the timer."""
+    for run in engine.store.all():
+        if run.status == "running" and run.phase == "prompted" and run.current and run.current.get("interactive"):
+            engine.advance(run)
 
 
 def advance_all(engine: Engine) -> None:
@@ -622,6 +634,8 @@ def main(argv: list[str]) -> int:
                 sample(root, engine.throttle.snapshot(), agents_open(), Meter())
                 look_after(engine, cfg)
             case "sweep":
+                if no_room(engine, cfg):
+                    raise Park("Not now: every slot is busy, or the limits are holding new work.")
                 waited(root, lambda: print(engine.explain(begin_sweep(engine, cfg, argv[1], argv[2]))))
             case "review":
                 waited(root, lambda: print(engine.review(engine.store.find(argv[1]))))
@@ -650,7 +664,7 @@ def main(argv: list[str]) -> int:
                 print(stats(engine.store.history()))
             case "refresh":
                 read_limits(engine)
-                locked(root, lambda: check_tickets(engine))
+                locked(root, lambda: (advance_talks(engine), check_tickets(engine)))
                 show_refresh(cfg, engine.store)
             case "board":
                 show(engine, cfg)

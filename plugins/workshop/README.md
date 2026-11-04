@@ -221,7 +221,7 @@ If the PR or the ticket's design has a `Release steps` heading, the run stops at
 
 ## Maintain
 
-Sweeps are scheduled looks at a repo that keep the backlog full and tidy. Set them per repo with `sweeps = { deps = "weekly", docs = "monthly" }`. A tick starts one when it's due, behind the same limits and `max_active` as tickets, so they need the timer on. `workshop sweep <repo> <name>` runs one now.
+Sweeps are scheduled looks at a repo that keep the backlog full and tidy. Set them per repo with `sweeps = { deps = "weekly", docs = "monthly" }`. A tick starts one when it's due, behind the same limits and `max_active` as tickets, so they need the timer on. `manual` instead of a cadence makes one you only run yourself. Enter on a sweep on Operate, or `workshop sweep <repo> <name>`, runs one now.
 
 | Sweep | Looks at |
 |---|---|
