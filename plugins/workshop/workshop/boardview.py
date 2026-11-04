@@ -396,12 +396,14 @@ class Waiting(NamedTuple):
 def waiting(runs: list[Run], items: list[dict[str, Any]], reviewable: Callable[[Run], bool], events: list[dict[str, Any]]) -> list[Waiting]:
     """Everything waiting on you. The board's Needs you, its tab dots and the reminders all read this one list, so they never disagree."""
     last = {(e["repo"], e["key"]): e["at"] for e in events}
-    found = [Waiting((r.repo, r.key), name(r), r.label, last.get((r.repo, r.key), ""), "Review" if r.on_a_pr else "Operate" if r.operating else "Delivery") for r in runs if heading(r) == "Needs you"]
+    found, shown = [], set()
     for pr in pr_rows(runs, items, reviewable):
         run = run_for(runs, ("#pr", pr["url"]))
+        shown.add(pr["url"])
         if pull_group(pr, run) == "Needs you":
             found.append(Waiting(("#pr", pr["url"]), pr_name(pr), pull_status(pr, run)[0], pr.get("since") or pr["updated"], "Review"))
-    return found
+    # A run on a PR that's listed is that PR's row, so it isn't counted twice.
+    return found + [Waiting((r.repo, r.key), name(r), r.label, last.get((r.repo, r.key), ""), "Review" if r.on_a_pr else "Operate" if r.operating else "Delivery") for r in runs if heading(r) == "Needs you" and not (r.on_a_pr and r.pr in shown)]
 
 
 def full_pile(runs: list[Run], items: list[dict[str, Any]], limit: int) -> str:
