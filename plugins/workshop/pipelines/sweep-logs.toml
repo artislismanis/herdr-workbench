@@ -1,27 +1,5 @@
-# A scheduled look at a repo. Nothing changes until your go on what it proposes. Copy to ~/.config/workshop/pipelines/ to change it.
-name = "sweep-logs"
+# A scheduled look at a repo. Nothing changes until your go on what it proposes.
+steps = ["logs", "sweep", "decide"]
 
-[[steps]]
-id = "logs"
-stage = "Maintain"
-kind = "command"
-verdict = ["PASS", "FAILED"]
-then.FAILED = { goto = "sweep", max = 1 }
-
-[[steps]]
-id = "sweep"
-stage = "Maintain"
-kind = "agent"
+[step.sweep]
 prompt = "sweep-logs.md"
-fresh = true
-read_only = true
-proposes = true
-verdict = ["DONE"]
-
-[[steps]]
-id = "decide"
-stage = "Maintain"
-kind = "gate"
-change = "Tell the agent what to do instead"
-report = "sweep"
-proposals = true

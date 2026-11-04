@@ -89,7 +89,7 @@ def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bo
     repo = cfg["repos"][name]
     source = make_source(name, repo, cfg.get("jira", {}))
     path = Path(repo["path"]).expanduser()
-    return engine.start(name, key, path, repo.get("base", "main"), load(repo.get("pipeline", "ticket")), source, override, restart, repo.get("commands"), environments=repo.get("environments"))
+    return engine.start(name, key, path, repo.get("base", "main"), load(repo.get("pipeline", "ticket"), path, name), source, override, restart, repo.get("commands"), environments=repo.get("environments"))
 
 
 def repo_of(cfg: dict[str, Any], url: str) -> tuple[str, str]:
@@ -113,7 +113,7 @@ def begin_review(engine: Engine, cfg: dict[str, Any], url: str, mode: str = "") 
     source = PullRequestSource(path, settings["claim"] if claimed else "none", chat_of(cfg))
     key = f"pr-{number}"
     again = engine.store.exists(name, key) and engine.review_ready(engine.store.load(name, key))
-    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("review_pipeline", "review")), source, restart=again, commands=repo.get("commands"), pr=url.rstrip("/"), claimed=claimed)
+    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("review_pipeline", "review"), path, name), source, restart=again, commands=repo.get("commands"), pr=url.rstrip("/"), claimed=claimed)
 
 
 def begin_reply(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
@@ -123,7 +123,7 @@ def begin_reply(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
     source = ReplySource(path)
     key = f"reply-{number}"
     again = engine.store.exists(name, key) and engine.review_ready(engine.store.load(name, key))
-    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("reply_pipeline", "reply")), source, restart=again, pr=url.rstrip("/"), replying=True)
+    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("reply_pipeline", "reply"), path, name), source, restart=again, pr=url.rstrip("/"), replying=True)
 
 
 def take_me_to(engine: Engine, run: Run) -> None:
@@ -150,7 +150,7 @@ def begin_prepare(engine: Engine, cfg: dict[str, Any], ticket: str) -> Run:
         raise KeyError(f"{key} is already in delivery, so preparing it would change what's being built")
     repo = cfg["repos"][name]
     source = PrepareSource(make_source(name, repo, cfg.get("jira", {})), cfg.get("backlog", {}))
-    pipeline = load(repo.get("prepare_pipeline", "prepare"))
+    pipeline = load(repo.get("prepare_pipeline", "prepare"), Path(repo["path"]).expanduser(), name)
     prep = f"prep-{key}"
     stages = source.stages(prep)
     # One stage at a time, whichever the ticket has reached, so each talk can wait for its moment. Past the last, you want to go again.
@@ -170,7 +170,7 @@ def begin_sweep(engine: Engine, cfg: dict[str, Any], name: str, sweep: str) -> R
     entry["last"] = engine.clock()  # before it starts, so one that can't doesn't try again every tick
     engine.store.write(SWEEPS, seen)
     key = f"sweep-{sweep}-{time.strftime('%Y%m%d', time.gmtime(engine.clock()))}"
-    return engine.start(name, key, Path(repo["path"]).expanduser(), repo.get("base", "main"), load(f"sweep-{sweep}"), source, commands=repo.get("commands"), sweeping=sweep)
+    return engine.start(name, key, Path(repo["path"]).expanduser(), repo.get("base", "main"), load(f"sweep-{sweep}", Path(repo["path"]).expanduser(), name), source, commands=repo.get("commands"), sweeping=sweep)
 
 
 def start_sweeps(engine: Engine, cfg: dict[str, Any]) -> None:

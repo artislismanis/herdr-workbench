@@ -1,19 +1,12 @@
-# A PR to a draft review in hunk. Nothing reaches GitHub until you post it there. Copy to ~/.config/workshop/pipelines/ to change it.
-name = "review"
+# A PR to a draft review in hunk. Nothing reaches GitHub until you post it there.
+steps = ["qa", "ai-review"]
 
-[[steps]]
-id = "qa"
-stage = "Test"
-kind = "command"
-verdict = ["PASS", "FAILED"]
+# Failing tests are something to review, not a reason to stop.
+[step.qa]
 then.FAILED = { goto = "ai-review", max = 1 }
 
-[[steps]]
-id = "ai-review"
+[step.ai-review]
 stage = "Review"
-kind = "agent"
 prompt = "review-pr.md"
 again = "re-review-pr.md"
-fresh = true
-read_only = true
 verdict = ["APPROVE", "COMMENT", "REQUEST_CHANGES"]

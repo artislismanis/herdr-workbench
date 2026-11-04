@@ -1,8 +1,2 @@
-# Comments on your own PR to fixes and draft replies. Nothing is pushed or posted until your go. Copy to ~/.config/workshop/pipelines/ to change it.
-name = "reply"
-
-[[steps]]
-id = "reply"
-stage = "Review"
-kind = "agent"
-prompt = "reply-pr.md"
+# Comments on your own PR to fixes and draft replies. Nothing is pushed or posted until your go.
+steps = ["reply"]

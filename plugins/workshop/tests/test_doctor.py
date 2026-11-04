@@ -7,7 +7,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.doctor import launch_test, prompts  # noqa: E402
+from workshop.doctor import launch_test, pipelines, prompts  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
 
@@ -39,10 +39,23 @@ class Prompts(unittest.TestCase):
         with mock.patch.dict(os.environ, {"WORKSHOP_PROMPTS": str(tmp / "mine")}):
             found = prompts("r", tmp / "r", [pipeline])
             self.assertFalse(found.ok)
-            self.assertEqual(found.detail, f"no security.md in {tmp}/r/.workshop/prompts or {tmp}/mine")
+            self.assertEqual(found.detail, f"no security.md in {os.environ['WORKSHOP_REPOS']}/r/prompts or {tmp}/r/.workshop/prompts or {tmp}/mine")
             (tmp / "mine").mkdir()
             (tmp / "mine" / "security.md").write_text("Check it.")
             self.assertTrue(prompts("r", tmp / "r", [pipeline]).ok)
+
+
+    def test_says_where_each_pipeline_comes_from_and_which_are_broken(self):
+        tmp = Path(tempfile.mkdtemp())
+        mine = tmp / "repos" / "r" / "pipelines"
+        mine.mkdir(parents=True)
+        with mock.patch.dict(os.environ, {"WORKSHOP_REPOS": str(tmp / "repos")}):
+            found, loaded = pipelines("r", tmp / "r", ["ticket", "review"])
+            self.assertEqual((found.ok, found.note, len(loaded)), (True, "workshop's own", 2))
+            (mine / "ticket.toml").write_text('steps = ["implement", "securty"]\n')
+            found, loaded = pipelines("r", tmp / "r", ["ticket", "review"])
+            self.assertEqual((found.ok, found.note, len(loaded)), (False, "ticket from yours for this repo", 1))
+            self.assertEqual(found.detail, "ticket: workshop has no step called securty, so define it with [step.securty]")
 
 
 class BackToBoard(unittest.TestCase):

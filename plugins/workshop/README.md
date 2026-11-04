@@ -76,7 +76,12 @@ Reviewing the same PR again, once it has new commits, follows the PR's head and 
 
 ## Pipelines
 
-Pipelines are TOML files in `pipelines/` or `~/.config/workshop/pipelines/`. Set one per repo with `pipeline = "<name>"`.
+A pipeline is a list of steps, and `steps.toml` says what each step does. Set one per repo with `pipeline = "<name>"`. The shipped ones are in `pipelines/`:
+
+```toml
+ticket_stage = "Plan and Design"
+steps = ["tasks", "implement", "qa", "ai-review", "open-pr"]
+```
 
 | Pipeline | Steps |
 |---|---|
@@ -95,26 +100,30 @@ An agent step's `again` names the prompt for later rounds. In `ticket` and `gate
 
 Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh` share one agent, so they must agree on the model.
 
-## Changing how a step works
+## Your own pipelines and step files
 
-Every agent runs in the repo, so it already follows the repo's `CLAUDE.md`, skills and agents, and your own under `~/.claude`. Each step's prompt says so, and they win over workshop's general advice.
+Workshop looks for a pipeline in `pipelines/` and a step's prompt in `prompts/`, under each of these folders in turn, and the first with the file wins:
 
-To change what a step is told, put a file with its prompt's name, such as `ai-review.md`, in either:
+1. `~/.config/workshop/repos/<repo>/`: yours, for one repo, named as in `[repos.<repo>]`. Nothing goes in the repo, so you can work your own way on a team's repo.
+2. `<repo>/.workshop/`: versioned with the repo, for everyone who runs it. It's read from the repo's checkout, never a run's branch, so a PR under review can't change its reviewer.
+3. `~/.config/workshop/`: yours, for every repo.
+4. Workshop's own.
 
-1. `<repo>/.workshop/prompts/`, versioned with the repo, for everyone who runs it. It's read from the repo's checkout, never a run's branch, so a PR under review can't change its reviewer.
-2. `~/.config/workshop/prompts/`, yours, for every repo without its own.
+A team takes up your way of working by moving your files from the first folder to the second. `workshop doctor` lists the files in use and where each came from.
 
-The first one found replaces workshop's method for that step, so it can be just `/our-review`, and the skill does the rest. A first line that's a skill command is typed as one, so the skill runs. A skill can hand work to a subagent. Workshop always adds its part underneath: where the agent reads and writes, the verdict, how to ask you, and that it doesn't commit, push or post. Your file can't change those. To start from workshop's own, copy it from `workshop/prompts/`: only the part above `<!-- workshop -->` counts. `workshop doctor` lists the files in use.
+## Changing a pipeline
 
-## Adding a step
-
-Copy a pipeline to `~/.config/workshop/pipelines/` and add the step. Its prompt only says what to do, in either prompts folder above:
+Write a pipeline with the shipped one's name, in one of the folders above. List the steps in the order you want, put your own steps among them, and change a setting of workshop's step with a `[step.<name>]` table. The rest of the step stays workshop's, so improvements to it still reach you:
 
 ```toml
-[[steps]]
-id = "security"
+ticket_stage = "Plan and Design"
+steps = ["tasks", "implement", "qa", "ai-review", "security", "open-pr"]
+
+[step.ai-review]
+model = "opus"
+
+[step.security]
 stage = "Test"
-kind = "agent"
 prompt = "security.md"   # e.g. "Check for secrets, injection and unsafe dependencies", or /our-security-scan
 fresh = true
 read_only = true
@@ -122,7 +131,15 @@ verdict = ["PASS", "CHANGES_NEEDED"]
 then.CHANGES_NEEDED = { goto = "implement", max = 2 }
 ```
 
-Workshop adds the rest from the step's settings: where the brief and earlier steps' reports are, its report file (`security.md`, or `output`), the verdict line, that a read-only step edits nothing, and that nothing gets committed, pushed or posted. A `goto` back to an earlier step tells it which step sent the work back and where its report is, unless the rule names its own `prompt`. On the board the step sits under its `stage`, with its report and earlier rounds. A prompt that's in neither folder stops the run before it starts, and `workshop doctor` names it.
+A rule under `then` replaces workshop's for that verdict, and a step given new verdicts drops workshop's rules. A pipeline of another name is a new one, such as `steps = ["implement", "qa", "open-pr"]` for small fixes. Pipelines that spell out every step as a `[[steps]]` table still load.
+
+A step that isn't one of workshop's is an agent step whose prompt only says what to do, in a `prompts/` folder above. Workshop adds the rest from the step's settings: where the brief and earlier steps' reports are, its report file (`security.md`, or `output`), the verdict line, that a read-only step edits nothing, and that nothing gets committed, pushed or posted. A `goto` back to an earlier step tells it which step sent the work back and where its report is, unless the rule names its own `prompt`. On the board the step sits under its `stage`, with its report and earlier rounds. A prompt that's in none of the folders stops the run before it starts, and `workshop doctor` names it.
+
+## Changing how a step works
+
+Every agent runs in the repo, so it already follows the repo's `CLAUDE.md`, skills and agents, and your own under `~/.claude`. Each step's prompt says so, and they win over workshop's general advice.
+
+To change what a step is told, put a file with its prompt's name, such as `ai-review.md`, in a `prompts/` folder above. It replaces workshop's method for that step, so it can be just `/our-review`, and the skill does the rest. A first line that's a skill command is typed as one, so the skill runs. A skill can hand work to a subagent. Workshop always adds its part underneath: where the agent reads and writes, the verdict, how to ask you, and that it doesn't commit, push or post. Your file can't change those. To start from workshop's own, copy it from `workshop/prompts/`: only the part above `<!-- workshop -->` counts.
 
 ## Terms
 

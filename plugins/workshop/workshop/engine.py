@@ -49,7 +49,7 @@ class Engine:
             raise Park(f"{key}: {reason}")
         for name in prompts_of(pipeline):  # before the claim, so a missing prompt costs nothing
             try:
-                prompt_text(name, repo_path)
+                prompt_text(name, repo_path, repo)
             except PipelineError as missing:
                 raise Park(str(missing)) from missing
         source.claim(key)
@@ -875,7 +875,7 @@ class Engine:
         # In a talk you're there, so it asks you. What the others write becomes the PR.
         extra = "proposals.md" if step.get("proposes") else "" if step.get("interactive") else "decision.md" if step.get("read_only") else "asking.md"
         try:
-            method = prompt_text(prompt, Path(run.repo_path) if run.repo_path else None)
+            method = prompt_text(prompt, Path(run.repo_path) if run.repo_path else None, run.repo)
         except PipelineError as missing:
             raise Park(str(missing)) from missing
         if not shipped(prompt):  # a step of your own: its rules come from its settings
