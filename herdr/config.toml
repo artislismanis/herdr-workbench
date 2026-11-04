@@ -114,3 +114,11 @@ key = "prefix+t"
 type = "plugin_action"
 command = "annotate.terminal"
 description = "Annotate: review this pane's last 200 lines"
+
+# A workshop run's state beside its workspace, which workshop reports as $workshop.
+# Coloured only when it waits on you. herdr's own rows otherwise, as of 0.9.5.
+[ui.sidebar.spaces]
+rows = [
+  ["state_icon", "workspace", { token = "$workshop", dim = true, rules = [{ equals = "fix", fg = "#e06c75", bold = true, dim = false }, { equals = "decide", fg = "#e5c07b", bold = true, dim = false }, { equals = "drafted", fg = "#e5c07b", dim = false }, { equals = "your turn", fg = "#e5c07b", dim = false }] }],
+  ["branch", "git_status"],
+]

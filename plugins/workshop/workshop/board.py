@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, live, now_view, only, operations, plain, pull, pull_group, pull_story, pulls, refs, rule, ticket_view, timeline, usage_line, usage_view, wrapped
+from .boardview import ASK_AGAIN, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, now_view, only, operations, plain, pr_rows, pull, pull_group, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .prs import FAILING
 from .review import decisions
@@ -111,6 +111,7 @@ class Board:
         self.regions: list[tuple[int, int, int, Action]] = []
         self.finding, self.filter = False, ""  # typing a filter, and what the list is narrowed to
         self.reload()
+        self.looked = self.piles()  # what each tab held when you last looked, so what's arrived since gets a dot
 
     def stamp(self) -> tuple[int, ...]:
         paths = (self.store.root / "runs", self.store.root / "events.jsonl", self.store.root / SNAPSHOT, self.store.root / SKIPPED)
@@ -126,7 +127,15 @@ class Board:
                 self.picked, self.viewing, self.side, self.earlier = None, "", 0, False
 
     def your_pile(self) -> set[tuple[str, str]]:
-        return {(r.repo, r.key) for r in self.runs if heading(r) == "Needs you"} | {("#pr", p["url"]) for p in self.pr_items() if pull_group(p, self.linked(p)) == "Needs you"}
+        return {found.ref for found in self.waiting()}
+
+    def waiting(self) -> list[Any]:
+        return waiting(self.runs, self.snapshot.get("prs", {}).get("items", []), self.engine.reviewable, self.events)
+
+    def piles(self) -> list[set[tuple[str, str]]]:
+        """What waits on you, tab by tab, for the dot that says something new arrived."""
+        found = self.waiting()
+        return [{w.ref for w in found if TABS[tab] in ("Now", w.tab)} for tab in range(len(TABS))]
 
     def title(self, run: Run) -> str:
         brief = self.store.files(run) / "brief.md"
@@ -199,14 +208,10 @@ class Board:
         return [{"repo": name, "sweep": sweep, "cadence": cadence, "every": SWEEP_EVERY.get(cadence, 0), "last": seen.get(f"{name}/{sweep}", {}).get("last", 0)} for name, repo in self.cfg["repos"].items() for sweep, cadence in repo.get("sweeps", {}).items()]
 
     def pr_items(self) -> list[dict[str, Any]]:
-        """A draft from delivery is still your self-review, on Delivery, until you let it go. Other drafts aren't in review, but a run on a PR shows nowhere else."""
-        drafts = {r.pr for r in self.runs if self.engine.reviewable(r)}
-        return [p for p in self.snapshot.get("prs", {}).get("items", []) if ((run := self.linked(p)) and run.on_a_pr and live(run)) or (p["url"] not in drafts and p["state"] != "draft")]
+        return pr_rows(self.runs, self.snapshot.get("prs", {}).get("items", []), self.engine.reviewable)
 
     def run_of(self, ref: tuple[str, str] | None) -> Run | None:
-        """The run behind a row. On a PR, what's working on it now comes before the delivery that made it."""
-        found = [r for r in self.runs if ref in ((r.repo, r.key), ("#pr", r.pr))]
-        return next((r for r in found if r.on_a_pr and not r.landed), found[0] if found else None)
+        return run_for(self.runs, ref)
 
     def advice(self, run: Run | None) -> str:
         """The agent's bottom line, for the top of the detail."""
@@ -651,7 +656,10 @@ class Board:
         return len(pile), tickets, stopped(self.building()), sum(pull_group(p, self.linked(p)) == "Needs you" for p in self.pr_items()), stopped(r for r in self.runs if r.operating)
 
     def header(self) -> Line:
-        return Line([part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {SIGNS[tab]} {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))])
+        piles = self.piles()
+        self.looked[self.tab] = piles[self.tab]
+        fresh = [bool(pile - looked) for pile, looked in zip(piles, self.looked, strict=True)]
+        return Line([part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {SIGNS[tab]} {tab} {count}{' •' if fresh[i] else ''} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))])
 
     def status(self) -> Line:
         """One quiet line under the tabs, the same on every tab: what's left of the limits and machine, how old the list is, and why new work waits."""

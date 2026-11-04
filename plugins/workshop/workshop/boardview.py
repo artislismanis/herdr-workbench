@@ -373,6 +373,39 @@ def pull_rank(pr: dict[str, Any], run: Run | None) -> tuple[int, str]:
     return rank(word if live(run) else f"{'yours' if pr['mine'] else 'theirs'} {word}"), pr["updated"]
 
 
+def run_for(runs: list[Run], ref: tuple[str, str] | None) -> Run | None:
+    """The run behind a row. On a PR, what's working on it now comes before the delivery that made it."""
+    found = [r for r in runs if ref in ((r.repo, r.key), ("#pr", r.pr))]
+    return next((r for r in found if r.on_a_pr and not r.landed), found[0] if found else None)
+
+
+def pr_rows(runs: list[Run], items: list[dict[str, Any]], reviewable: Callable[[Run], bool]) -> list[dict[str, Any]]:
+    """A draft from delivery is still your self-review, on Delivery, until you let it go. Other drafts aren't in review, but a run on a PR shows nowhere else."""
+    drafts = {r.pr for r in runs if reviewable(r)}
+    return [p for p in items if ((run := run_for(runs, ("#pr", p["url"]))) and run.on_a_pr and live(run)) or (p["url"] not in drafts and p["state"] != "draft")]
+
+
+class Waiting(NamedTuple):
+    ref: tuple[str, str]
+    name: str
+    label: str
+    since: str  # when it started waiting on you
+    tab: str
+
+
+def waiting(runs: list[Run], items: list[dict[str, Any]], reviewable: Callable[[Run], bool], events: list[dict[str, Any]]) -> list[Waiting]:
+    """Everything waiting on you. The board's Needs you, its tab dots and the reminders all read this one list, so they never disagree."""
+    last = {(e["repo"], e["key"]): e["at"] for e in events}
+    found, shown = [], set()
+    for pr in pr_rows(runs, items, reviewable):
+        run = run_for(runs, ("#pr", pr["url"]))
+        shown.add(pr["url"])
+        if pull_group(pr, run) == "Needs you":
+            found.append(Waiting(("#pr", pr["url"]), pr_name(pr), pull_status(pr, run)[0], pr.get("since") or pr["updated"], "Review"))
+    # A run on a PR that's listed is that PR's row, so it isn't counted twice.
+    return found + [Waiting((r.repo, r.key), name(r), r.label, last.get((r.repo, r.key), ""), "Review" if r.on_a_pr else "Operate" if r.operating else "Delivery") for r in runs if heading(r) == "Needs you" and not (r.on_a_pr and r.pr in shown)]
+
+
 def full_pile(runs: list[Run], items: list[dict[str, Any]], limit: int) -> str:
     """Why no new work starts, if your pile has reached `max_waiting`. Agents make work faster than a person clears it."""
     waiting = {r.pr or r.key for r in runs if not r.preparing and (r.status in ("parked", "waiting") or r.with_you)}

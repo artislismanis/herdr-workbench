@@ -71,7 +71,7 @@ class Engine:
             run.step_pane, run.step_agent = old.step_pane, old.step_agent  # still open if nothing was posted, for the next fresh step to let go of
             run.loops = {step: used for step, used in old.loops.items() if step.endswith("#")}
             if run.replying:
-                self.store.save(run)
+                self.save(run)
                 self._write_brief(run)  # the comments have moved on
             if run.reviewing:
                 if run.worktree:
@@ -79,7 +79,7 @@ class Engine:
                 else:  # it went when the last review was posted, and a new one is made below
                     run.reviewed = old.reviewed
                 run.begun, run.claimed, run.noticed = old.begun, old.claimed or claimed, old.noticed
-        self.store.save(run)
+        self.save(run)
         self.store.event(run, "claimed", override=override, restart=restart)
         self._move(run, "working")
         self._post(run, f"Started, on branch workshop/{slug(key)}.")
@@ -104,7 +104,7 @@ class Engine:
             self.source_for(run).claim(run.key)
             run.claimed = True
             self.store.event(run, "claimed_review")
-            self.store.save(run)
+            self.save(run)
         return run
 
     def watch(self, run: Run) -> Run:
@@ -114,7 +114,7 @@ class Engine:
             if new:
                 run.noticed += new
                 self.store.event(run, "noticed", what=new)
-                self.store.save(run)
+                self.save(run)
                 self.tools.notify(f"Workshop: {run.key} moved on", "; ".join(new))
         except STOPS as failed:
             self.store.event(run, "check_failed", reason=str(failed))
@@ -147,7 +147,7 @@ class Engine:
                 self._park(run, str(stop))
             except STOPS as stop:
                 self._park(run, f"{step['id']} failed: {stop}")
-            self.store.save(run)
+            self.save(run)
             if (run.step, run.phase) == before:
                 break
         return run
@@ -160,7 +160,7 @@ class Engine:
         run.status, run.reason, run.blocked_at = "running", "", 0.0
         self.store.event(run, "answered", where="pane")
         self._move(run, "working")
-        self.store.save(run)
+        self.save(run)
         return run
 
     def unblock(self, run: Run) -> Run:
@@ -249,11 +249,11 @@ class Engine:
             except STOPS:  # the file is what went wrong, so the agent writes it again
                 run.step = run.index_of(step["report"])
             run.status, run.reason, run.phase, run.blocked_at = "running", "", "", 0.0
-            self.store.save(run)
+            self.save(run)
             return self.advance(run)
         if step is not None and step["kind"] == "gate":  # back to the question, with its rounds renewed
             run.status, run.reason, run.blocked_at = "waiting", step.get("ask") or f"{step['report']} needs your approval.", 0.0
-            self.store.save(run)
+            self.save(run)
             return run
         if note and step is not None and step["kind"] == "agent":
             return self.answer(run, note)
@@ -274,7 +274,7 @@ class Engine:
         run.status, run.reason, run.blocked_at, run.next_prompt = "running", "", 0.0, ""
         run.step, run.phase = run.step + 1, ""
         self._move(run, "working")
-        self.store.save(run)
+        self.save(run)
         return self.advance(run)
 
     def drop(self, run: Run, reason: str = "") -> Run:
@@ -285,7 +285,7 @@ class Engine:
         self._let_go(run)
         run.status, run.landed, run.reason, run.blocked_at, run.your_turn = "done", "dropped", reason, 0.0, False
         self._move(run, "dropped")
-        self.store.save(run)
+        self.save(run)
         if run.preparing or run.sweeping:
             self._tidy(run)  # it never holds work
         return run
@@ -304,7 +304,7 @@ class Engine:
             if pr["state"] != "CLOSED":
                 # A draft is still self-review, so the ticket stays in progress until the PR opens.
                 self._move(run, "merged" if pr["state"] == "MERGED" else "working" if pr["isDraft"] else "approved" if pr["reviewDecision"] == "APPROVED" else "review")
-            self.store.save(run)
+            self.save(run)
             if run.landed:
                 self._tidy(run, pr["headRefOid"])
         except STOPS as failed:
@@ -319,13 +319,13 @@ class Engine:
             if not run.deployed:
                 self._reach(run, "preprod")
                 self._move(run, "preprod")
-                self.store.save(run)
+                self.save(run)
                 self._tidy(run, pr["headRefOid"])
             if not self.tools.reached(Path(run.repo_path), run.pr, pr["mergeCommit"]["oid"], [branch for branch, kind in kinds.items() if kind == "prod"]):
                 return
         if place:
             self._reach(run, "prod")
-        self.store.save(run)
+        self.save(run)
         if run.worktree:
             self._tidy(run, pr["headRefOid"])
         if place and (steps := self._release_steps(run, pr)):
@@ -333,7 +333,7 @@ class Engine:
             run.pipeline["steps"].append({"id": "release", "stage": "Deploy", "kind": "gate", "report": "release", "go": "They're done", "change": "Say what went wrong"})
             run.step = len(run.pipeline["steps"]) - 1
             self._wait(run, "It's in prod, and it has release steps to do by hand.")
-            self.store.save(run)
+            self.save(run)
             return
         self._landed(run)
 
@@ -353,7 +353,7 @@ class Engine:
         run.status, run.landed = "done", "merged"
         self.store.event(run, "landed", state=run.landed)
         self._move(run, "merged")
-        self.store.save(run)
+        self.save(run)
 
     def _tidy(self, run: Run, landed_head: str = "") -> None:
         if not run.worktree:
@@ -366,7 +366,7 @@ class Engine:
             pane = run.pane
             run.worktree, run.pane, run.agent, run.step_pane, run.step_agent = "", "", "", "", ""
             self.store.event(run, "tidied")
-            self.store.save(run)
+            self.save(run)
             self.tools.back_to_board(pane)
             self.tools.close_workspace(pane)  # last, as it can be the workspace this is running in
         except STOPS as failed:
@@ -380,7 +380,7 @@ class Engine:
         alive = run.phase == "prompted" and self.tools.agent_status(run.step_agent or run.agent) != "gone"
         run.status, run.reason, run.phase, run.blocked_at = "running", "", run.phase if alive else "", 0.0
         self.store.event(run, "resumed")
-        self.store.save(run)
+        self.save(run)
         return self.advance(run)
 
     def approve(self, run: Run) -> Run:
@@ -389,7 +389,7 @@ class Engine:
             self._push_ci(run)
             run.status, run.reason = "running", ""
             self.store.event(run, "approved")
-            self.store.save(run)
+            self.save(run)
             return self.advance(run)
         if "section" in step:
             self._sign_off(run, step)
@@ -399,7 +399,7 @@ class Engine:
         run.status, run.reason = "running", ""
         run.step, run.phase = run.step + 1, ""
         self.store.event(run, "approved")
-        self.store.save(run)
+        self.save(run)
         return self.advance(run)
 
     def _sign_off(self, run: Run, step: dict[str, Any]) -> None:
@@ -504,7 +504,7 @@ class Engine:
             if run.decided.get(str(number)) != "skip" and number not in run.applied:
                 self._do(run, found)
                 run.applied.append(number)  # so a retry after a failure doesn't repeat it
-                self.store.save(run)
+                self.save(run)
         run.step, run.phase = run.step + 1, ""
 
     def _decided(self, run: Run, choice: str) -> Run:
@@ -512,10 +512,10 @@ class Engine:
         run.sent += 1
         if run.sent < len(self._proposals(run)):
             run.reason = self._question(run)
-            self.store.save(run)
+            self.save(run)
             return run
         run.status, run.reason = "running", ""
-        self.store.save(run)
+        self.save(run)
         return self.advance(run)
 
     def _answer(self, run: Run, note: str) -> Run:
@@ -548,7 +548,7 @@ class Engine:
                 raise Park(f"Rejected at {step['id']}: {note}")
         except Park as stop:
             self._park(run, str(stop))
-        self.store.save(run)
+        self.save(run)
         return self.advance(run)
 
     def answer(self, run: Run, text: str) -> Run:
@@ -570,7 +570,7 @@ class Engine:
                 run.started_at = self.clock()
         except STOPS as stop:
             self._park(run, f"{step['id']} failed: {stop}")
-        self.store.save(run)
+        self.save(run)
         return self.advance(run)
 
     def review(self, run: Run, fresh: bool = False) -> str:
@@ -593,7 +593,7 @@ class Engine:
     def posted(self, run: Run) -> None:
         run.posted = run.reviewed
         self.store.event(run, "posted")
-        self.store.save(run)
+        self.save(run)
 
     def leave(self, run: Run) -> None:
         """It went out, so nothing here is needed whatever the verdict. New commits get a fresh checkout on the next review."""
@@ -649,16 +649,25 @@ class Engine:
         for reply in self.replies(run)[run.sent:]:
             source.reply(run.key, reply["comment"], self._marked(reply["reply"]) + (f"\n\nFixed in {fix}." if reply.get("fixed") else ""))
             run.sent += 1
-            self.store.save(run)
+            self.save(run)
         run.replied = True
         self.store.event(run, "replied", replies=run.sent)
-        self.store.save(run)
+        self.save(run)
         try:
             self.tools.rerequest(Path(run.repo_path), run.pr.rsplit("/", 1)[-1])
             self.store.event(run, "rerequested")
         except STOPS as failed:  # the replies are out either way, and the board offers it
             self.store.event(run, "rerequest_failed", reason=str(failed))
         return run
+
+    def save(self, run: Run) -> None:
+        """Every change goes through here, so herdr's sidebar shows the run's state as it changes."""
+        self.store.save(run)
+        self.show(run)
+
+    def show(self, run: Run) -> None:
+        if run.pane:
+            self.tools.mark(run.pane, "" if run.landed else run.label)
 
     def delivered(self, run: Run) -> bool:
         return run.status == "done" and bool(run.pr) and not run.landed and not run.on_a_pr
@@ -1066,18 +1075,18 @@ class Engine:
         if run.preparing:
             run.status, run.landed = "done", run.landed_as or next((s["label"] for s in reversed(run.pipeline["steps"][: run.step]) if "label" in s), "prepared")
             self.store.event(run, "prepared")
-            self.store.save(run)
+            self.save(run)
             self.tools.notify(f"Workshop: {run.key} {run.landed}", {"queued": "It's in the queue.", "designed": "It's designed, and out of the queue. p on the Backlog with its number queues it."}.get(run.landed_as, "It's on the ticket. p on the Backlog with its number starts the next stage."))
             self._tidy(run)
             return
         if run.fixing:
             run.status, run.landed = "done", "green"
             self.store.event(run, "green")
-            self.store.save(run)
+            self.save(run)
             self.tools.notify(f"Workshop: {run.key} green", f"{run.pr} passes its checks.")
             if self._shares_checkout(run):
                 pane, run.worktree, run.pane, run.agent = run.pane, "", "", ""  # the delivery's checkout, workspace and agent stay
-                self.store.save(run)
+                self.save(run)
                 self.tools.close_pane(pane)
             else:
                 self._tidy(run)
@@ -1085,18 +1094,18 @@ class Engine:
         if run.sweeping:
             run.status, run.landed = "done", "swept"
             self.store.event(run, "swept")
-            self.store.save(run)
+            self.save(run)
             self._tidy(run)
             return
         self._post(run, "\n\n".join(part for part in (f"Draft PR ready: {run.pr}", self.handover(run), summary(self.store.events(run))) if part))
         self.source_for(run).finish(run.key)
         run.status = "done"
         self.store.event(run, "finished", pr=run.pr)
-        self.store.save(run)
+        self.save(run)
         try:
             if run.reviewing:
                 run.reviewed = self.tools.head(Path(run.worktree))
-                self.store.save(run)
+                self.save(run)
             self.review(run, run.on_a_pr)
             self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there, and prefix+shift+u there {'posts' if run.on_a_pr else 'finishes'} it.")
         except STOPS as failed:  # the PR is delivered either way, and g tries again

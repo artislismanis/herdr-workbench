@@ -2,7 +2,7 @@
 
 How work is meant to move through workshop, from an idea to production and back to the next idea, and what you do at each point. There are three phases: dream it up on the Backlog, build it on Delivery and Review, and operate it on Operate, where deploys and sweeps turn up the next tickets. The [workshop README](../plugins/workshop/README.md) is the reference for commands and settings.
 
-The board is where you work. Open it with `prefix+shift+b`. Agents do the work, and you make the decisions. Nothing goes out in your name without your go.
+The board is where you work. Open it with `prefix+shift+b`. You don't need to keep it open: herdr's sidebar shows each run's state beside its workspace, and anything waiting on you for an hour gets a reminder, then one each working morning. Agents do the work, and you make the decisions. Nothing goes out in your name without your go.
 
 ## The path of a ticket
 
