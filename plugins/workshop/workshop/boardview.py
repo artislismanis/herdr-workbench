@@ -715,7 +715,7 @@ def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[st
     _, style, word = stage_state(run, indexes)
     ids = {run.pipeline["steps"][index]["id"] for index in indexes}
     last = {e["step"]: e.get("verdict", "") for e in events if e["type"] == "step" and e.get("state") == "done" and e.get("step") in ids}
-    if word == "done" and any(verdict in BAD_VERDICTS for verdict in last.values()):  # it went on, by design, but a step in it failed
+    if word.startswith("done") and any(verdict in BAD_VERDICTS for verdict in last.values()):  # it went on, by design, but a step in it failed
         style, word = "yellow", "done with findings"
     spent = [e for e in events if e["type"] == "spent" and e.get("step") in ids]
     prices = [e["usd"] for e in spent]
