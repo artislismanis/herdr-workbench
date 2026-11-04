@@ -1794,6 +1794,13 @@ class Mouse(Keys):
         self.drawn()
         self.assertEqual(self.spot("tab:0")[1], 1)
 
+    def test_the_status_line_is_the_bottom_row_under_the_keys(self):
+        self.drawn()
+        rows = {y: "".join(text for _, text in parts) for y, parts in self.board.painted.items()}
+        self.assertIn("not updated yet", rows[29])
+        self.assertIn("q quit", rows[28])
+        self.assertNotIn(2, rows)  # the gap under the tabs stays blank
+
     def test_clicking_a_tab_switches_to_it_even_from_a_run(self):
         self.board.press(10)
         self.drawn()

@@ -692,7 +692,7 @@ class Board:
         return Line(parts)
 
     def status(self) -> Line:
-        """One quiet line under the tabs, the same on every tab: what's left of the limits and machine, when the lists were last fetched, and why new work waits."""
+        """One quiet line at the bottom, under the keys, the same on every tab: what's left of the limits and machine, when the lists were last fetched, and why new work waits."""
         sources = {**{f"{name}'s backlog": found for name, found in self.snapshot.get("repos", {}).items()}, **({"PRs": self.snapshot["prs"]} if "prs" in self.snapshot else {})}
         times = [found.get("polled_at", 0) for found in sources.values() if found.get("polled_at")]
         age = f"updated {ago(self.clock() - min(times))} ago" if times else "not updated yet"
@@ -817,7 +817,7 @@ class Board:
     def selection(self, start: tuple[int, int], end: tuple[int, int]) -> list[tuple[int, int, int]]:
         """Rows as (y, from, to), held to the column the drag began in, so the list and panel never mix."""
         left, right = (0, self.edge or self.right) if not self.edge or start[0] < self.edge else (self.edge + 2, self.right)
-        first, last = TOP + 2, self.rows - 2
+        first, last = TOP + 2, self.rows - 3
         (top, x1), (bottom, x2) = sorted(((min(max(y, first), last), max(min(x, right - 1), left)) for x, y in (start, end)))
         return [(y, x1 if y == top else left, x2 + 1 if y == bottom else right) for y in range(top, bottom + 1)]
 
@@ -878,9 +878,8 @@ class Board:
         self.right, self.rows = width - 1, rows
         screen.erase()
         self.put(screen, TOP, self.header(), styles, width)
-        self.put(screen, TOP + 1, self.status(), styles, width)
-        foot = self.note(width - 1)[-(rows - TOP - 3) :]
-        height = rows - TOP - 2 - len(foot)
+        foot = self.note(width - 1)[-(rows - TOP - 4) :]
+        height = rows - TOP - 3 - len(foot)  # the status line takes the bottom row
         panelled = self.panelled(width - 1)
         edge = self.list_width(width - 1) + 1 if panelled else width
         self.edge = edge if panelled else 0
@@ -893,8 +892,9 @@ class Board:
                 screen.addnstr(y, edge, "│", 1, styles["dim"])
             for y, line in enumerate(side[self.side : self.side + height], TOP + 2):
                 self.put(screen, y, line, styles, width, left=edge + 2)
-        for y, line in enumerate(foot, rows - len(foot)):
+        for y, line in enumerate(foot, rows - 1 - len(foot)):
             self.put(screen, y, line, styles, width)
+        self.put(screen, rows - 1, self.status(), styles, width)  # under the keys, out of the way of the page
         if self.grab and self.reach:
             for y, left, right in self.selection(self.grab, self.reach):
                 screen.chgat(y, left, max(right - left, 0), curses.A_REVERSE)
