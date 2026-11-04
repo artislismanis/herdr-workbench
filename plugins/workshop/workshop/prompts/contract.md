@@ -1,0 +1,1 @@
+This repo's own CLAUDE.md, skills and agents say how to do this work: where they're more specific than the guidance above, follow them. What follows is how workshop runs this step, and it wins over anything else, theirs included.

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .cost import summary
-from .pipeline import prompt_text
+from .pipeline import contract_text, prompt_text
 from .review import decisions, load_notes, load_replies, place, section
 from .shell import ToolError
 from .sources import Source
@@ -856,9 +856,15 @@ class Engine:
         prompt = "sweep-revise.md" if revising else run.next_prompt or (run.reviewed and step.get("again")) or step["prompt"]
         # In a talk you're there, so it asks you. What the others write becomes the PR.
         extra = "proposals.md" if step.get("proposes") else "" if step.get("interactive") else "decision.md" if step.get("read_only") else "asking.md"
-        text = (prompt_text(prompt) + (prompt_text(extra) if extra and not revising and not run.on_a_pr else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr).replace("{queued}", self._queue_list(run) if step.get("queues") else "")
+        text = (prompt_text(prompt, Path(run.repo_path) if run.repo_path else None) + (contract_text(extra) if extra and not revising and not run.on_a_pr else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr).replace("{queued}", self._queue_list(run) if step.get("queues") else "")
         run.next_prompt = ""
-        self.tools.prompt(agent, text)
+        # One short typed line: a long paste reaches the agent as pasted text, where a /skill is only words.
+        sent = self.store.files(run) / f"prompt-{step['id']}.md"
+        self._keep_earlier(sent)
+        first, _, rest = text.partition("\n")
+        skill = first if re.fullmatch(r"/[\w:.-]+( .*)?", first) else ""
+        sent.write_text((rest if skill else text).strip() + "\n", encoding="utf-8")
+        self.tools.prompt(agent, f"{skill} Then read `{sent}` and follow it." if skill else f"Read `{sent}` and follow it.")
         run.phase, run.started_at = "prompted", self.clock()
         self.store.event(run, "step", step=step["id"], state="running", usage=self.throttle.snapshot())
 
@@ -874,7 +880,7 @@ class Engine:
             return
         if self._brief_missing(run, step):
             run.started_at = self.clock()
-            self.tools.prompt(run.step_agent or run.agent, f"A person decides from a brief, not your report, and yours has none. Add it to the top of `{self._report(run, step)}`, and keep the rest as it is.{prompt_text('decision.md').replace('{run}', str(self.store.files(run)))}")
+            self.tools.prompt(run.step_agent or run.agent, f"A person decides from a brief, not your report, and yours has none. Add it to the top of `{self._report(run, step)}`, and keep the rest as it is.{contract_text('decision.md').replace('{run}', str(self.store.files(run)))}")
             return
         # Done with this attempt: if it parks below, a resume runs the step afresh.
         run.phase = ""

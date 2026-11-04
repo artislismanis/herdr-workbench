@@ -769,6 +769,13 @@ class Keys(unittest.TestCase):
         self.assertIn("backlog 5m old", self.board.header().text)
         self.tools.assert_not_called()
 
+    def test_what_a_step_was_told_stays_off_the_board(self):
+        found = run("1", "parked")
+        self.store.save(found)
+        for name in ("build.md", "prompt-build.md"):
+            (self.store.files(found) / name).write_text("x", encoding="utf-8")
+        self.assertEqual([Path(p).name for p in self.board.reports(found)], ["build.md"])
+
     def test_tabs_show_what_needs_attention(self):
         self.store.save(run("1", "parked"))
         self.board.seen = None

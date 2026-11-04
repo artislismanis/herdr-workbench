@@ -134,7 +134,7 @@ class Board:
         return path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
 
     def reports(self, run: Run) -> tuple[str, ...]:
-        found = [p for p in self.store.files(run).iterdir() if p.suffix in (".md", ".json")]
+        found = [p for p in self.store.files(run).iterdir() if p.suffix in (".md", ".json") and not p.name.startswith("prompt-")]
         return tuple(str(p) for p in sorted(found, key=lambda p: p.stat().st_mtime, reverse=True))
 
     def panelled(self, width: int) -> bool:
