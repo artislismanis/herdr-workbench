@@ -33,6 +33,17 @@ class Prompts(unittest.TestCase):
             (tmp / "r" / ".workshop" / "prompts" / "ai-review.md").write_text("Theirs.")
             self.assertEqual(prompts("r", tmp / "r").note, "ai-review.md from repo, fix.md from yours")
 
+    def test_a_step_whose_prompt_is_nowhere_fails(self):
+        tmp = Path(tempfile.mkdtemp())
+        pipeline = {"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "security.md"}, {"id": "b", "kind": "agent", "prompt": "implement.md"}]}
+        with mock.patch.dict(os.environ, {"WORKSHOP_PROMPTS": str(tmp / "mine")}):
+            found = prompts("r", tmp / "r", [pipeline])
+            self.assertFalse(found.ok)
+            self.assertEqual(found.detail, f"no security.md in {tmp}/r/.workshop/prompts or {tmp}/mine")
+            (tmp / "mine").mkdir()
+            (tmp / "mine" / "security.md").write_text("Check it.")
+            self.assertTrue(prompts("r", tmp / "r", [pipeline]).ok)
+
 
 class BackToBoard(unittest.TestCase):
     def leave(self, focused):

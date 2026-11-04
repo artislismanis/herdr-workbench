@@ -916,6 +916,61 @@ class DeliveryRounds(unittest.TestCase):
         self.assertIn("Check every requirement", self.tools.prompts[-1][1])
 
 
+
+class CustomSteps(unittest.TestCase):
+    STEPS = {"name": "x", "steps": [
+        {"id": "build", "kind": "agent", "prompt": "implement.md"},
+        {"id": "security", "stage": "Test", "kind": "agent", "prompt": "security.md", "fresh": True, "read_only": True, "verdict": ["PASS", "CHANGES_NEEDED"], "then": {"CHANGES_NEEDED": {"goto": "build", "max": 2}}},
+    ]}
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / ".workshop" / "prompts").mkdir(parents=True)
+        (self.root / ".workshop" / "prompts" / "security.md").write_text("Check for secrets and injection.\n")
+        self.tools, self.source = FakeTools(self.root), FakeSource()
+        self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: 1000.0)
+
+    def built(self):
+        (self.engine.store.files(self.run) / "build.md").write_text("Done\n")
+        self.tools.statuses[self.run.agent] = "idle"
+        self.run = self.engine.advance(self.run)
+
+    def test_a_step_of_your_own_gets_its_rules_from_its_settings(self):
+        self.run = self.engine.start("r", "1", self.root, "main", self.STEPS, self.source)
+        self.built()
+        files = self.engine.store.files(self.run)
+        sent = self.tools.prompts[-1][1]
+        self.assertIn("Check for secrets and injection.", sent)
+        self.assertIn("Do not edit any file except your report.", sent)
+        self.assertIn(f"What earlier steps wrote: `{files / 'build.md'}`.", sent)
+        self.assertIn(f"Write your report to `{files / 'security.md'}`. End it with a last line that is exactly `VERDICT: PASS` or `VERDICT: CHANGES_NEEDED`.", sent)
+        self.assertNotIn("{", sent)
+
+    def test_sent_back_the_builder_is_told_whose_findings_to_fix(self):
+        self.run = self.engine.start("r", "1", self.root, "main", self.STEPS, self.source)
+        self.built()
+        files = self.engine.store.files(self.run)
+        (files / "security.md").write_text("A secret in config.py:3\n\nVERDICT: CHANGES_NEEDED\n")
+        self.tools.statuses[self.run.step_agent] = "idle"
+        self.run = self.engine.advance(self.run)
+        sent = self.tools.prompts[-1][1]
+        self.assertIn("The security step asked for changes.", sent)
+        self.assertIn(f"Its report is `{files / 'security.md'}`.", sent)
+        self.assertIn(f"write `{files / 'build.md'}` again", sent)
+        self.assertEqual(self.run.sent_back, "")
+
+    def test_a_prompt_that_is_nowhere_stops_the_start_before_the_claim(self):
+        (self.root / ".workshop" / "prompts" / "security.md").unlink()
+        with self.assertRaisesRegex(Park, "no prompt called security.md"):
+            self.engine.start("r", "1", self.root, "main", self.STEPS, self.source)
+        self.assertEqual(self.source.claimed, [])
+
+    def test_going_on_regardless_is_not_a_send_back(self):
+        steps = {"name": "x", "steps": [{"id": "qa", "kind": "command", "verdict": ["PASS", "FAILED"], "then": {"FAILED": {"goto": "build", "max": 1}}}, {"id": "build", "kind": "agent", "prompt": "implement.md"}]}
+        run = Run(repo="r", key="1", repo_path=str(self.root), base="main", pipeline=steps)
+        self.engine._follow(run, steps["steps"][0], steps["steps"][0]["then"]["FAILED"], "FAILED", "")
+        self.assertEqual((run.next_prompt, run.sent_back), ("", ""))
+
 class Snapshots(unittest.TestCase):
     def setUp(self):
         self.work = Path(tempfile.mkdtemp())

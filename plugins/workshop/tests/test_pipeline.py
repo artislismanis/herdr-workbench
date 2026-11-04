@@ -60,9 +60,8 @@ class Validate(unittest.TestCase):
     def test_the_reply_pipeline_is_valid_and_opens_nothing(self):
         self.assertEqual([s["kind"] for s in load("reply")["steps"]], ["agent"])
 
-    def test_again_names_a_prompt_that_exists(self):
-        with self.assertRaisesRegex(PipelineError, "no prompt called nope.md"):
-            validate({"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "implement.md", "again": "nope.md"}]})
+    def test_again_names_a_prompt_file(self):
+        self.rejects({"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "implement.md", "again": "../nope"}]}, "a prompt is a file name")
 
     def test_unknown_step_kind(self):
         self.rejects({"name": "x", "steps": [{"id": "a", "kind": "merge"}]}, "kind must be")
@@ -141,9 +140,9 @@ class Validate(unittest.TestCase):
         step = agent(verdict=["YES"], then={"NO": {"park": "stop"}})
         self.rejects({"name": "x", "steps": [step]}, "isn't in verdict")
 
-    def test_a_missing_prompt_file_fails_on_load(self):
-        with self.assertRaisesRegex(PipelineError, "no prompt called nope.md"):
-            validate({"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "nope.md"}]})
+    def test_a_prompt_of_your_own_can_be_in_a_repo_so_loading_only_checks_its_name(self):
+        validate({"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "nope.md"}]})
+        self.rejects({"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "Nope"}]}, "a prompt is a file name")
 
     def test_draft_pr_takes_no_options(self):
         self.rejects({"name": "x", "steps": [{"id": "p", "kind": "draft_pr", "prompt": "x"}]}, "takes no options")
@@ -198,8 +197,8 @@ class Prompts(unittest.TestCase):
         (self.mine / "lint.md").write_text("Lint it.\n")
         self.assertEqual(prompt_text("lint.md"), "Lint it.")
         validate({"name": "x", "steps": [agent(prompt="lint.md")]})
-        with self.assertRaisesRegex(PipelineError, "no prompt called nope.md"):
-            prompt_text("nope.md")
+        with self.assertRaisesRegex(PipelineError, f"no prompt called nope.md: put one in {self.repo}/.workshop/prompts or {self.mine}"):
+            prompt_text("nope.md", self.repo)
 
     def test_every_step_prompt_has_a_mark(self):
         for name in resources.files("workshop.prompts").iterdir():

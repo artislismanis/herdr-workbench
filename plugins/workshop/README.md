@@ -106,7 +106,23 @@ To change what a step is told, put a file with its prompt's name, such as `ai-re
 
 The first one found replaces workshop's method for that step, so it can be just `/our-review`, and the skill does the rest. A first line that's a skill command is typed as one, so the skill runs. A skill can hand work to a subagent. Workshop always adds its part underneath: where the agent reads and writes, the verdict, how to ask you, and that it doesn't commit, push or post. Your file can't change those. To start from workshop's own, copy it from `workshop/prompts/`: only the part above `<!-- workshop -->` counts. `workshop doctor` lists the files in use.
 
-Your own pipeline can also name a prompt that only exists in `~/.config/workshop/prompts/`.
+## Adding a step
+
+Copy a pipeline to `~/.config/workshop/pipelines/` and add the step. Its prompt only says what to do, in either prompts folder above:
+
+```toml
+[[steps]]
+id = "security"
+stage = "Test"
+kind = "agent"
+prompt = "security.md"   # e.g. "Check for secrets, injection and unsafe dependencies", or /our-security-scan
+fresh = true
+read_only = true
+verdict = ["PASS", "CHANGES_NEEDED"]
+then.CHANGES_NEEDED = { goto = "implement", max = 2 }
+```
+
+Workshop adds the rest from the step's settings: where the brief and earlier steps' reports are, its report file (`security.md`, or `output`), the verdict line, that a read-only step edits nothing, and that nothing gets committed, pushed or posted. A `goto` back to an earlier step tells it which step sent the work back and where its report is, unless the rule names its own `prompt`. On the board the step sits under its `stage`, with its report and earlier rounds. A prompt that's in neither folder stops the run before it starts, and `workshop doctor` names it.
 
 ## Terms
 
