@@ -1,0 +1,6 @@
+# Your PR's failing CI to passing checks. The repo's own checks run before anything is pushed.
+steps = ["fix-ci", "qa", "ci"]
+
+[step.qa]
+stage = "Fix"
+then.FAILED = { goto = "fix-ci", max = 2, prompt = "fix-ci.md" }

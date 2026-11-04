@@ -33,6 +33,8 @@ New commits offer `a` again, in a fresh checkout, for a review of what's changed
 
 `a` on your own PR with comments has an agent draft the fixes and replies. Nothing goes out yet: the row moves to Needs you, and its detail shows each reply. `g` opens the fix in hunk beside the agent, so you can tell it what to change. `prefix+shift+u` then pushes the fix and sends the replies, and a reply about a fix names its commit. That also re-requests review from whoever asked for changes, on GitHub, and the workspace and checkout go, as with a posted review. If you push fixes some other way, the row says `re-review`, under Needs you, because GitHub keeps showing changes requested until it's reviewed again, and `a` asks for another look. A reply to an inline comment joins that thread. Comments in a review's summary have no thread on GitHub, so those replies are general comments that quote what they answer.
 
+`a` on your own PR with failing CI has an agent find out why and fix it, and it comes before comments. On a draft the fix is pushed, and workshop watches CI until it passes. Once your team can see the PR, the fix waits under Needs you as `decide`: `g` shows it in hunk, and `a` pushes it or says what to change. A failure outside the code, such as a secret or a runner, stops at `fix` with what you need to do.
+
 Posting asks what the review should be. These are GitHub's own review types, and your inline comments and PR comment go with whichever you choose:
 
 | Choice | On GitHub |

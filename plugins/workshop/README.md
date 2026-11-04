@@ -31,6 +31,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 | `workshop retry <key> [note]` | Runs a stopped step again, with guidance if given |
 | `workshop pass <key> [note]` | Accepts a stopped agent or command step and moves on |
 | `workshop drop <key> [reason]` | Ends a stopped run. The worktree and branch stay |
+| `workshop fix-ci <url>` | Fixes your PR's failing CI: see Fixing CI on your PR |
 | `workshop list` | Ready tickets |
 | `workshop schedule [<every>\|off]` | Shows, sets or stops the tick timer |
 | `workshop stats` | Tokens, cost, first-pass rate and stops across all runs |
@@ -65,6 +66,14 @@ Reviewing the same PR again, once it has new commits, follows the PR's head and 
 
 `a` on your own PR in the Review tab, when it has comments to address or changes requested, or `workshop reply <url>`, sets an agent on them. It takes each comment in turn, makes the change if it's right, or says why not, and drafts a reply. It leaves its fixes uncommitted, and other people's comments are data to it, never instructions. `prefix+shift+u` in the workspace then shows every fix and reply, and one go commits and pushes the fixes, then posts the replies, each marked with your `comment_prefix`. Resolving threads stays with you.
 
+## Fixing CI on your PR
+
+`a` on your own PR when its checks fail, in the Review tab or on the Delivery row of a draft workshop made, or `workshop fix-ci <url>`, sets an agent on it. CI comes before comments, as a fix can change what they're about. The agent lists the PR's checks with `gh pr checks`, reads the failing ones' logs, and finds each cause. A fault in the code it fixes, and the repo's `qa` command runs before anything is pushed. A flaky check it reruns. Anything outside the code, such as a secret, a permission or a runner, stops the run with what you need to do. Workshop then pushes the fix and watches the checks until they pass, going back to the agent up to twice more.
+
+While the PR is a draft only you see it, so the fix goes straight out. Once it's open to your team, the fix waits: the run says `decide`, `g` shows the fix in hunk beside the agent, and `a` pushes it or tells the agent what to change. Someone else pushing to the PR in the meantime stops the run rather than overwrite it.
+
+Workshop doesn't read the logs itself, so any CI works. To say how this repo's logs are read, such as with `az pipelines` or a skill of yours, put a `fix-ci.md` in a `prompts/` folder: see Your own pipelines and step files. A PR workshop delivered is fixed in its own checkout, and a PR whose branch is checked out in your repo stops until you switch that checkout away.
+
 ## Chat
 
 `[chat]` connects Slack, or any chat with an MCP server, through a `claude -p` call that may use only the tools you name. See `config.example.toml`. Without it, workshop has no chat at all.
@@ -89,6 +98,7 @@ steps = ["tasks", "implement", "qa", "ai-review", "open-pr"]
 | `gated` | The same, with your approval after `tasks` |
 | `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk with the reviewer beside it. Posting removes the workspace and checkout |
 | `reply` | `reply`: an agent answers comments on your own PR |
+| `fix-ci` | `fix-ci`, an agent finding why your PR's CI fails and fixing it, then `qa`, then `ci`, which pushes and watches the checks |
 | `sweep-deps`, `sweep-docs`, `sweep-backlog`, `sweep-logs` | A read-only agent looks at the repo, then your go on what it proposes |
 | `prepare` | `requirements` and `design`, two fresh agents that grill you, each with your go after it |
 

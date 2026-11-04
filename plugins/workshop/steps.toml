@@ -104,3 +104,18 @@ stage = "Maintain"
 kind = "command"
 verdict = ["PASS", "FAILED"]
 then.FAILED = { goto = "sweep", max = 1 }
+
+# Your PR's failing CI: why, a fix, and the checks watched until they pass. A draft's fix is pushed straight away, and one your team can see waits for your go.
+[step.fix-ci]
+stage = "Fix"
+kind = "agent"
+prompt = "fix-ci.md"
+verdict = ["FIXED", "RERUN", "NEEDS_YOU"]
+then.RERUN = { goto = "ci", max = 2 }
+then.NEEDS_YOU = { park = "CI needs something only a person can do." }
+
+[step.ci]
+stage = "Fix"
+kind = "ci"
+minutes = 60
+then.FAILED = { goto = "fix-ci", max = 2, prompt = "fix-ci.md" }

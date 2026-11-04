@@ -7,7 +7,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-KINDS = ("agent", "gate", "command", "draft_pr")
+KINDS = ("agent", "gate", "command", "draft_pr", "ci")
 PUBLISH = ("pr", "ticket")
 SECTIONS = ("Requirements", "Design")  # what a gate can write to a ticket, in the order they read
 STAGES = ("planned", "designed")
@@ -15,6 +15,7 @@ STEP_KEYS = {"id", "stage", "queues", "kind", "prompt", "again", "read_only", "f
 GATE_KEYS = {"id", "stage", "kind", "report", "section", "label", "proposals", "ask", "go", "change", "then"}
 COMMAND_KEYS = {"id", "stage", "kind", "minutes", "verdict", "then"}
 COMMAND_VERDICTS = ["PASS", "FAILED"]
+CI_KEYS = {"id", "stage", "kind", "minutes", "then"}
 RULE_KEYS = {"goto", "max", "prompt", "park"}
 SHIPPED = Path(__file__).resolve().parent.parent / "pipelines"
 STEPS = SHIPPED.parent / "steps.toml"  # workshop's steps, which pipelines list by name
@@ -137,10 +138,15 @@ def validate(raw: Any) -> dict[str, Any]:
                 raise PipelineError(f"{where}: a command's verdict is {COMMAND_VERDICTS}")
             if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
                 raise PipelineError(f"{where}: minutes must be 1 or more")
+        elif step["kind"] == "ci":
+            if set(step) - CI_KEYS:
+                raise PipelineError(f"{where}: a ci step takes only {sorted(CI_KEYS)}")
+            if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
+                raise PipelineError(f"{where}: minutes must be 1 or more")
         elif set(step) - {"id", "stage", "kind"}:
             raise PipelineError(f"{where}: {step['kind']} takes no options")
         for verdict, rule in step.get("then", {}).items():
-            if verdict not in (["REJECTED"] if step["kind"] == "gate" else step.get("verdict", [])):
+            if verdict not in {"gate": ["REJECTED"], "ci": ["FAILED"]}.get(step["kind"], step.get("verdict", [])):
                 raise PipelineError(f"{where}: then names {verdict}, which isn't in verdict")
             _check_rule(f"{where}.then.{verdict}", rule, set(ids))
     # They share the main agent, which has one model.

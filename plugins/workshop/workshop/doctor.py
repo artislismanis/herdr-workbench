@@ -99,7 +99,7 @@ def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -
     base = repo.get("base", "main")
     found = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"origin/{base}"], cwd=path, capture_output=True)
     results.append(Result(f"{name} base branch", found.returncode == 0, f"no origin/{base}"))
-    named = [repo.get("pipeline", "ticket"), repo.get("review_pipeline", "review"), repo.get("reply_pipeline", "reply"), repo.get("prepare_pipeline", "prepare"), *(f"sweep-{sweep}" for sweep in repo.get("sweeps", {}))]
+    named = [repo.get("pipeline", "ticket"), repo.get("review_pipeline", "review"), repo.get("reply_pipeline", "reply"), repo.get("prepare_pipeline", "prepare"), repo.get("ci_pipeline", "fix-ci"), *(f"sweep-{sweep}" for sweep in repo.get("sweeps", {}))]
     found, loaded = pipelines(name, path, named)
     results += [found, prompts(name, path, loaded)]
     try:

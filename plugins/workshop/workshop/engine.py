@@ -27,6 +27,16 @@ QUEUE = "queue.json"  # the delivery queue's order by repo, as tickets have no o
 SWEEP_EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 NO_STEPS = {"none", "n/a", "nothing", "no"}
+CI_SETTLE = 90  # seconds after a push or rerun before the checks count, so ones that haven't registered yet don't read as passed or failed
+CI_MINUTES = 60
+
+
+def ci_state(checks: list[dict[str, str]]) -> str:
+    """passed, failed, pending or none: one failure is enough to start on, as the rest only add to it."""
+    if not checks:
+        return "none"
+    states = {c["state"] for c in checks}
+    return "failed" if states & {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"} else "pending" if states - {"SUCCESS", "NEUTRAL", "SKIPPED"} else "passed"
 
 
 class Park(Exception):
@@ -39,7 +49,7 @@ class Engine:
         self.mark = prefix + " "
         self.command = "/" + prefix.strip("[]")  # [ai] gives /ai
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, until: int = 0, environments: dict[str, str] | None = None, sweeping: str = "") -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, until: int = 0, environments: dict[str, str] | None = None, sweeping: str = "", fixing: bool = False) -> Run:
         if self.store.exists(repo, key) and not restart:
             raise Park(f"{key} already has a run. Use workshop resume {repo}/{key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
@@ -53,7 +63,7 @@ class Engine:
             except PipelineError as missing:
                 raise Park(str(missing)) from missing
         source.claim(key)
-        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying, replying=replying, begun=self.clock(), claimed=claimed, preparing=preparing, step=at, until=until, environments=environments or {}, sweeping=sweeping)
+        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying and not fixing, replying=replying, fixing=fixing, begun=self.clock(), claimed=claimed, preparing=preparing, step=at, until=until, environments=environments or {}, sweeping=sweeping)
         if restart and self.store.exists(repo, key):
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
@@ -125,6 +135,8 @@ class Engine:
                     self._agent(run, step)
                 elif step["kind"] == "command":
                     self._command(run, step)
+                elif step["kind"] == "ci":
+                    self._ci(run, step)
                 elif step.get("proposals"):
                     self._settle(run, step)
                 elif step["kind"] == "gate":
@@ -191,7 +203,7 @@ class Engine:
         if run.status not in ("parked", "waiting") and not (word == "drop" and run.your_turn):
             raise KeyError(f"{run.key} isn't stopped")
         kind = run.current["kind"] if run.current else ""
-        if word == "retry" and kind == "gate" and run.status == "waiting":
+        if word == "retry" and kind in ("gate", "ci") and run.status == "waiting":
             raise KeyError(f"{run.key} is at a gate: use workshop approve or reject")
         if word == "pass" and kind not in ("agent", "command"):
             raise KeyError(f"{run.key} has no stopped step to pass")
@@ -373,6 +385,12 @@ class Engine:
 
     def approve(self, run: Run) -> Run:
         step = self._at_gate(run)
+        if step["kind"] == "ci":
+            self._push_ci(run)
+            run.status, run.reason = "running", ""
+            self.store.event(run, "approved")
+            self.store.save(run)
+            return self.advance(run)
         if "section" in step:
             self._sign_off(run, step)
         if step.get("proposals"):
@@ -524,7 +542,7 @@ class Engine:
         self._fresh_rounds(run)  # limits stop agents going round in circles, not a person giving feedback
         run.status, run.reason = "running", ""
         try:
-            if rule := step.get("then", {}).get("REJECTED"):
+            if rule := step.get("then", {}).get("FAILED" if step["kind"] == "ci" else "REJECTED"):
                 self._follow(run, step, rule, "REJECTED", "See the ticket.")
             else:
                 raise Park(f"Rejected at {step['id']}: {note}")
@@ -670,6 +688,8 @@ class Engine:
                 go = {"create": "Create it", "close": "Close it", "comment": "Post the comment", "skip": "Fine"}[self._proposals(run)[run.sent]["action"]]
                 return [(go, "approve", ""), ("Skip it", "reject", "n")], step.get("change", "Say what to change"), "reject"
             return [(step.get("go", "Accept it"), "approve", "")], step.get("change", "Say what to change"), "reject"
+        if run.status == "waiting" and step.get("kind") == "ci":
+            return [("Push it", "approve", "")], "Say what to change", "reject"
         if run.status == "waiting":
             return [], "Your answer", "retry"
         return [("Run it again", "retry", "")], "Say what to change first", "retry"
@@ -678,7 +698,7 @@ class Engine:
         """What a person does now, for a run that's waiting on one."""
         if run.deployed == "preprod":
             return "In preprod. It lands when it reaches prod"
-        if run.on_a_pr:
+        if run.on_a_pr and not run.fixing:
             if run.status == "done":
                 return "Post it with prefix+shift+u in the workspace"
         if self.reviewable(run):
@@ -711,7 +731,7 @@ class Engine:
 
     def _at_gate(self, run: Run) -> dict[str, Any]:
         step = run.current
-        if run.status != "waiting" or step is None or step["kind"] != "gate":
+        if run.status != "waiting" or step is None or step["kind"] not in ("gate", "ci"):
             raise KeyError(f"{run.key} isn't at a gate")
         return step
 
@@ -730,7 +750,7 @@ class Engine:
         # Each part records what it made, so a resume skips what already exists.
         if not run.worktree:
             if run.on_a_pr:
-                path, run.branch = self.tools.pr_worktree(Path(run.repo_path), run.pr.rsplit("/", 1)[-1], run.base)
+                path, run.branch = self._pr_checkout(run)
             else:
                 run.branch = f"workshop/{slug(run.key)}"
                 path = self.tools.worktree(Path(run.repo_path), run.branch, run.base)
@@ -742,8 +762,65 @@ class Engine:
             self.store.event(run, "worktree", path=run.worktree)
         if not run.pane:
             run.pane = self.tools.linked(Path(run.repo_path), Path(run.worktree), run.key)
+            if self._shares_checkout(run):  # that's the delivery's workspace, and its pane holds the delivery's agent
+                run.pane = self.tools.split(run.pane, Path(run.worktree))
         if not run.agent:
             run.agent = f"ws-{slug(run.key)}"[:AGENT_NAME]
+
+    def _pr_checkout(self, run: Run) -> tuple[Path, str]:
+        """A PR workshop delivered keeps its checkout until it lands, so a fix works there. Your own checkout is never taken over."""
+        held = next((r for r in self.store.all() if run.fixing and r.repo == run.repo and r.key != run.key and r.pr == run.pr and r.worktree), None)
+        if held:
+            return Path(held.worktree), held.branch
+        path, branch = self.tools.pr_worktree(Path(run.repo_path), run.pr.rsplit("/", 1)[-1], run.base)
+        if path.resolve() == Path(run.repo_path).resolve():
+            raise Park(f"{branch} is checked out in {run.repo_path}. Switch that checkout to another branch, then try again.")
+        return path, branch
+
+    def _shares_checkout(self, run: Run) -> bool:
+        return any(r.worktree == run.worktree for r in self.store.all() if r.key != run.key)
+
+    def _ci(self, run: Run, step: dict[str, Any]) -> None:
+        """Pushes the fix and watches the PR's checks. A draft is yours alone, so its fix goes straight out. Once your team can see the PR, it waits for your go."""
+        work = Path(run.worktree)
+        if run.phase == "":
+            self.tools.commit_all(work, f"Fix CI on {run.key.removeprefix('ci-')}")
+            if self.tools.unpushed(work, run.branch) and not self.tools.pr_state(run.pr)["isDraft"]:
+                self._wait(run, "The CI fix is ready, and the PR is open to your team. Check it, then push it or say what to change.")
+                try:
+                    self.tools.open_review(run.pane, work, f"origin/{run.branch}", True)
+                except STOPS as failed:  # the diff is in the workspace either way
+                    self.store.event(run, "review_failed", reason=str(failed))
+                return
+            self._push_ci(run)
+            return
+        if self.clock() - run.started_at < CI_SETTLE:
+            return
+        head, checks = self.tools.checks(run.pr)
+        if head != self.tools.head(work):
+            raise Park(f"The PR's head is {head[:7]}, not the fix workshop pushed, so someone else has pushed. Look before going on.")
+        state = ci_state(checks)
+        if state in ("pending", "none"):
+            if self.clock() - run.started_at > step.get("minutes", CI_MINUTES) * 60:
+                raise Park(f"CI hasn't finished after {step.get('minutes', CI_MINUTES)} minutes." if state == "pending" else "No checks ran on the fix.")
+            return
+        verdict = "PASS" if state == "passed" else "FAILED"
+        report = self._report(run, step)
+        report.write_text("\n".join(f"- {c['name']}: {c['state']} {c['link']}".rstrip() for c in checks) + f"\n\nVERDICT: {verdict}\n", encoding="utf-8")
+        self.store.event(run, "step", step=step["id"], state="done", verdict=verdict)
+        if verdict == "PASS":
+            run.step, run.phase = run.step + 1, ""
+        elif rule := step.get("then", {}).get("FAILED"):
+            self._follow(run, step, rule, verdict, f"See {report}.")
+        else:
+            raise Park(f"CI still fails. See {report}.")
+
+    def _push_ci(self, run: Run) -> None:
+        work = Path(run.worktree)
+        if self.tools.unpushed(work, run.branch):
+            self.tools.push(work, run.branch)
+            self.store.event(run, "pushed")
+        run.phase, run.started_at = "pushed", self.clock()
 
     def _report(self, run: Run, step: dict[str, Any]) -> Path:
         return self.store.files(run) / step.get("output", f"{step['id']}.md")
@@ -992,6 +1069,18 @@ class Engine:
             self.store.save(run)
             self.tools.notify(f"Workshop: {run.key} {run.landed}", {"queued": "It's in the queue.", "designed": "It's designed, and out of the queue. p on the Backlog with its number queues it."}.get(run.landed_as, "It's on the ticket. p on the Backlog with its number starts the next stage."))
             self._tidy(run)
+            return
+        if run.fixing:
+            run.status, run.landed = "done", "green"
+            self.store.event(run, "green")
+            self.store.save(run)
+            self.tools.notify(f"Workshop: {run.key} green", f"{run.pr} passes its checks.")
+            if self._shares_checkout(run):
+                pane, run.worktree, run.pane, run.agent = run.pane, "", "", ""  # the delivery's checkout, workspace and agent stay
+                self.store.save(run)
+                self.tools.close_pane(pane)
+            else:
+                self._tidy(run)
             return
         if run.sweeping:
             run.status, run.landed = "done", "swept"

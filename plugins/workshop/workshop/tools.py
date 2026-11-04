@@ -126,6 +126,12 @@ class Tools:
     def pr_state(self, url: str) -> dict[str, Any]:
         return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid,baseRefName,body,mergeCommit")
 
+    def checks(self, url: str) -> tuple[str, list[dict[str, str]]]:
+        """The PR's head and its checks, check runs and commit statuses alike, so it doesn't matter which CI reports them."""
+        found = run_json("gh", "pr", "view", url, "--json", "headRefOid,statusCheckRollup")
+        checks = [{"name": c.get("name") or c.get("context", ""), "state": (c.get("conclusion") or c.get("status") or "") if c.get("__typename") == "CheckRun" else c.get("state", ""), "link": c.get("detailsUrl") or c.get("targetUrl") or ""} for c in found["statusCheckRollup"] or []]
+        return found["headRefOid"], checks
+
     def reached(self, repo: Path, pr: str, commit: str, branches: list[str]) -> bool:
         """Whether a merged PR is on any of these branches. Promotions can squash, so if its commit isn't there, its changes can be."""
         changes = run("gh", "pr", "diff", pr, cwd=repo)

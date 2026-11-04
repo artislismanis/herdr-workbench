@@ -61,6 +61,7 @@ class Run:
     environments: dict[str, str] = field(default_factory=dict)  # the repo's, branch to environment, if it names its own
     deployed: str = ""  # the furthest environment its PR has reached
     sweeping: str = ""  # which scheduled look at the repo this is
+    fixing: bool = False  # your PR's failing CI, which it fixes and watches until it passes
     decided: dict[str, str] = field(default_factory=dict)  # your answer to each proposal: do, skip or guide
     revised: bool = False  # the agent has acted on your guidance
     applied: list[int] = field(default_factory=list)  # proposals done, should a failure stop it halfway
@@ -81,7 +82,7 @@ class Run:
     @property
     def on_a_pr(self) -> bool:
         """Started from a PR, so its source is that PR and it delivers nothing."""
-        return self.reviewing or self.replying
+        return self.reviewing or self.replying or self.fixing
 
     @property
     def with_you(self) -> bool:
