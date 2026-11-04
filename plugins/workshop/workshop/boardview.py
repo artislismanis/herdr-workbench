@@ -31,9 +31,10 @@ RESPOND = ("changes requested", "comments to address")
 ASK_AGAIN = "re-review"  # on your own PR, where it's yours to ask for
 STATUS = {"needs review": "review", "awaiting review": "review", "open": "review", "changes requested": "changes", "waiting for fixes": "changes", "comments to address": "changes", "checks failing": "changes", "new commits": "changes", "re-review requested": "re-review", "you approved": "approved"}  # where a PR is. The group above says whose move it is
 REASONS = {"needs review": "asked of you", "open": "not asked of you", "checks failing": ""}  # the facts beside it say CI failing
-MARKS = {True: ("⬥", "bold"), False: ("⬦", "others")}  # yours or others'. Not circles, which mean a stage or an agent's state
+OWNER = {True: "mine", False: "dim"}  # the colour of a row's tab symbol: yours in the accent, others' grey
 SIGNS = {"Now": "✱", "Backlog": "☰", "Delivery": "▸", "Review": "⌕", "Operate": "⟳", "Usage": "⧖"}  # on each tab, and on Now rows to say which tab they belong to. One column wide, so rows line up
-NEXT_UP = ("fix", "decide", "drafted", "your turn", "yours approved", "yours re-review", "yours changes", "theirs re-review", "theirs review")  # closest to done first, as finishing frees someone. Unstopping a run comes before all of it
+NEXT_UP = ("fix", "decide", "check", "merge", "respond", "review")  # what waiting on you says: what you do next, closest to done first, as finishing frees someone. Unstopping a run comes before all of it
+YOUR_MOVE = {"checks failing": "fix", "approved": "merge", "you approved": "merge"}  # your own PR, by its state. The rest of yours is respond
 CI_DOTS = {"SUCCESS": "green", "FAILURE": "red", "ERROR": "red", "PENDING": "yellow", "EXPECTED": "yellow"}
 PACE_AMBER, PACE_RED = 10, 25  # points ahead of an even pace, so a busy start isn't an alarm
 MACHINE_AMBER, MACHINE_RED = 75, 90
@@ -45,7 +46,6 @@ FINDINGS = 12  # lines of a stopped step's findings in the detail. The whole rep
 BAD_VERDICTS = ("CHANGES_NEEDED", "BLOCKED", "FAILED")
 COMPANIONS = ("notes.json", "replies.json", "proposals.json")  # what the last agent writes beside its report, round by round
 FILE_NOTES = {"replies.json": "draft replies", "proposals.json": "proposals", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "line notes", "ask.md": "the open question"}
-RECENT = 10
 LIMITED = "GitHub's hourly limit is used up, so this is from the last update. It clears within the hour."
 LANDED = 5
 KANBAN_WIDTH = 80
@@ -192,13 +192,6 @@ def stage_state(run: Run, indexes: list[int]) -> tuple[str, str, str]:
     return "●", "yellow" if reworked else "green", "done after rework" if reworked else "done"
 
 
-def pipe(run: Run) -> list[Span]:
-    """The run's stages at a glance, each coloured by its steps."""
-    groups = stage_groups(run.pipeline["steps"])
-    marks = [("●", "green")] * bool(run.pipeline.get("ticket_stage")) + [stage_state(run, indexes)[:2] for indexes in groups]
-    return [part for number, mark in enumerate(marks) for part in ([Span("─", "dim")] if number else []) + [Span(*mark)]]
-
-
 def recent(events: list[dict[str, Any]], count: int) -> list[Line]:
     lines = []
     for e in reversed([e for e in events if e["type"] != "spent"][-count:]):
@@ -245,34 +238,57 @@ def usage_line(usage: Usage, machine: dict[str, Any] | None) -> list[Span]:
     return [span for name, value, style, time in parts for span in (Span(f" {name} ", "dim"), Span(f"{value:.0f}%", style), Span(time, "dim"), Span(" "))]
 
 
-BARS = "▁▂▃▄▅▆▇█"
+EIGHTHS = " ▁▂▃▄▅▆▇█"
+CHART_ROWS = 4
+DAY_WIDE = 4  # a day's column, wide enough for its name underneath
 
 
-def spark(values: list[float | None], top: float = 0) -> str:
-    """One column per value, scaled to the top, or to the largest if there's no fixed top. Nothing recorded is a gap."""
-    top = top or max((v for v in values if v is not None), default=0) or 1
-    return "".join(" " if v is None else BARS[min(int(v / top * (len(BARS) - 1) + 0.5), len(BARS) - 1)] for v in values)
+def columns_of(values: list[float | None], top: float, wide: int) -> list[str]:
+    """A column chart's rows, top first. Each value is a column `wide` cells across with a cell's gap after it, built in eighths of a row. Nothing recorded is an empty column."""
+    rows = []
+    for level in range(CHART_ROWS, 0, -1):
+        cells = [EIGHTHS[0 if v is None or not top else max(0, min(8, round(v / top * CHART_ROWS * 8 - (level - 1) * 8)))] for v in values]
+        rows.append("".join(c * wide + " " for c in cells))
+    return rows
+
+
+def chart(title: str, note: str, values: list[float | None], top: float, ticks: tuple[str, str], labels: list[tuple[int, str]], gutter: int, wide: int) -> list[Line]:
+    """One chart on the shared grid: the same gutter and column width as the others, so charts over the same hours line up."""
+    span = (wide + 1) * len(values)
+    lines = [Line([Span(f"  {' ' * gutter}  "), Span(title, "bold"), Span(f"{note:>{max(span - columns(title), 0)}}", "dim")])]
+    for n, row in enumerate(columns_of(values, top, wide)):
+        tick = ticks[0] if n == 0 else ticks[1] if n == CHART_ROWS // 2 else ""
+        lines.append(Line([Span(f"  {tick:>{gutter}} │", "dim"), Span(row.rstrip(), "mine")]))
+    under = [" "] * (span + 8)
+    for at, text in labels:
+        for n, letter in enumerate(text):
+            under[at * (wide + 1) + n] = letter
+    return [*lines, plain(f"  {' ' * gutter} └" + "─" * span, "dim"), plain(f"  {' ' * gutter}  " + "".join(under).rstrip(), "dim"), plain()]
 
 
 def trends(rows: list[dict[str, Any]], spent: list[dict[str, Any]], now: float, width: int) -> list[Line]:
-    """How the day and the month went, at a glance. Percentages are scaled to 100, so a quiet day looks quiet."""
+    """The 5h limit and spend over the last day, hour by hour on one time axis, then spend day by day. The limit is scaled to 100%, so a quiet day looks quiet."""
     hours = {row["hour"]: row for row in by_hour(rows, spent, now)}
     start = datetime.fromtimestamp(now).replace(minute=0, second=0, microsecond=0)
-    slots = [hours.get(start - timedelta(hours=back)) for back in range(23, -1, -1)]
-    days = by_day(rows, spent, now)
-    days = days[next((n for n, day in enumerate(days) if day), len(days) - 1):]  # from the first day with anything, so a new install isn't mostly gap
-    lines = [rule("Last 24 hours, by the hour", width)]
-    for label, key, top, shown in (("5h use", "five", 100, "{:.0f}%"), ("CPU", "cpu", 100, "{:.0f}%"), ("RAM", "ram", 100, "{:.0f}%"), ("Agents", "agents", 0, "{:.0f}"), ("Spend", "spend", 0, "${:.2f}")):
-        values = [slot[key] if slot else None for slot in slots]
-        peak = max((v for v in values if v is not None), default=0)
-        total = sum(v for v in values if v is not None) if key == "spend" else peak
-        lines.append(Line([Span(f"  {label:8}", "dim"), Span(spark(values, top), "mine"), Span(f"  {'total' if key == 'spend' else 'peak'} " + shown.format(total), "dim")]))
-    spend = [day["spend"] if day else None for day in days]
-    lines += [plain(), rule(f"Last {len(days)} day{'s' * (len(days) != 1)}, by the day", width)]
-    lines.append(Line([Span(f"  {'Spend':8}", "dim"), Span(spark(spend), "mine"), Span(f"  total ${sum(v for v in spend if v is not None):.2f}", "dim")]))
-    five = [day["five"] if day else None for day in days]
-    lines.append(Line([Span(f"  {'5h peak':8}", "dim"), Span(spark(five, 100), "mine"), Span(f"  highest {max((v for v in five if v is not None), default=0):.0f}%", "dim")]))
-    return [*lines, plain()]
+    slots = [start - timedelta(hours=back) for back in range(23, -1, -1)]
+    five = [hours[h]["five"] if h in hours else None for h in slots]
+    spend = [hours[h]["spend"] if h in hours else None for h in slots]
+    days = by_day(rows, spent, now, 7)  # a week, as in the totals below
+    daily = [day["spend"] if day else None for day in days]
+    first = datetime.fromtimestamp(now).date() - timedelta(days=len(days) - 1)
+    hour_top, day_top = max((v for v in spend if v), default=0), max((v for v in daily if v), default=0)
+    ticks = {"five": ("100%", "50%"), "spend": (f"${hour_top:.2f}", f"${hour_top / 2:.2f}"), "daily": (f"${day_top:.0f}", f"${day_top / 2:.0f}")}
+    gutter = max(columns(tick) for pair in ticks.values() for tick in pair)
+    wide = 2 if gutter + 6 + 3 * len(slots) <= width else 1
+    by_hours = [(n, slot.strftime("%H:%M")) for n, slot in enumerate(slots) if n % 6 == 0]
+    by_days = [(n, (first + timedelta(days=n)).strftime("%a")) for n in range(len(days))]
+    return [
+        rule("Last 24 hours, by the hour", width),
+        *chart("5h limit used", f"peak {max((v for v in five if v is not None), default=0):.0f}%", five, 100, ticks["five"], by_hours, gutter, wide),
+        *chart("Spend", f"${sum(v for v in spend if v):.2f}", spend, hour_top, ticks["spend"], by_hours, gutter, wide),
+        rule("Last 7 days, by the day", width),
+        *chart("Spend", f"${sum(v for v in daily if v):.2f}", daily, day_top, ticks["daily"], by_days, gutter, DAY_WIDE),
+    ]
 
 
 def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine: dict[str, Any] | None, now: float, width: int = 120) -> list[Line]:
@@ -287,10 +303,14 @@ def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine
         lines.append(plain(f"  {label:8}peak cpu {found['cpu']:.0f}%   ram {found['ram']:.0f}%   {found['agents']:.0f} agents at once   ${found['spend']:.2f}"))
     model, step = top(spent, now)
     lines += [plain(f"  Most of this week's spend: {model}, on {step}", "dim")] if model else []
-    lines += [plain(), rule("Each of the last 24 hours", width), plain(f"  {'hour':8}{'cpu peak':>10}{'ram peak':>10}{'5h':>6}{'agents':>8}{'spend':>9}", "dim")]
-    for row in by_hour(rows, spent, now):
-        lines.append(Line([Span(f"  {row['hour'].strftime('%H:%M'):8}"), Span(f"{row['cpu']:>9.0f}%", calm(machine_style(row["cpu"]))), Span(f"{row['ram']:>9.0f}%", calm(machine_style(row["ram"]))), Span(f"{row['five']:>5.0f}%"), Span(f"{row['agents']:>8.0f}"), Span(f"{'$' + format(row['spend'], '.2f'):>9}")]))
     return lines
+
+
+def doing(run: Run) -> str:
+    """Waiting on you, a run says what you do next. Otherwise it says where it is."""
+    if heading(run) != "Needs you" or run.landed:
+        return run.label
+    return "fix" if run.status == "parked" else "decide" if run.status == "waiting" or run.your_turn else "check"
 
 
 def rank(word: str) -> int:
@@ -302,15 +322,14 @@ def heading(run: Run) -> str:
 
 
 def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
-    lines = run_groups(runs, events, title, width, now, ci, work) or [plain("  No tickets picked up yet.", "dim"), plain()]
-    return [*lines, rule("Recent", width), *recent(events, RECENT)]
+    return run_groups(runs, events, title, width, now, ci, work) or [plain("  No tickets picked up yet.", "dim")]
 
 
 def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
     last = {(e["repo"], e["key"]): e["at"] for e in events}
     landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
-    active = sorted((r for r in runs if not r.landed), key=lambda r: (rank(r.label), last.get((r.repo, r.key), "")) if heading(r) == "Needs you" else (len(NEXT_UP) + 1 + ORDER.index(r.status), ""))
-    groups = {name: [r for r in active if heading(r) == name] for name in dict.fromkeys(heading(r) for r in active)} | ({"Landed": landed} if landed else {})
+    active = sorted((r for r in runs if not r.landed), key=lambda r: (rank(doing(r)), last.get((r.repo, r.key), "")) if heading(r) == "Needs you" else (len(NEXT_UP) + 1 + ORDER.index(r.status), ""))
+    groups = {name: [r for r in active if heading(r) == name] for name in dict.fromkeys(heading(r) for r in active)} | ({"Done lately": landed} if landed else {})
     items = {name: [run_item(r, title(r), last.get((r.repo, r.key), ""), ci(r.pr)) for r in group] for name, group in groups.items()}
     return rows_under(items, width, now, work)
 
@@ -358,7 +377,8 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
                 lines.append(Line([Span(f"  {cell(ticket, 22)} {clean(item['title'])}{clean(why)}", "yellow" if why else "", ("#ticket", ticket))]))
         return lines
     size = (width - 3) // len(COLUMNS) - 1
-    lines.append(Line([part for column, items in found.items() for part in (Span(" " + cell(f"{column.title()} {len(items)}", size - 1), f"on-{COLUMN_COLOURS[column]}"), Span(" "))]))
+    heads = [(f"{column.title()} {len(items)} ", COLUMN_COLOURS[column]) for column, items in found.items()]
+    lines.append(Line([part for title, colour in heads for part in (Span(title, f"{colour}" if colour != "dim" else "bold"), Span("─" * max(size - columns(title), 0) + " ", "dim"))]))
     cards = [[row for ticket, item in items for row in card(ticket, item, skipped)] for items in found.values()]
     for row in zip_longest(*cards, fillvalue=("", "", "")):
         lines.append(Line([part for text, style, ref in row for part in (Span(cell(text, size), style, ref), Span(" "))]))
@@ -400,7 +420,7 @@ def pull_group(pr: dict[str, Any], run: Run | None) -> str:
 def pull_rank(pr: dict[str, Any], run: Run | None) -> tuple[int, str]:
     """Oldest first within a status, so nothing sinks."""
     word = pull_status(pr, run)[0]
-    return rank(word if live(run) else f"{'yours' if pr['mine'] else 'theirs'} {word}"), pr["updated"]
+    return rank(word), pr["updated"]
 
 
 def run_for(runs: list[Run], ref: tuple[str, str] | None) -> Run | None:
@@ -434,7 +454,7 @@ def waiting(runs: list[Run], items: list[dict[str, Any]], reviewable: Callable[[
         if pull_group(pr, run) == "Needs you":
             found.append(Waiting(("#pr", pr["url"]), pr_name(pr), pull_status(pr, run)[0], pr.get("since") or pr["updated"], "Review", pr["repo"]))
     # A run on a PR that's listed is that PR's row, so it isn't counted twice.
-    return found + [Waiting((r.repo, r.key), name(r), r.label, last.get((r.repo, r.key), ""), "Review" if r.on_a_pr else "Operate" if r.operating else "Delivery", r.repo) for r in runs if heading(r) == "Needs you" and not (r.on_a_pr and r.pr in shown)]
+    return found + [Waiting((r.repo, r.key), name(r), doing(r), last.get((r.repo, r.key), ""), "Review" if r.on_a_pr else "Operate" if r.operating else "Delivery", r.repo) for r in runs if heading(r) == "Needs you" and not (r.on_a_pr and r.pr in shown)]
 
 
 def full_pile(runs: list[Run], items: list[dict[str, Any]], limit: int) -> str:
@@ -454,7 +474,11 @@ def author(pr: dict[str, Any]) -> str:
 
 def pull_status(pr: dict[str, Any], run: Run | None) -> tuple[str, str]:
     """The same word and colour in the row and the detail."""
-    return (run.label, "yellow" if run.with_you else COLOURS[run.status]) if live(run) else (STATUS.get(pr["state"], pr["state"]), pr_style(pr))
+    if live(run):
+        return doing(run), "yellow" if run.with_you else COLOURS[run.status]
+    if pr["move"] == "you":
+        return YOUR_MOVE.get(pr["state"], "respond") if pr["mine"] else "review", pr_style(pr)
+    return STATUS.get(pr["state"], pr["state"]), pr_style(pr)
 
 
 def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
@@ -515,7 +539,7 @@ class Item:
     """One row of the Now tab: a PR or a run, in the same columns."""
 
     place: tuple[int, str]
-    mark: tuple[str, str]
+    owner: str  # the colour of its tab symbol
     status: tuple[str, str]
     name: str
     title: str
@@ -532,14 +556,14 @@ class Item:
 def pull_item(pr: dict[str, Any], run: Run | None) -> Item:
     waiting = pull_group(pr, run) == "Needs you"
     stamp = pr.get("since") or pr["updated"] if waiting else pr["updated"]
-    return Item(pull_rank(pr, run), MARKS[pr["mine"]], pull_status(pr, run), pr_name(pr), pr["title"], author(pr), stamp, Span("●", CI_DOTS.get(pr["checks"], "dim")), pr=pr, waiting=waiting, tone="yellow" if pr["beaten"] else "")
+    return Item(pull_rank(pr, run), OWNER[pr["mine"]], pull_status(pr, run), pr_name(pr), pr["title"], author(pr), stamp, Span("●", CI_DOTS.get(pr["checks"], "dim")), pr=pr, waiting=waiting, tone="yellow" if pr["beaten"] else "")
 
 
 def run_item(run: Run, title: str, stamp: str, checks: str = "") -> Item:
     colour = "dim" if run.landed else "yellow" if run.with_you or run.your_turn else COLOURS[run.status]
     kind = "Review" if run.on_a_pr else "Operate" if run.operating else "Delivery"  # the tab it lives on
     dot = Span("●", CI_DOTS.get(checks, "dim")) if run.pr else Span(" ")
-    return Item((rank(run.label), stamp), MARKS[True], (run.label, colour), name(run), title, "you" if run.with_you else "" if run.status == "done" else step_id(run), stamp, dot, kind, run=run, waiting=heading(run) == "Needs you" and not run.landed)
+    return Item((rank(doing(run)), stamp), OWNER[True], (doing(run), colour), name(run), title, "you" if run.with_you else "" if run.status == "done" else step_id(run), stamp, dot, kind, run=run, waiting=heading(run) == "Needs you" and not run.landed)
 
 
 def working(start: float, end: float, work: Work = WORK) -> float:
@@ -565,10 +589,10 @@ def stale(stamp: str, now: float, work: Work = WORK) -> str:
 def item_row(item: Item, sizes: tuple[int, int], width: int, now: float, work: Work = WORK) -> Line:
     """The one row shape, on every tab. On a narrow panel the who column goes first, then the title gives way, so the age and CI dot stay."""
     who = sizes[1] if width >= WHO_WIDTH else 0
-    room = width - sizes[0] - who - (27 if who else 26)
-    told = [Span(cell(item.who, who) + " ", item.mark[1])] if who else []
+    room = width - sizes[0] - who - (25 if who else 24)
+    told = [Span(cell(item.who, who) + " ", item.owner)] if who else []
     age = Span(f"{since(item.stamp, now):>4} ", stale(item.stamp, now, work) if item.waiting else "dim")
-    return Line([Span(" "), Span(item.mark[0] + " ", item.mark[1]), Span(cell(item.status[0], 10) + " ", item.status[1]), Span(SIGNS[item.kind] + " ", "dim"), Span(cell(item.name, sizes[0]) + " "), Span(cell(item.title, max(room, 10)) + " ", item.tone), *told, age, item.dot], item.run, item.pr)
+    return Line([Span(" "), Span(SIGNS[item.kind] + " ", item.owner), Span(cell(item.status[0], 10) + " ", item.status[1]), Span(cell(item.name, sizes[0]) + " "), Span(cell(item.title, max(room, 10)) + " ", item.tone), *told, age, item.dot], item.run, item.pr)
 
 
 def now_view(runs: list[Run], prs: list[dict[str, Any]], linked: Callable[[dict[str, Any]], Run | None], title: Callable[[Run], str], queued: list[tuple[str, str]], events: list[dict[str, Any]], now: float, width: int, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
@@ -583,7 +607,7 @@ def now_view(runs: list[Run], prs: list[dict[str, Any]], linked: Callable[[dict[
     for run in runs:
         if not run.landed and not run.on_a_pr and run.pr not in on_prs and heading(run) != "With people" and not (run.pr == "" and run.status == "done"):
             groups[heading(run)].append(run_item(run, title(run), last.get((run.repo, run.key), ""), ci(run.pr)))
-    lines = rows_under({"Clear now": sorted(groups["Needs you"], key=lambda item: item.place), "With agents": sorted(groups["With agents"], key=lambda item: item.place)}, width, now, work)
+    lines = rows_under({"Needs you": sorted(groups["Needs you"], key=lambda item: item.place), "With agents": sorted(groups["With agents"], key=lambda item: item.place)}, width, now, work)
     if not groups["Needs you"]:
         lines = [plain("  Nothing needs you.", "dim"), plain(), *lines]
     if queued:
@@ -615,7 +639,7 @@ def pull(pr: dict[str, Any], width: int = 120, story: list[Line] | None = None, 
     why = REASONS.get(pr["state"], pr["state"])
     beside = "   ".join(part for part in ("" if why == STATUS.get(pr["state"], pr["state"]) else why, facts(pr)) if part)
     lines = [*wrapped(f"{pr_name(pr)}  {pr['title']}", width, "bold"), *wrapped(f"PR: {pr['url']}", width), *wrapped(f"Author: {author(pr)}", width)]
-    lines += [Line([Span(f" {label} ", block(colour)), *([Span("  "), *pipe(run)] if run else []), Span(f"   {beside}" if beside else "", "dim")])]
+    lines += [Line([Span(f" {label} ", block(colour)), Span(f"   {beside}" if beside else "", "dim")])]
     lines += [*(story or []), plain(), rule("Reviews", width)]
     for who, state in pr["reviews"].items():
         mark, tone = REVIEW_MARKS.get(state, ("•", "dim"))
@@ -770,7 +794,7 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
     lines = wrapped(f"{name(run)}  {title}", width, "bold")
     lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
-    lines += [Line([Span(f" {run.label} ", run_style(run)), Span("  "), *pipe(run), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
+    lines += [Line([Span(f" {doing(run)} ", run_style(run)), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
     if run.status in ("parked", "waiting"):
         context = ticket_context(brief, width) if not run.sweeping else []
         head, *rest = needs_you(run, stopped[1], width)
