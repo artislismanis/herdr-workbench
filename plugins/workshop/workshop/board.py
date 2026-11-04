@@ -23,8 +23,6 @@ from .throttle import DEFAULTS
 from .usage import samples
 
 SKIPPED = "skipped.json"
-SHOWN = "shown.json"  # a PR link clicked anywhere in herdr, for the board to select
-FRESH_CLICK = 30  # seconds a click still counts when the board opens because of it
 TABS = ("Now", "Backlog", "Delivery", "Review", "Operate", "Usage")  # what to do, the order work moves through, then how it went
 NOW, BACKLOG, DELIVERY, REVIEW, OPERATE, USAGE = range(6)
 TOP = 1  # a gap under herdr's tab bar
@@ -114,12 +112,11 @@ class Board:
         self.drafts: dict[tuple[str, str], str] = {}  # what esc left, for when you come back
         self.regions: list[tuple[int, int, int, Action]] = []
         self.finding, self.filter = False, ""  # typing a filter, and what the list is narrowed to
-        self.handled = clock() - FRESH_CLICK  # a click that opened the board still selects; older ones don't
         self.reload()
         self.looked = self.piles()  # what each tab held when you last looked, so what's arrived since gets a dot
 
     def stamp(self) -> tuple[int, ...]:
-        paths = (self.store.root / "runs", self.store.root / "events.jsonl", self.store.root / SNAPSHOT, self.store.root / SKIPPED, self.store.root / SHOWN)
+        paths = (self.store.root / "runs", self.store.root / "events.jsonl", self.store.root / SNAPSHOT, self.store.root / SKIPPED)
         return tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in paths)
 
     def reload(self) -> None:
@@ -128,10 +125,6 @@ class Board:
             waiting = self.picked and self.picked in self.your_pile()
             self.runs, self.events = self.store.all(), self.store.history()
             self.snapshot, self.skipped = self.store.read(SNAPSHOT), self.store.read(SKIPPED)
-            self.clicked = self.store.read(SHOWN)
-            if self.clicked.get("at", 0) > self.handled:
-                self.handled = self.clicked["at"]
-                self.show(self.clicked["url"])
             if waiting and self.picked not in self.your_pile():  # dealt with, so the next one is ready
                 self.picked, self.viewing, self.side, self.earlier = None, "", 0, False
 
@@ -184,15 +177,6 @@ class Board:
         path = self.store.files(run) / name
         return (name, path.read_text(encoding="utf-8", errors="replace")) if path.exists() else ("", "")
 
-    def show(self, url: str) -> None:
-        """Where the clicked PR is on the board: its row on Review, or the delivery that made it. Anywhere else, its detail from the click's one call."""
-        ref = ("#pr", url)
-        run = next((r for r in self.building() if r.pr == url and not r.landed), None)
-        tab, ref = (DELIVERY, (run.repo, run.key)) if run and not any(p["url"] == url for p in self.pr_items()) else (REVIEW, ref)
-        self.tab, self.picked, self.open, self.viewing, self.filter = tab, ref, ref, "", ""
-        if self.clicked.get("error"):
-            self.say(self.clicked["error"])
-
     def ticket(self, ref: tuple[str, str] | None) -> dict[str, Any] | None:
         if not ref or ref[0] != "#ticket":
             return None
@@ -202,7 +186,7 @@ class Board:
     def detail(self, ref: tuple[str, str] | None, width: int) -> list[Line]:
         if (item := self.ticket(ref)) and ref:
             return ticket_view(ref[1], item, self.skipped, width)
-        if pr := next((p for p in self.pr_items() if ("#pr", p["url"]) == ref), None) or (self.clicked.get("pr") if ref == ("#pr", self.clicked.get("url")) else None):
+        if pr := next((p for p in self.pr_items() if ("#pr", p["url"]) == ref), None):
             return pull(pr, width, self.pull_context(pr, width), self.linked(pr))
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
         if run is None:

@@ -894,29 +894,6 @@ class Keys(unittest.TestCase):
         self.board.begin_note(Ask("1", "Which API?", (), (("Talk it through with Claude first", "talk", ""),), "Answer", "answer"))
         self.assertEqual(self.board.choice, 1)
 
-    def click_pr(self, url, at=600.0, **found):
-        self.store.write("shown.json", {"url": url, "at": at, **found})
-        self.board.seen = None
-        self.board.reload()
-
-    def test_a_clicked_pr_is_selected_on_review(self):
-        self.store.write(SNAPSHOT, {"repos": {}, "prs": {"polled_at": 1.0, "error": "", "items": [pr()]}})
-        self.click_pr("u")
-        self.assertEqual((self.board.tab, self.board.open), (REVIEW, ("#pr", "u")))
-
-    def test_a_clicked_draft_from_delivery_selects_its_run(self):
-        self.store.save(run("3", "done", pr="d"))
-        self.click_pr("d")
-        self.assertEqual((self.board.tab, self.board.open), (DELIVERY, ("r", "3")))
-
-    def test_a_clicked_pr_not_on_the_board_shows_what_the_click_fetched(self):
-        self.click_pr("x", pr=pr(url="x", title="Someone's change"))
-        self.assertIn("Someone's change", joined(self.board.lines(WIDE)))
-
-    def test_an_old_click_selects_nothing(self):
-        self.click_pr("u", at=100.0)
-        self.assertIsNone(self.board.open)
-
     def test_the_status_line_says_which_repo_the_pile_is_in(self):
         self.store.save(run("3", "parked"))
         self.store.save(Run(repo="q", key="9", repo_path="/", base="main", pipeline=PIPELINE, status="parked"))

@@ -15,13 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from .backlog import SNAPSHOT, poll
-from .board import SHOWN, show
+from .board import show
 from .boardview import full_pile, waiting
 from .chat import CHAT, Chat
 from .doctor import doctor
 from .engine import PREFIX, STOPS, SWEEP_EVERY, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
-from .prs import one
 from .remind import remind
 from .schedule import schedule
 from .shell import ToolError, run, run_json
@@ -253,17 +252,6 @@ def check_tickets(engine: Engine) -> None:
 
 def running(engine: Engine) -> list[Run]:
     return [r for r in engine.store.all() if r.status == "running" and not r.preparing]  # a talk waits on you, so it takes no slot
-
-
-def clicked(store: Store, url: str) -> None:
-    """A PR link clicked in a pane, for the board to select. One that isn't on the board is fetched, once."""
-    found: dict[str, Any] = {"url": url.rstrip("/"), "at": time.time()}
-    if not any(p["url"] == found["url"] for p in store.read(SNAPSHOT).get("prs", {}).get("items", [])):
-        try:
-            found["pr"] = one(found["url"])
-        except STOPS as failed:
-            found["error"] = f"Couldn't load {found['url']}: {failed}"
-    store.write(SHOWN, found)
 
 
 def look_after(engine: Engine, cfg: dict[str, Any]) -> None:
@@ -667,8 +655,6 @@ def main(argv: list[str]) -> int:
             case "board":
                 show(engine, cfg)
             case "open-board":
-                if url := os.environ.get("HERDR_PLUGIN_CLICKED_URL", ""):
-                    clicked(engine.store, url)
                 engine.tools.open_board()
         return 0
     except (Park, PipelineError, ToolError, KeyError) as stop:

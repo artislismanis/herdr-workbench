@@ -163,11 +163,3 @@ def fetch(scope: str, now: float, asked: dict[str, float] | None = None, chat_on
         if pr and pr["state"] == "OPEN":
             found[pr["url"]] = classify(pr, me, pr["url"] in requested or ask_stands(pr, me, asked[url])) | {"chat": True}
     return sorted(found.values(), key=lambda pr: pr["updated"], reverse=True)
-
-
-def one(url: str) -> dict[str, Any]:
-    """A PR that isn't on the board, for when its link is clicked. One call."""
-    data = run_json("gh", "api", "graphql", "-f", f"query=query {{ viewer {{ login }}\nfound: resource(url: {json.dumps(url)}) {{ ...pr }}\n}}\n{FIELDS}")["data"]
-    if not data["found"]:
-        raise KeyError(f"{url} isn't a PR you can see.")
-    return classify(data["found"], data["viewer"]["login"], merged=data["found"]["state"] == "MERGED")
