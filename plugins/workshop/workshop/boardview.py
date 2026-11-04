@@ -29,7 +29,7 @@ MOVES = {"you": "Needs you", "others": "With people", "done": "Done lately"}
 REVIEW_GROUPS = ("Needs you", "With agents", "With people", "Done lately")
 RESPOND = ("changes requested", "comments to address")
 ASK_AGAIN = "re-review"  # on your own PR, where it's yours to ask for
-STATUS = {"needs review": "review", "awaiting review": "review", "open": "review", "changes requested": "changes", "waiting for fixes": "changes", "comments to address": "changes", "checks failing": "changes", "new commits": "changes", "re-review requested": "re-review", "you approved": "approved"}  # where a PR is. The group above says whose move it is
+WORDS = ("fix", "decide", "check", "merge", "respond", "review", "working", "waiting", "merged", "closed", "dropped", "done")  # every word a row can say. Waiting on you, what you do; otherwise working, waiting or how it ended
 REASONS = {"needs review": "asked of you", "open": "not asked of you", "checks failing": ""}  # the facts beside it say CI failing
 OWNER = {True: "mine", False: "dim"}  # the colour of a row's tab symbol: yours in the accent, others' grey
 SIGNS = {"Now": "✱", "Backlog": "☰", "Delivery": "▸", "Review": "⌕", "Operate": "⟳", "Usage": "⧖"}  # on each tab, and on Now rows to say which tab they belong to. One column wide, so rows line up
@@ -307,10 +307,14 @@ def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine
 
 
 def doing(run: Run) -> str:
-    """Waiting on you, a run says what you do next. Otherwise it says where it is."""
-    if heading(run) != "Needs you" or run.landed:
-        return run.label
-    return "fix" if run.status == "parked" else "decide" if run.status == "waiting" or run.your_turn else "check"
+    """A run's word: what you do next while it waits on you, working while an agent has it, waiting while people do, and how it ended."""
+    if run.landed in ("merged", "closed", "dropped"):
+        return "done" if run.deployed == "prod" else run.landed
+    if run.landed or (run.status == "done" and not run.with_you and run.on_a_pr):
+        return "done"
+    if heading(run) == "Needs you":
+        return "fix" if run.status == "parked" else "decide" if run.status == "waiting" or run.your_turn else "check"
+    return "working" if run.status == "running" else "waiting"
 
 
 def rank(word: str) -> int:
@@ -472,13 +476,22 @@ def author(pr: dict[str, Any]) -> str:
     return "you" if pr["mine"] else pr["author"]
 
 
+def waits_on(pr: dict[str, Any]) -> str:
+    """Who a PR waits on: yours on its reviewers, theirs on its author."""
+    if pr["move"] != "others" or not pr["mine"]:
+        return author(pr)
+    return ", ".join(pr["waiting_on"]) or "reviewers"
+
+
 def pull_status(pr: dict[str, Any], run: Run | None) -> tuple[str, str]:
     """The same word and colour in the row and the detail."""
     if live(run):
         return doing(run), "yellow" if run.with_you else COLOURS[run.status]
     if pr["move"] == "you":
         return YOUR_MOVE.get(pr["state"], "respond") if pr["mine"] else "review", pr_style(pr)
-    return STATUS.get(pr["state"], pr["state"]), pr_style(pr)
+    if pr["move"] == "done":
+        return "merged" if pr["state"] == "merged" else "closed", pr_style(pr)
+    return "waiting", pr_style(pr)
 
 
 def next_move(pr: dict[str, Any], run: Run | None, advice: str) -> str:
@@ -556,14 +569,14 @@ class Item:
 def pull_item(pr: dict[str, Any], run: Run | None) -> Item:
     waiting = pull_group(pr, run) == "Needs you"
     stamp = pr.get("since") or pr["updated"] if waiting else pr["updated"]
-    return Item(pull_rank(pr, run), OWNER[pr["mine"]], pull_status(pr, run), pr_name(pr), pr["title"], author(pr), stamp, Span("●", CI_DOTS.get(pr["checks"], "dim")), pr=pr, waiting=waiting, tone="yellow" if pr["beaten"] else "")
+    return Item(pull_rank(pr, run), OWNER[pr["mine"]], pull_status(pr, run), pr_name(pr), pr["title"], author(pr) if live(run) else waits_on(pr), stamp, Span("●", CI_DOTS.get(pr["checks"], "dim")), pr=pr, waiting=waiting, tone="yellow" if pr["beaten"] else "")
 
 
 def run_item(run: Run, title: str, stamp: str, checks: str = "") -> Item:
     colour = "dim" if run.landed else "yellow" if run.with_you or run.your_turn else COLOURS[run.status]
     kind = "Review" if run.on_a_pr else "Operate" if run.operating else "Delivery"  # the tab it lives on
     dot = Span("●", CI_DOTS.get(checks, "dim")) if run.pr else Span(" ")
-    return Item((rank(doing(run)), stamp), OWNER[True], (doing(run), colour), name(run), title, "you" if run.with_you else "" if run.status == "done" else step_id(run), stamp, dot, kind, run=run, waiting=heading(run) == "Needs you" and not run.landed)
+    return Item((rank(doing(run)), stamp), OWNER[True], (doing(run), colour), name(run), title, "you" if run.with_you else "reviewers" if doing(run) == "waiting" and run.pr else "" if run.status == "done" else step_id(run), stamp, dot, kind, run=run, waiting=heading(run) == "Needs you" and not run.landed)
 
 
 def working(start: float, end: float, work: Work = WORK) -> float:
@@ -637,7 +650,7 @@ def discussion(pr: dict[str, Any], width: int) -> list[Line]:
 def pull(pr: dict[str, Any], width: int = 120, story: list[Line] | None = None, run: Run | None = None) -> list[Line]:
     label, colour = pull_status(pr, run)
     why = REASONS.get(pr["state"], pr["state"])
-    beside = "   ".join(part for part in ("" if why == STATUS.get(pr["state"], pr["state"]) else why, facts(pr)) if part)
+    beside = "   ".join(part for part in ("" if why == label else why, facts(pr)) if part)
     lines = [*wrapped(f"{pr_name(pr)}  {pr['title']}", width, "bold"), *wrapped(f"PR: {pr['url']}", width), *wrapped(f"Author: {author(pr)}", width)]
     lines += [Line([Span(f" {label} ", block(colour)), Span(f"   {beside}" if beside else "", "dim")])]
     lines += [*(story or []), plain(), rule("Reviews", width)]

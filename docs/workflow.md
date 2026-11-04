@@ -25,7 +25,7 @@ Delivery owns a ticket until your self-review lets it go with `prefix+shift+u`. 
 The Review tab works like Delivery: Needs you, With agents, With people, and Done lately.
 
 1. `a` on someone else's PR runs the repo's checks and a fresh AI review. The row shows `working`, under With agents, and its detail shows the stages.
-2. When it's done, the row moves to Needs you as `drafted`. Its detail gives the AI's recommendation and what to do next, then a four line briefing to read before the diff: the intent, what the code delivers against it, the challenges, and the recommendation.
+2. When it's done, the row moves to Needs you as `check`. Its detail gives the AI's recommendation and what to do next, then a four line briefing to read before the diff: the intent, what the code delivers against it, the challenges, and the recommendation.
 3. `g` opens hunk with the AI's notes on the diff, and the reviewer beside it. Ask it anything. It changes nothing and posts nothing.
 4. Keep, change or drop the notes, then post with `prefix+shift+u`. What you post is the review, and it's all on GitHub, so the workspace and checkout go whatever you chose, and you're back on the board. The row goes back to the PR's own status.
 
@@ -49,14 +49,18 @@ One key picks, with no enter. Enter on its own cancels. Approve and Request chan
 
 ## When something needs you
 
-A run that needs you shows one of three states.
+Anything that needs you says what you do next.
 
-| State | Means | What you do |
+| Word | Means | What you do |
 |---|---|---|
-| `decide` | It stopped as planned, at a gate or with a question | Read what's shown and decide |
-| `fix` | Something went wrong: a failure, a time limit, or an agent that's gone | Read why, then choose |
-| `drafted` | An agent's work is done and waits for your check: a self-review, a review or replies | `g`, then `prefix+shift+u` when you're happy |
-| `your turn` | An agent in Prepare is waiting for your answer | `g`, then answer it there |
+| `fix` | Something went wrong: a failure, a time limit, an agent that's gone, or your PR's CI | Read why, then choose |
+| `decide` | It stopped as planned, at a gate or with a question, or a Prepare talk waits for your answer | Read what's shown and decide, or `g` to answer in the talk |
+| `check` | An agent's work waits for your check: your draft's self-review, AI review notes, or replies | `g`, then `prefix+shift+u` when you're happy |
+| `merge` | Your PR is approved | Merge it on GitHub |
+| `respond` | Your PR has comments or changes requested | `a` has an agent draft the fixes and replies |
+| `review` | Someone's PR needs your review | `a` starts the AI review |
+
+Everything else says `working` with an agent, `waiting` on people, or how it ended: `merged`, `closed`, `dropped` or `done`.
 
 The board shows the reason and the report, so you shouldn't need to open the workspace to decide.
 

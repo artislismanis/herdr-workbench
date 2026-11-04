@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Ask, Board  # noqa: E402
-from workshop.boardview import Line, Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, pull, pull_status, pull_story, pulls, recent, refs, run_style, columns_of, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
+from workshop.boardview import Line, Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, columns_of, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -462,11 +462,17 @@ class PRs(unittest.TestCase):
         row = next(line for line in pulls({"prs": {"error": "", "items": [long]}}, 71) if line.pr)
         self.assertEqual(columns(row.text), 69)
 
-    def test_a_status_says_where_a_pr_is(self):
-        words = {"review": ("needs review", "awaiting review", "open"), "changes": ("changes requested", "waiting for fixes", "comments to address", "checks failing", "new commits"), "re-review": ("re-review", "re-review requested"), "approved": ("approved", "you approved"), "merged": ("merged",)}
-        for word, states in words.items():
-            for state in states:
-                self.assertEqual(pull_status(pr(state=state, move="others"), None)[0], word)
+    def test_away_from_you_a_pr_is_waiting_or_how_it_ended(self):
+        for state in ("needs review", "changes requested", "re-review requested", "approved"):
+            self.assertEqual(pull_status(pr(state=state, move="others"), None)[0], "waiting")
+        self.assertEqual(pull_status(pr(state="merged", move="done"), None)[0], "merged")
+        self.assertEqual(pull_status(pr(state="closed", move="done"), None)[0], "closed")
+
+    def test_every_run_says_one_of_the_words(self):
+        for found in (run(status="running"), run(status="parked"), run(status="waiting"), run(status="done", pr="u"), run(status="done", pr="u", landed="merged"), run(status="done", pr="u", landed="merged", deployed="prod"), run(status="done", landed="dropped"), run(status="done", pr="u", reviewing=True, reviewed="a", posted="a")):
+            self.assertIn(doing(found), WORDS)
+        self.assertEqual(doing(run(status="done", pr="u", landed="merged", deployed="prod")), "done")
+        self.assertEqual(doing(run(status="done", pr="u", opened=True)), "waiting")
 
     def test_waiting_on_you_says_what_you_do_next(self):
         moves = {("needs review", False): "review", ("re-review requested", False): "review", ("changes requested", True): "respond", ("re-review", True): "respond", ("checks failing", True): "fix", ("approved", True): "merge"}
@@ -514,7 +520,7 @@ class PRs(unittest.TestCase):
         lines = pull(pr(state="you approved", move="others", reviews={"me": "APPROVED"}, me="me"), WIDE)
         text = joined(lines)
         self.assertIn("Author: them", text)
-        self.assertIn(" approved    you approved", text)
+        self.assertIn(" waiting    you approved", text)
         self.assertIn("you: approved", text)
 
     def test_someone_getting_there_first_stands_out(self):
@@ -545,7 +551,7 @@ class PRs(unittest.TestCase):
     def test_a_posted_review_goes_by_whose_move_it_is(self):
         posted = run("pr-7", "done", pr="u", reviewing=True, reviewed="abc", posted="abc")
         self.assertIn("With people 1", joined(pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: posted)))
-        self.assertIn("changes", next(line for line in pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: posted) if line.pr).text)
+        self.assertIn("waiting", next(line for line in pulls({"prs": {"error": "", "items": [pr(move="others", state="waiting for fixes")]}}, WIDE, lambda p: posted) if line.pr).text)
 
     def test_the_detail_leads_with_the_next_move_then_the_briefing(self):
         done = run("pr-7", "done", pr="u", reviewing=True)
@@ -1068,7 +1074,7 @@ class Keys(unittest.TestCase):
     def test_the_status_follows_the_title_and_pr(self):
         lines = texts(drill(run(status="done", opened=True, pr="http://p/1"), [], "T", "", "/f", 90, handover="- New flag\nRecommendation: approve"))
         self.assertTrue(lines[1].startswith("PR:"))
-        self.assertIn("in review", lines[2])
+        self.assertIn("waiting", lines[2])
         self.assertLess(2, next(i for i, t in enumerate(lines) if "Recommendation" in t))
 
     def draft(self):
