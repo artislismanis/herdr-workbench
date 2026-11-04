@@ -60,7 +60,7 @@ With WSL interop off, nothing in WSL can start a Windows program, so by default 
 ~/.config/herdr/bin/win-bridge setup github.com example.com  # or name the sites
 ```
 
-It prints a few lines to paste into PowerShell on Windows, no admin needed. They fetch the listener and register a scheduled task that runs it now and at every sign-in, hidden by `conhost --headless`, so no window ever shows. It prints how to remove it too, and the [keep WSL running](#keep-wsl-running) task with your distro filled in. `win-bridge status` says whether Windows is listening; when it isn't, links are copied as before. Re-run the paste after the listener changes.
+It prints a few lines to paste into PowerShell on Windows, no admin needed. They fetch the listener and register a scheduled task that runs it now and at every sign-in, hidden by `conhost --headless`, so no window ever shows. It prints how to remove it too, and the [keep WSL running](#keep-wsl-running) task with your distro filled in. Distros share one network, so a second distro running it needs its own port: `WIN_BRIDGE_PORT=47124 win-bridge setup`. `win-bridge status` says whether Windows is listening; when it isn't, links are copied as before. Re-run the paste after the listener changes.
 
 For a click to find herdr for sure, run it in a tab named `herdr`. In Windows Terminal, add a profile with `"name": "herdr"`, `"tabTitle": "herdr"`, `"suppressApplicationTitle": true` and `"commandline": "wsl.exe -d <distro> -- bash -lc herdr"`, and to have it open with Windows Terminal, set `"startupActions": "new-tab -p herdr"`. Without one, a click looks for herdr's own title, then a tab named after the distro, and picks the first if there are several.
 

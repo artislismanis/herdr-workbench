@@ -217,7 +217,7 @@ def setup(asked: list[str]) -> int:
     # Windows checks links against these before opening them, so nothing in WSL can make it open anything else.
     (CONFIG / "hosts").write_text(", ".join(f"'{h}'" for h in allowed if re.fullmatch(r"[A-Za-z0-9.-]+", h)))
     UNIT.parent.mkdir(parents=True, exist_ok=True)
-    UNIT.write_text(f"[Unit]\nDescription=win-bridge: toasts and links on Windows\n\n[Service]\nExecStart={Path(__file__).resolve()} serve\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n")
+    UNIT.write_text(f"[Unit]\nDescription=win-bridge: toasts and links on Windows\n\n[Service]\nEnvironment=WIN_BRIDGE_PORT={PORT}\nExecStart={Path(__file__).resolve()} serve\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n")
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
     subprocess.run(["systemctl", "--user", "enable", "--now", "win-bridge.service"], check=True)
     subprocess.run(["systemctl", "--user", "restart", "win-bridge.service"], check=True)
