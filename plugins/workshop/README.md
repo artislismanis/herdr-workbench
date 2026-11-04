@@ -131,7 +131,7 @@ verdict = ["PASS", "CHANGES_NEEDED"]
 then.CHANGES_NEEDED = { goto = "implement", max = 2 }
 ```
 
-A rule under `then` replaces workshop's for that verdict, and a step given new verdicts drops workshop's rules. A pipeline of another name is a new one, such as `steps = ["implement", "qa", "open-pr"]` for small fixes. Pipelines that spell out every step as a `[[steps]]` table still load.
+A rule under `then` replaces workshop's for that verdict, and a step given new verdicts drops workshop's rules. A pipeline of another name is a new one, such as `steps = ["implement", "qa", "open-pr"]` for small fixes.
 
 A step that isn't one of workshop's is an agent step whose prompt only says what to do, in a `prompts/` folder above. Workshop adds the rest from the step's settings: where the brief and earlier steps' reports are, its report file (`security.md`, or `output`), the verdict line, that a read-only step edits nothing, and that nothing gets committed, pushed or posted. A `goto` back to an earlier step tells it which step sent the work back and where its report is, unless the rule names its own `prompt`. On the board the step sits under its `stage`, with its report and earlier rounds. A prompt that's in none of the folders stops the run before it starts, and `workshop doctor` names it.
 
