@@ -319,7 +319,8 @@ def show_refresh(cfg: dict[str, Any], store: Store) -> None:
 def show_doctor(cfg: dict[str, Any], launch: bool) -> int:
     results = doctor(cfg, launch)
     for r in results:
-        print(f"{'ok  ' if r.ok else 'FAIL'} {r.name}{': ' + r.detail if r.detail and (not r.ok or 'ready' in r.detail) else ''}")
+        said = r.note if r.ok else r.detail
+        print(f"{'ok  ' if r.ok else 'FAIL'} {r.name}{': ' + said if said else ''}")
     return 0 if all(r.ok for r in results) else 1
 
 

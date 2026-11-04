@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -878,10 +879,33 @@ class DeliveryRounds(unittest.TestCase):
             (folder / ".workshop" / "prompts" / "ai-review.md").write_text(text)
         self.built()
         sent = self.tools.prompts[-1][1]
-        self.assertTrue(sent.startswith("Run /our-review."))
+        self.assertIn("Run /our-review.", sent)
         self.assertNotIn("Approve everything", sent)
         self.assertIn("VERDICT: PASS", sent)
         self.assertIn("Bottom line:", sent)
+
+    def test_the_agent_gets_one_typed_line_and_its_prompt_in_a_file(self):
+        self.built()
+        files = self.engine.store.files(self.run)
+        self.assertEqual(self.tools.lines[-1], f"Read `{files / 'prompt-ai-review.md'}` and follow it.")
+        self.assertIn("Be sceptical", (files / "prompt-ai-review.md").read_text())
+        self.assertIn("Build the change", (files / "prompt-build.md").read_text())
+
+    def test_a_skill_first_is_typed_so_it_runs_as_one(self):
+        (self.root / ".workshop" / "prompts").mkdir(parents=True)
+        (self.root / ".workshop" / "prompts" / "ai-review.md").write_text("/our-review --strict\n\nLook hard at the tests.\n")
+        self.built()
+        written = self.engine.store.files(self.run) / "prompt-ai-review.md"
+        self.assertEqual(self.tools.lines[-1], f"/our-review --strict Then read `{written}` and follow it.")
+        self.assertTrue(written.read_text().startswith("Look hard at the tests."))
+
+    def test_each_round_keeps_what_it_was_told(self):
+        self.built()
+        self.reviewed("CHANGES_NEEDED")
+        self.built()
+        files = self.engine.store.files(self.run)
+        self.assertIn("Be sceptical", (files / "prompt-ai-review-1.md").read_text())
+        self.assertIn("git diff tree1 tree2", (files / "prompt-ai-review.md").read_text())
 
     def test_a_review_that_stopped_hasnt_reviewed_anything(self):
         self.built()
@@ -1118,7 +1142,7 @@ class FakeTools:
         self.models = {}
         self.notes = []
         self.reviews, self.review_notes, self.open_already = [], None, False
-        self.prompts, self.started, self.closed = [], [], []
+        self.prompts, self.lines, self.started, self.closed = [], [], [], []
         self.commands, self.stopped = [], []
         self.changed, self.commits, self.pushes = [], [], 0
         self.commit_fails = False
@@ -1238,7 +1262,10 @@ class FakeTools:
         self.statuses[name] = "idle"
 
     def prompt(self, name, text):
-        self.prompts.append((name, text))
+        # A step sends a line pointing at its prompt file: keep the line and what it points at, as the agent reads both.
+        pointed = re.search(r"read `([^`]+)` and follow it\.$", text, re.IGNORECASE)
+        self.lines.append(text)
+        self.prompts.append((name, text + "\n\n" + Path(pointed[1]).read_text(encoding="utf-8") if pointed else text))
         self.statuses[name] = "working"
 
     def changes(self, work):

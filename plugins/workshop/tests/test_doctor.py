@@ -27,11 +27,11 @@ class Prompts(unittest.TestCase):
         (tmp / "r" / ".workshop" / "prompts").mkdir(parents=True)
         (tmp / "mine").mkdir()
         with mock.patch.dict(os.environ, {"WORKSHOP_PROMPTS": str(tmp / "mine")}):
-            self.assertEqual(prompts("r", tmp / "r").detail, "workshop's own")
+            self.assertEqual(prompts("r", tmp / "r").note, "workshop's own")
             (tmp / "mine" / "ai-review.md").write_text("Mine.")
             (tmp / "mine" / "fix.md").write_text("Mine.")
             (tmp / "r" / ".workshop" / "prompts" / "ai-review.md").write_text("Theirs.")
-            self.assertEqual(prompts("r", tmp / "r").detail, "ai-review.md from repo, fix.md from yours")
+            self.assertEqual(prompts("r", tmp / "r").note, "ai-review.md from repo, fix.md from yours")
 
 
 class BackToBoard(unittest.TestCase):

@@ -858,7 +858,13 @@ class Engine:
         extra = "proposals.md" if step.get("proposes") else "" if step.get("interactive") else "decision.md" if step.get("read_only") else "asking.md"
         text = (prompt_text(prompt, Path(run.repo_path) if run.repo_path else None) + (contract_text(extra) if extra and not revising and not run.on_a_pr else "")).replace("{run}", str(self.store.files(run))).replace("{base}", run.base).replace("{since}", run.reviewed).replace("{now}", run.checking).replace("{pr}", run.pr).replace("{queued}", self._queue_list(run) if step.get("queues") else "")
         run.next_prompt = ""
-        self.tools.prompt(agent, text)
+        # One short typed line: a long paste reaches the agent as pasted text, where a /skill is only words.
+        sent = self.store.files(run) / f"prompt-{step['id']}.md"
+        self._keep_earlier(sent)
+        first, _, rest = text.partition("\n")
+        skill = first if re.fullmatch(r"/[\w:.-]+( .*)?", first) else ""
+        sent.write_text((rest if skill else text).strip() + "\n", encoding="utf-8")
+        self.tools.prompt(agent, f"{skill} Then read `{sent}` and follow it." if skill else f"Read `{sent}` and follow it.")
         run.phase, run.started_at = "prompted", self.clock()
         self.store.event(run, "step", step=step["id"], state="running", usage=self.throttle.snapshot())
 

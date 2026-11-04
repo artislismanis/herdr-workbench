@@ -19,7 +19,8 @@ LAUNCH_TIMEOUT_MS = "60000"
 class Result:
     name: str
     ok: bool
-    detail: str = ""
+    detail: str = ""  # why it failed
+    note: str = ""  # what to know when it didn't
 
 
 def _tools() -> list[Result]:
@@ -72,7 +73,7 @@ def prompts(name: str, path: Path) -> Result:
     for where, folder in prompt_dirs(path):
         for file in sorted(folder.glob("*.md")) if folder.is_dir() else []:
             found.setdefault(file.name, where)
-    return Result(f"{name} prompts", True, ", ".join(f"{n} from {where}" for n, where in found.items()) or "workshop's own")
+    return Result(f"{name} prompts", True, note=", ".join(f"{n} from {where}" for n, where in found.items()) or "workshop's own")
 
 
 def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -> list[Result]:
@@ -92,7 +93,7 @@ def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -
     results.append(prompts(name, path))
     try:
         ready = make_source(name, repo, jira).ready()
-        results.append(Result(f"{name} source", True, f"{len(ready)} ready"))
+        results.append(Result(f"{name} source", True, note=f"{len(ready)} ready"))
     except (ToolError, OSError, KeyError, ValueError) as stop:
         results.append(Result(f"{name} source", False, str(stop)))
     if launch:

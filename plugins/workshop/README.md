@@ -104,7 +104,7 @@ To change what a step is told, put a file with its prompt's name, such as `ai-re
 1. `<repo>/.workshop/prompts/`, versioned with the repo, for everyone who runs it. It's read from the repo's checkout, never a run's branch, so a PR under review can't change its reviewer.
 2. `~/.config/workshop/prompts/`, yours, for every repo without its own.
 
-The first one found replaces workshop's method for that step, so it can be a line such as `Run /our-review on this change.`, and the skill does the rest. A skill can hand work to a subagent. Workshop always adds its part underneath: where the agent reads and writes, the verdict, how to ask you, and that it doesn't commit, push or post. Your file can't change those. To start from workshop's own, copy it from `workshop/prompts/`: only the part above `<!-- workshop -->` counts. `workshop doctor` lists the files in use.
+The first one found replaces workshop's method for that step, so it can be just `/our-review`, and the skill does the rest. A first line that's a skill command is typed as one, so the skill runs. A skill can hand work to a subagent. Workshop always adds its part underneath: where the agent reads and writes, the verdict, how to ask you, and that it doesn't commit, push or post. Your file can't change those. To start from workshop's own, copy it from `workshop/prompts/`: only the part above `<!-- workshop -->` counts. `workshop doctor` lists the files in use.
 
 Your own pipeline can also name a prompt that only exists in `~/.config/workshop/prompts/`.
 
@@ -218,7 +218,7 @@ The same poll saves your open PRs, PRs you're asked to review or have reviewed, 
 
 ## Run files
 
-Briefs, reports and notes live in `~/.local/state/workshop/runs/<repo>--<key>/`, not in the repo, so they outlive the worktree. Each round's report, notes and replies are kept as `<name>-<n>`. On the board a file sits under the step that wrote it, the latest round shows, and `+n older` opens the earlier rounds in place. Only what the run started from and what people added sit with the ticket. Agents reach the folder through `--add-dir`.
+Briefs, reports and notes live in `~/.local/state/workshop/runs/<repo>--<key>/`, not in the repo, so they outlive the worktree. Each round's report, notes and replies are kept as `<name>-<n>`. On the board a file sits under the step that wrote it, the latest round shows, and `+n older` opens the earlier rounds in place. Only what the run started from and what people added sit with the ticket. Agents reach the folder through `--add-dir`. Each agent step is typed one line pointing at `prompt-<step>.md`, the full prompt it was given, kept round by round and left off the board.
 
 A step can set `output`, the file it writes, and `publish`: `pr` makes it the PR description and `ticket` posts it as a ticket comment.
 
