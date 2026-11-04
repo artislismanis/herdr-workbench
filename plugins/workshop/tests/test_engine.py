@@ -1339,6 +1339,7 @@ class FakeTools:
         self.heads, self.ancestor = ["one", "two"], True
         self.ci, self.ci_head = [], ""
         self.marked = {}
+        self.talks, self.focused = [], ""
 
     def mark(self, pane, label):
         self.marked[pane] = label
@@ -1407,6 +1408,15 @@ class FakeTools:
 
     def split(self, pane, path):
         return "p2"
+
+    def workspace(self, path, label):
+        return "w9:p1"
+
+    def talk(self, pane, files, text):
+        self.talks.append((pane, files, text))
+
+    def focus(self, pane):
+        self.focused = pane
 
     def pane_alive(self, pane):
         return pane not in self.lost
@@ -1546,6 +1556,24 @@ class Concluding(Case):
         run = self.finish_agent(run, "ws-de-1-ai-review-3", "ai-review", "VERDICT: CHANGES_NEEDED\n")
         self.assertEqual((run.status, run.current["id"]), ("parked", "ai-review"))
         return run
+
+    def test_a_talk_opens_beside_the_stopped_run_and_leaves_it_stopped(self):
+        run = self.parked_after_rounds()
+        self.assertEqual(self.engine.talk(run), "p2")
+        pane, files, text = self.tools.talks[-1]
+        self.assertIn(str(files / "ai-review.md"), text)
+        self.assertIn("Don't commit, push or post", text)
+        self.assertEqual(self.tools.focused, "p2")
+        self.assertEqual(self.engine.store.load(run.repo, run.key).status, "parked")
+
+    def test_a_talk_without_its_workspace_opens_one(self):
+        run = self.parked_after_rounds()
+        self.tools.lost.add(run.pane)
+        self.assertEqual(self.engine.talk(run), "w9:p1")
+
+    def test_a_running_run_has_nothing_to_talk_through(self):
+        with self.assertRaises(Park):
+            self.engine.talk(self.to_verify())
 
     def test_retry_with_guidance_gets_fresh_rounds_and_the_note_is_kept(self):
         run = self.engine.retry(self.parked_after_rounds(), "Use v2")

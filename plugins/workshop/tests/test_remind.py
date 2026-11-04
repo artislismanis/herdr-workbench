@@ -14,7 +14,7 @@ MONDAY_NINE = datetime(2026, 11, 9, 9).timestamp()
 
 
 def item(since, ref=("r", "1")):
-    return Waiting(ref, "r/1", "fix", datetime.fromtimestamp(since, UTC).isoformat(), "Delivery")
+    return Waiting(ref, "r/1", "fix", datetime.fromtimestamp(since, UTC).isoformat(), "Delivery", "r")
 
 
 class Reminders(unittest.TestCase):

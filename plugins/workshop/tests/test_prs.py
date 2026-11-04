@@ -6,7 +6,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.prs import COMMENTS, classify, fetch, searches  # noqa: E402
+from workshop.prs import COMMENTS, classify, fetch, one, searches  # noqa: E402
 
 ME = "me"
 
@@ -161,6 +161,19 @@ class Fetch(unittest.TestCase):
     def test_scope_reaches_every_search(self):
         self.assertTrue(all("org:x" in query for query, size in searches("org:x", 0.0).values()))
         self.assertIn("merged:>=1969-12-25", searches("", 0.0)["merged_mine"][0])
+
+
+class One(unittest.TestCase):
+    def test_a_clicked_pr_is_one_call(self):
+        reply = {"data": {"viewer": {"login": ME}, "found": pr("them") | {"state": "OPEN"}}}
+        with mock.patch("workshop.prs.run_json", return_value=reply) as call:
+            found = one("u")
+        call.assert_called_once()
+        self.assertEqual((found["url"], found["mine"]), ("u", False))
+
+    def test_a_link_that_isnt_a_pr_you_can_see_says_so(self):
+        with mock.patch("workshop.prs.run_json", return_value={"data": {"viewer": {"login": ME}, "found": None}}), self.assertRaises(KeyError):
+            one("u")
 
 
 if __name__ == "__main__":

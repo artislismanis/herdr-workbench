@@ -681,6 +681,19 @@ class Engine:
     def _last_report(self, run: Run) -> Path:
         return self._report(run, [s for s in run.pipeline["steps"] if s["kind"] == "agent"][-1])
 
+    def talk(self, run: Run) -> str:
+        """Opens Claude beside the stopped run, briefed on why it stopped, in a pane of its own: the run's agent pane is never borrowed. The run stays stopped, and you still answer it."""
+        if run.status not in ("parked", "waiting") or run.current is None:
+            raise Park(f"{run.key} hasn't stopped, so there's nothing to talk through.")
+        work = Path(run.worktree) if run.worktree and Path(run.worktree).exists() else Path(run.repo_path)
+        pane = self.tools.split(run.pane, work) if run.pane and self.tools.pane_alive(run.pane) else self.tools.workspace(work, f"talk-{run.key}")
+        files = self.store.files(run)
+        step = run.current
+        report = step.get("output", f"{step['id']}.md") if step["kind"] != "gate" else run.pipeline["steps"][run.index_of(step["report"])].get("output", f"{step['report']}.md")
+        self.tools.talk(pane, files, f"The workshop run {run.repo}/{run.key} stopped at its {step['id']} step: {run.reason.splitlines()[0] if run.reason else 'no reason given'}. The ticket is in {files / 'brief.md'} and the step's report in {files / report}, with the other reports beside them. Read them, then talk it through with me: what went wrong or what's being asked, and the options, with your recommendation. Don't commit, push or post anything. When we've decided, I'll answer the run from the board.")
+        self.tools.focus(pane)
+        return pane
+
     def handover(self, run: Run) -> str:
         """What the last report to write one tells the person taking over."""
         for step in reversed(run.pipeline["steps"]):

@@ -62,7 +62,7 @@ The board shows the reason and the report, so you shouldn't need to open the wor
 
 ## Answering
 
-Press `a` on anything stopped for you. A card opens at the bottom with a short brief and the question, the options, and room to write your own. Up and down choose, or just start typing, and enter confirms. If that run has another question, it follows straight away. When it's done, the board tells you and moves to the next thing that needs you, for `a` to pick up. `d` drops the run.
+Press `a` on anything stopped for you. A card opens at the bottom with a short brief and the question, the options, and room to write your own. Up and down choose, or just start typing, and enter confirms. If that run has another question, it follows straight away. When it's done, the board tells you and moves to the next thing that needs you, for `a` to pick up. `d` drops the run. When one answer isn't enough, choose Talk it through: Claude opens beside the run, already briefed on why it stopped, and the run waits until you come back and answer it. `workshop talk <key>` does the same from a terminal.
 
 The brief is five lines the agent writes for you: what, why, background, bottom line and the ask. You should be able to decide from it alone. The full report stays in the panel above if you want it. Several decisions get a card each, with a line on how they fit together, and your answers go back as one.
 

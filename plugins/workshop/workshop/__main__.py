@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -15,12 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from .backlog import SNAPSHOT, poll
-from .board import show
+from .board import SHOWN, show
 from .boardview import full_pile, waiting
 from .chat import CHAT, Chat
 from .doctor import doctor
 from .engine import PREFIX, STOPS, SWEEP_EVERY, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
+from .prs import one
 from .remind import remind
 from .schedule import schedule
 from .shell import ToolError, run, run_json
@@ -38,7 +39,7 @@ DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see
 TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "rerequest": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 SHOWN_SECONDS = 1  # long enough to see it worked, with nothing to dismiss
@@ -252,6 +253,17 @@ def check_tickets(engine: Engine) -> None:
 
 def running(engine: Engine) -> list[Run]:
     return [r for r in engine.store.all() if r.status == "running" and not r.preparing]  # a talk waits on you, so it takes no slot
+
+
+def clicked(store: Store, url: str) -> None:
+    """A PR link clicked in a pane, for the board to select. One that isn't on the board is fetched, once."""
+    found: dict[str, Any] = {"url": url.rstrip("/"), "at": time.time()}
+    if not any(p["url"] == found["url"] for p in store.read(SNAPSHOT).get("prs", {}).get("items", [])):
+        try:
+            found["pr"] = one(found["url"])
+        except STOPS as failed:
+            found["error"] = f"Couldn't load {found['url']}: {failed}"
+    store.write(SHOWN, found)
 
 
 def look_after(engine: Engine, cfg: dict[str, Any]) -> None:
@@ -611,6 +623,8 @@ def main(argv: list[str]) -> int:
                 waited(root, lambda: print(engine.explain(begin_reply(engine, cfg, argv[1]))))
             case "fix-ci":
                 waited(root, lambda: print(engine.explain(begin_fix_ci(engine, cfg, argv[1]))))
+            case "talk":
+                engine.talk(engine.store.find(argv[1]))
             case "claim":
                 waited(root, lambda: print(engine.explain(engine.claim(engine.store.find(argv[1])))))
             case "prepare":
@@ -653,6 +667,8 @@ def main(argv: list[str]) -> int:
             case "board":
                 show(engine, cfg)
             case "open-board":
+                if url := os.environ.get("HERDR_PLUGIN_CLICKED_URL", ""):
+                    clicked(engine.store, url)
                 engine.tools.open_board()
         return 0
     except (Park, PipelineError, ToolError, KeyError) as stop:

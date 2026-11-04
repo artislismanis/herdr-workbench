@@ -391,6 +391,7 @@ class Waiting(NamedTuple):
     label: str
     since: str  # when it started waiting on you
     tab: str
+    repo: str
 
 
 def waiting(runs: list[Run], items: list[dict[str, Any]], reviewable: Callable[[Run], bool], events: list[dict[str, Any]]) -> list[Waiting]:
@@ -401,9 +402,9 @@ def waiting(runs: list[Run], items: list[dict[str, Any]], reviewable: Callable[[
         run = run_for(runs, ("#pr", pr["url"]))
         shown.add(pr["url"])
         if pull_group(pr, run) == "Needs you":
-            found.append(Waiting(("#pr", pr["url"]), pr_name(pr), pull_status(pr, run)[0], pr.get("since") or pr["updated"], "Review"))
+            found.append(Waiting(("#pr", pr["url"]), pr_name(pr), pull_status(pr, run)[0], pr.get("since") or pr["updated"], "Review", pr["repo"]))
     # A run on a PR that's listed is that PR's row, so it isn't counted twice.
-    return found + [Waiting((r.repo, r.key), name(r), r.label, last.get((r.repo, r.key), ""), "Review" if r.on_a_pr else "Operate" if r.operating else "Delivery") for r in runs if heading(r) == "Needs you" and not (r.on_a_pr and r.pr in shown)]
+    return found + [Waiting((r.repo, r.key), name(r), r.label, last.get((r.repo, r.key), ""), "Review" if r.on_a_pr else "Operate" if r.operating else "Delivery", r.repo) for r in runs if heading(r) == "Needs you" and not (r.on_a_pr and r.pr in shown)]
 
 
 def full_pile(runs: list[Run], items: list[dict[str, Any]], limit: int) -> str:

@@ -17,6 +17,20 @@ title = "Workshop: open the board"
 contexts = ["global"]
 command = ["bin/workshop", "open-board"]
 
+[[actions]]
+id = "show-pr"
+title = "Workshop: show this PR on the board"
+contexts = ["global"]
+command = ["bin/workshop", "open-board"]
+
+# Ctrl+click on a PR link in any pane selects it on the board. Windows Terminal takes
+# clicks on links it detects itself unless "experimental.detectURLs" is false.
+[[link_handlers]]
+id = "pull-request"
+title = "Workshop: show this PR on the board"
+pattern = "^https://github\\.com/[^/]+/[^/]+/pull/[0-9]+/?$"
+action = "show-pr"
+
 # An agent changing state is the moment a run can move, so nothing has to poll for it.
 [[events]]
 on = "pane.agent_status_changed"
