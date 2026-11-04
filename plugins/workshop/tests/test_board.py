@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Ask, Board  # noqa: E402
-from workshop.boardview import Line, Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, pipe, pull, pull_status, pull_story, pulls, refs, run_style, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
+from workshop.boardview import Line, Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, pipe, pull, pull_status, pull_story, pulls, refs, run_style, spark, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -125,6 +125,19 @@ class Deliveries(unittest.TestCase):
     def test_all_is_well_is_quiet_and_only_trouble_has_colour(self):
         spans = usage_line({}, {"cpu": 40, "ram": 80})
         self.assertEqual([s.style for s in spans if "%" in s.text], ["", "yellow"])
+
+    def test_a_sparkline_scales_to_its_top_and_leaves_gaps(self):
+        self.assertEqual(spark([0, 50, None, 100], 100), "▁▅ █")
+        self.assertEqual(spark([1, 2]), "▅█")
+        self.assertEqual(spark([None, None]), "  ")
+
+    def test_the_usage_tab_leads_with_trends(self):
+        now = datetime(2026, 11, 4, 12).timestamp()
+        rows = [{"at": now - 3600, "cpu": 5, "ram": 10, "five": 30, "agents": 2}, {"at": now, "cpu": 50, "ram": 20, "five": 60, "agents": 1}]
+        text = joined(usage_view(rows, [], None, now, WIDE))
+        self.assertLess(text.index("Last 24 hours, by the hour"), text.index("Totals"))
+        self.assertRegex(text, r"5h use +\s*[▁-█ ]+ +peak 60%")
+        self.assertIn("Last 1 day, by the day", text)
 
     def test_the_usage_tab_says_when_theres_nothing_yet(self):
         self.assertIn("No samples yet", joined(usage_view([], [], None, 1000.0)))
@@ -567,7 +580,7 @@ class PRs(unittest.TestCase):
     def test_usage_leads_with_totals(self):
         now = datetime(2026, 11, 2, 10, 30).timestamp()
         text = joined(usage_view([{"at": now - 60, "cpu": 1.0, "ram": 1.0, "five": 1, "agents": 1}], [], None, now))
-        self.assertLess(text.index("Totals"), text.index("Last 24 hours"))
+        self.assertLess(text.index("Totals"), text.index("Each of the last 24 hours"))
 
     def test_draft_replies_sit_under_the_step_that_wrote_them(self):
         steps = [{"id": "reply", "stage": "Review", "kind": "agent", "prompt": "reply-pr.md", "output": "reply.md"}]

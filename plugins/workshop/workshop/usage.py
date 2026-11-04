@@ -4,7 +4,7 @@ import json
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +69,23 @@ def by_hour(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float
         if (at := spent_at(event)) >= since:
             spending[hour(at)].append(event)
     return [{"hour": when, **_peaks(grouped[when]), "spend": _spend(spending[when])} for when in sorted({*grouped, *spending})]
+
+
+def by_day(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float, days: int = KEEP_DAYS) -> list[dict[str, Any]]:
+    """Each of the last days, oldest first, with None for a day with nothing in it, so a trend shows its gaps."""
+    today = datetime.fromtimestamp(now).date()
+    first = today - timedelta(days=days - 1)
+    grouped: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[datetime.fromtimestamp(row["at"]).date()].append(row)
+    spending: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    for event in events:
+        spending[datetime.fromtimestamp(spent_at(event)).date()].append(event)
+    found = []
+    for n in range(days):
+        day = first + timedelta(days=n)
+        found.append({"day": day, **_peaks(grouped[day]), "spend": _spend(spending[day])} if grouped[day] or spending[day] else None)
+    return found
 
 
 def totals(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float, days: float) -> dict[str, Any]:

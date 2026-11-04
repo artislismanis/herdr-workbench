@@ -14,7 +14,7 @@ from .pipeline import shipped
 from .review import section
 from .store import Run
 from .throttle import DAYS, DEFAULTS, ahead
-from .usage import KEEP_DAYS, by_hour, top, totals
+from .usage import KEEP_DAYS, by_day, by_hour, top, totals
 
 Usage = dict[str, tuple[float, float]]
 Work = tuple[tuple[int, int], list[str]]  # working hours and days, from the throttle's settings
@@ -245,19 +245,49 @@ def usage_line(usage: Usage, machine: dict[str, Any] | None) -> list[Span]:
     return [span for name, value, style, time in parts for span in (Span(f" {name} ", "dim"), Span(f"{value:.0f}%", style), Span(time, "dim"), Span(" "))]
 
 
+BARS = "▁▂▃▄▅▆▇█"
+
+
+def spark(values: list[float | None], top: float = 0) -> str:
+    """One column per value, scaled to the top, or to the largest if there's no fixed top. Nothing recorded is a gap."""
+    top = top or max((v for v in values if v is not None), default=0) or 1
+    return "".join(" " if v is None else BARS[min(int(v / top * (len(BARS) - 1) + 0.5), len(BARS) - 1)] for v in values)
+
+
+def trends(rows: list[dict[str, Any]], spent: list[dict[str, Any]], now: float, width: int) -> list[Line]:
+    """How the day and the month went, at a glance. Percentages are scaled to 100, so a quiet day looks quiet."""
+    hours = {row["hour"]: row for row in by_hour(rows, spent, now)}
+    start = datetime.fromtimestamp(now).replace(minute=0, second=0, microsecond=0)
+    slots = [hours.get(start - timedelta(hours=back)) for back in range(23, -1, -1)]
+    days = by_day(rows, spent, now)
+    days = days[next((n for n, day in enumerate(days) if day), len(days) - 1):]  # from the first day with anything, so a new install isn't mostly gap
+    lines = [rule("Last 24 hours, by the hour", width)]
+    for label, key, top, shown in (("5h use", "five", 100, "{:.0f}%"), ("CPU", "cpu", 100, "{:.0f}%"), ("RAM", "ram", 100, "{:.0f}%"), ("Agents", "agents", 0, "{:.0f}"), ("Spend", "spend", 0, "${:.2f}")):
+        values = [slot[key] if slot else None for slot in slots]
+        peak = max((v for v in values if v is not None), default=0)
+        total = sum(v for v in values if v is not None) if key == "spend" else peak
+        lines.append(Line([Span(f"  {label:8}", "dim"), Span(spark(values, top), "mine"), Span(f"  {'total' if key == 'spend' else 'peak'} " + shown.format(total), "dim")]))
+    spend = [day["spend"] if day else None for day in days]
+    lines += [plain(), rule(f"Last {len(days)} day{'s' * (len(days) != 1)}, by the day", width)]
+    lines.append(Line([Span(f"  {'Spend':8}", "dim"), Span(spark(spend), "mine"), Span(f"  total ${sum(v for v in spend if v is not None):.2f}", "dim")]))
+    five = [day["five"] if day else None for day in days]
+    lines.append(Line([Span(f"  {'5h peak':8}", "dim"), Span(spark(five, 100), "mine"), Span(f"  highest {max((v for v in five if v is not None), default=0):.0f}%", "dim")]))
+    return [*lines, plain()]
+
+
 def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine: dict[str, Any] | None, now: float, width: int = 120) -> list[Line]:
     """Machine, limits and work side by side, to show whether WSL needs more and what uses the limits."""
     spent = [e for e in events if e["type"] == "spent"]
     lines = [plain(f"  {machine['cores']} cores, {machine['memory']:.0f}G of memory", "dim"), plain()] if machine else []
     if not rows and not spent:
         return [*lines, plain("  No samples yet. One arrives every 5 minutes.", "dim")]
-    lines += [rule("Totals", width)]
+    lines += [*trends(rows, spent, now, width), rule("Totals", width)]
     for label, days in (("Today", 1), ("Week", 7), ("Month", KEEP_DAYS)):
         found = totals(rows, spent, now, days)
         lines.append(plain(f"  {label:8}peak cpu {found['cpu']:.0f}%   ram {found['ram']:.0f}%   {found['agents']:.0f} agents at once   ${found['spend']:.2f}"))
     model, step = top(spent, now)
     lines += [plain(f"  Most of this week's spend: {model}, on {step}", "dim")] if model else []
-    lines += [plain(), rule("Last 24 hours", width), plain(f"  {'hour':8}{'cpu peak':>10}{'ram peak':>10}{'5h':>6}{'agents':>8}{'spend':>9}", "dim")]
+    lines += [plain(), rule("Each of the last 24 hours", width), plain(f"  {'hour':8}{'cpu peak':>10}{'ram peak':>10}{'5h':>6}{'agents':>8}{'spend':>9}", "dim")]
     for row in by_hour(rows, spent, now):
         lines.append(Line([Span(f"  {row['hour'].strftime('%H:%M'):8}"), Span(f"{row['cpu']:>9.0f}%", calm(machine_style(row["cpu"]))), Span(f"{row['ram']:>9.0f}%", calm(machine_style(row["ram"]))), Span(f"{row['five']:>5.0f}%"), Span(f"{row['agents']:>8.0f}"), Span(f"{'$' + format(row['spend'], '.2f'):>9}")]))
     return lines
