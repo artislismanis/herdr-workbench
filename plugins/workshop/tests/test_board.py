@@ -256,13 +256,25 @@ class Ages(unittest.TestCase):
 
 
 class Drill(unittest.TestCase):
+    def test_a_staged_timeline_starts_under_a_heading(self):
+        staged = run(status="done", step=3, reviewing=True, pr="u")
+        staged.pipeline = {"name": "x", "steps": [{"id": "qa", "kind": "command", "stage": "Test"}, {"id": "ai-review", "kind": "agent", "stage": "Review"}]}
+        lines = texts(timeline(staged, [], ("/f/brief.md",), 100))
+        self.assertTrue(lines[0].startswith(" PR   done"))
+
+    def test_a_stage_whose_step_failed_says_so(self):
+        staged = run(status="done", step=2, reviewing=True, pr="u")
+        staged.pipeline = {"name": "x", "steps": [{"id": "qa", "kind": "command", "stage": "Test"}, {"id": "ai-review", "kind": "agent", "stage": "Review"}]}
+        lines = texts(timeline(staged, [event("step", step="qa", state="done", verdict="FAILED")], (), 100))
+        self.assertTrue(any(t.startswith(" Test   done with findings") for t in lines))
+
     def test_shows_each_steps_rounds_verdict_and_cost(self):
         spent = {"minutes": 2.0, "usd": 0.5}
         started = event("step", step="verify", state="running")
         events = [event("step", step="plan", state="running"), event("spent", step="plan", **spent), event("step", step="plan", state="done", verdict=""), started, started, event("spent", step="verify", **spent), event("spent", step="verify", **spent), event("step", step="verify", state="done", verdict="PASS")]
         lines = texts(drill(run(step=2), events, "Title", "", "/files", 100))
-        self.assertTrue(any("plan" in t and "1 round" in t and "$0.50" in t for t in lines))
-        self.assertTrue(any("verify" in t and "2 rounds" in t and "PASS" in t and "4.0 min" in t and "$1.00" in t for t in lines))
+        self.assertTrue(any("plan" in t and "×" not in t and "$0.50" in t for t in lines))
+        self.assertTrue(any("verify" in t and "2×" in t and "PASS" in t and "4.0m" in t and "$1.00" in t for t in lines))
         self.assertTrue(any(t.startswith("◐ pr") for t in lines))
 
     def test_steps_behind_the_run_are_done_even_without_events(self):
@@ -302,7 +314,7 @@ class Drill(unittest.TestCase):
         lines = drill(staged, spent, "", "", "/f", 80)
         build = next(line for line in lines if line.text.startswith(" Build "))
         test = next(line for line in lines if line.text.startswith(" Test "))
-        self.assertEqual(build.text, " Build   done   3.0 min  $0.30")
+        self.assertEqual(build.text, " Build   done   3.0m  $0.30")
         self.assertEqual((build.spans[0].style, test.spans[0].style), ("on-green", "on-red"))
         self.assertIn("fix", test.text)
 

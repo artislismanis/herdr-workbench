@@ -714,9 +714,12 @@ def findings(report: str, name: str, width: int, lead: str = "") -> list[Line]:
 def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[str, Any]]) -> Line:
     _, style, word = stage_state(run, indexes)
     ids = {run.pipeline["steps"][index]["id"] for index in indexes}
+    last = {e["step"]: e.get("verdict", "") for e in events if e["type"] == "step" and e.get("state") == "done" and e.get("step") in ids}
+    if word == "done" and any(verdict in BAD_VERDICTS for verdict in last.values()):  # it went on, by design, but a step in it failed
+        style, word = "yellow", "done with findings"
     spent = [e for e in events if e["type"] == "spent" and e.get("step") in ids]
     prices = [e["usd"] for e in spent]
-    total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
+    total = f"{sum(e['minutes'] for e in spent):.1f}m  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
     return Line([Span(f" {stage} ", block(style) if style != "dim" else "bold"), Span(f"  {word}", style), Span(f"   {total}" if total else "", "dim")])
 
 
@@ -737,9 +740,9 @@ def branch(staged: bool, in_stage: bool, last: bool) -> str:
 
 def ticket_rows(run: Run, files: list[str], staged: bool, room: int) -> list[Line]:
     """What the run started from. There's no step for it yet, so it leads the timeline. Everything people added sits with it."""
-    stage = run.pipeline.get("ticket_stage")
-    heading = [Line([Span(f" {stage} ", "on-green"), Span("  done", "green")])] if stage else []
     start = "PR" if run.on_a_pr else "brief" if run.sweeping else "ticket"
+    stage = run.pipeline.get("ticket_stage") or (start[0].upper() + start[1:] if staged else "")  # a staged timeline starts under a heading too, so nothing hangs loose
+    heading = [Line([Span(f" {stage} ", "on-green"), Span("  done", "green")])] if stage else []
     rows = [file_row([Span(branch(staged, bool(stage), index == len(files) - 1), "dim"), Span("● ", "green")], path, room, FILE_NOTES.get(path.rsplit("/", 1)[-1], path.rsplit("/", 1)[-1]) if index else start) for index, path in enumerate(files)]  # nothing but where it started and what people added gets here
     return [*heading, *rows, plain()] if heading or rows else []
 
@@ -770,10 +773,10 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         current = index == run.step and not completed(run)
         mark, style = ("◐", "red" if run.landed == "dropped" else COLOURS[run.status]) if current else ("●", "green") if index < run.step or done_all(run) or (finished and not run.until) else ("○", "dim")
         verdict = finished[-1].get("verdict", "") if finished else ""
-        facts = [f"{rounds} round{'' if rounds == 1 else 's'}"] if rounds else []
+        facts = [f"{rounds}×"] if rounds > 1 else []
         if spent:
             prices = [e["usd"] for e in spent]
-            facts += [f"{sum(e['minutes'] for e in spent):.1f} min", "unpriced" if None in prices else f"${sum(prices):.2f}"]
+            facts += [f"{sum(e['minutes'] for e in spent):.1f}m", "unpriced" if None in prices else f"${sum(prices):.2f}"]
         latest, older = files_of(step, reports)
         beside = alongside if index == writes_notes else []
         past = sorted([*older, *(found for _, rounds in beside for found in rounds)], key=lambda found: -found[0])
