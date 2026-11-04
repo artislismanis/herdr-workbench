@@ -221,7 +221,8 @@ class Tools:
 
     def talk(self, pane: str, files: Path, text: str) -> None:
         """A plain Claude session for you to talk to, not a step agent, so the run never waits on it."""
-        run("herdr", "pane", "run", pane, f"claude --add-dir {shlex.quote(str(files))} {shlex.quote(text)}")
+        # The prompt first: --add-dir takes several folders, and would take the prompt for one.
+        run("herdr", "pane", "run", pane, f"claude {shlex.quote(text)} --add-dir {shlex.quote(str(files))}")
 
     def prompt(self, name: str, text: str) -> None:
         # Waits only until the agent has started, so "idle" afterwards means it finished.
