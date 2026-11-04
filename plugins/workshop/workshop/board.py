@@ -920,6 +920,7 @@ class Board:
         styles["tab-on"] = styles["on-mine"]  # bold black turns grey where bold means bright, as in Windows Terminal
         styles["row-dim"] = styles["row-"]  # faint text on the selection background is unreadable
         styles["dim"] |= curses.A_DIM
+        styles["theirs"], styles["row-theirs"] = styles["dim"], pair(0, grey)  # selected, faint grey would vanish into the grey behind it
         return styles
 
     def loop(self, screen: curses.window) -> None:

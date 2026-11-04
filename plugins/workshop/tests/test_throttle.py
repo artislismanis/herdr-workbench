@@ -2,7 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -39,11 +39,11 @@ class Steps(Case):
 
     def test_working_hours_keep_a_tenth_of_the_5h_window_for_you(self):
         self.usage(five=90)
-        self.assertIn("5h usage is 90%", self.throttle.hold_steps())
+        self.assertIn("The 5h limit is 90% used", self.throttle.hold_steps())
 
     def test_held_well_ahead_of_the_weekly_pace(self):
         self.usage(week=66)
-        self.assertIn("ahead of the 50%", self.throttle.hold_steps())
+        self.assertIn("faster than it can last", self.throttle.hold_steps())
 
     def test_a_high_week_close_to_its_reset_is_fine(self):
         self.usage(week=90, week_resets=NOW + 3600)
@@ -85,7 +85,7 @@ class Tickets(Case):
 
     def test_held_ahead_of_the_weekly_pace(self):
         self.usage(week=56)
-        self.assertIn("ahead of the 50%", self.throttle.hold_new(0))
+        self.assertIn("faster than it can last", self.throttle.hold_new(0))
 
     def test_clear_on_the_weekly_pace_with_the_margin(self):
         self.usage(week=55)
@@ -143,12 +143,12 @@ class Outside(Case):
         self.at(EVENING)
         self.usage(five=56, five_resets=EVENING + 9000)  # half the window gone
         self.assertEqual(self.throttle.hold_steps(), "")
-        self.assertIn("ahead of the 50%", self.throttle.hold_new(0))
+        self.assertIn("faster than it can last", self.throttle.hold_new(0))
 
     def test_steps_stop_too_when_well_ahead_of_the_5h_pace(self):
         self.at(EVENING)
         self.usage(five=66, five_resets=EVENING + 9000)
-        self.assertIn("ahead of the 50%", self.throttle.hold_steps())
+        self.assertIn("faster than it can last", self.throttle.hold_steps())
 
     def test_a_window_used_up_holds_even_at_the_reset(self):
         self.at(EVENING)
@@ -179,12 +179,26 @@ class Live(unittest.TestCase):
         self.assertEqual(found["seven_day"], {"used_percentage": 45, "resets_at": 1793581200.0})
 
     def test_a_reset_after_new_year_is_next_year(self):
-        text = "Current session: 1% used · resets Jan 1, 12:10am (Europe/London)\n"
-        self.assertEqual(live_windows(text, self.NOW)["five_hour"]["resets_at"], 1798762200.0)
+        new_years_eve = datetime(2026, 12, 31, 22, 0, tzinfo=UTC).timestamp()
+        text = "Current session: 1% used · resets Jan 1, 12:10am (UTC)\n"
+        self.assertEqual(live_windows(text, new_years_eve)["five_hour"]["resets_at"], datetime(2027, 1, 1, 0, 10, tzinfo=UTC).timestamp())
 
     def test_a_bare_time_earlier_today_is_tomorrow(self):
-        text = "Current session: 1% used · resets 5pm (UTC)\n"
-        self.assertEqual(live_windows(text, self.NOW)["five_hour"]["resets_at"], 1793552400.0)
+        late = datetime(2026, 11, 4, 23, 0, tzinfo=UTC).timestamp()
+        text = "Current session: 1% used · resets 2am (UTC)\n"
+        self.assertEqual(live_windows(text, late)["five_hour"]["resets_at"], datetime(2026, 11, 5, 2, 0, tzinfo=UTC).timestamp())
+
+    def test_a_reset_just_gone_is_this_years_so_the_window_is_used_up(self):
+        late = datetime(2026, 11, 4, 23, 10, tzinfo=UTC).timestamp()
+        text = "Current session: 78% used · resets Nov 4, 10:59pm (UTC)\n"
+        self.assertEqual(live_windows(text, late)["five_hour"]["resets_at"], datetime(2026, 11, 4, 22, 59, tzinfo=UTC).timestamp())
+
+    def test_a_window_nothing_has_used_has_reset(self):
+        self.assertEqual(live_windows("Current session: 0% used\n", 1000.0)["five_hour"], {"used_percentage": 0, "resets_at": 1000.0})
+
+    def test_a_reset_further_off_than_the_window_is_a_misreading(self):
+        late = datetime(2026, 11, 4, 23, 0, tzinfo=UTC).timestamp()
+        self.assertEqual(live_windows("Current session: 5% used · resets Nov 20, 3pm (UTC)\n", late), {})
 
     def test_an_unknown_zone_is_skipped(self):
         self.assertEqual(live_windows("Current session: 1% used · resets 5pm (Mars/Base)\n", self.NOW), {})

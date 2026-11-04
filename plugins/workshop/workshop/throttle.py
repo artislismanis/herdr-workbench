@@ -21,7 +21,9 @@ STALE_AFTER = 30 * 60
 DEFAULTS = {"pause_new_at": 80, "pause_steps_at": 90, "work_hours": [8, 18], "work_days": ["mon", "tue", "wed", "thu", "fri"], "five_hour_pace_margin": 5, "five_hour_pace_stop": 15, "weekly_pace_margin": 5, "weekly_pace_stop": 15}
 WINDOWS = {"session": "five_hour", "week (all models)": "seven_day"}
 LENGTHS = {"5h": 5 * 60 * 60, "7d": WEEK}
-USAGE_LINE = re.compile(r"^Current (session|week \(all models\)): (\d+)% used\b.*?resets (?:(\w{3}) (\d+), )?(\d+)(?::(\d+))?(am|pm) \(([^)]+)\)", re.MULTILINE)
+SHORT = {"five_hour": "5h", "seven_day": "7d"}
+NAMES = {"5h": "5h limit", "7d": "weekly limit"}
+USAGE_LINE = re.compile(r"^Current (session|week \(all models\)): (\d+)% used\b(?:.*?resets (?:(\w{3}) (\d+), )?(\d+)(?::(\d+))?(am|pm) \(([^)]+)\))?", re.MULTILINE)  # a window nothing has used yet has no reset
 
 
 def usage_path() -> Path:
@@ -37,8 +39,10 @@ def reset_time(found: re.Match[str], now: float) -> float | None:
     except (ValueError, ZoneInfoNotFoundError):
         return None
     reset = date.replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0, tzinfo=here.tzinfo)
-    if reset < here:  # the text gives no year, and a bare time may be tomorrow
-        reset = reset.replace(year=here.year + 1) if month else reset + timedelta(days=1)
+    if reset < here and not month:  # a bare time may be tomorrow
+        reset += timedelta(days=1)
+    elif reset < here - timedelta(days=180):  # the text gives no year, so January's reset read in December is next year's. One just gone is still this year's
+        reset = reset.replace(year=here.year + 1)
     return reset.timestamp()
 
 
@@ -46,9 +50,20 @@ def live_windows(text: str, now: float) -> dict[str, dict[str, float]]:
     """What Claude's /usage says. It's text for people, so whatever can't be read keeps the saved reading."""
     windows = {}
     for found in USAGE_LINE.finditer(text):
-        if (reset := reset_time(found, now)) is not None:
-            windows[WINDOWS[found[1]]] = {"used_percentage": int(found[2]), "resets_at": reset}
+        window, used = WINDOWS[found[1]], int(found[2])
+        if found[5] is None:
+            if used == 0:  # a new window, so whatever was saved has reset
+                windows[window] = {"used_percentage": 0, "resets_at": now}
+            continue
+        reset = reset_time(found, now)
+        if reset is not None and reset - now <= LENGTHS[SHORT[window]] + 3600:  # a reset further off than the window is long is a misreading
+            windows[window] = {"used_percentage": used, "resets_at": reset}
     return windows
+
+
+def until(seconds: float) -> str:
+    hours, minutes = int(seconds // 3600), int(seconds % 3600 // 60)
+    return f"{hours // 24}d {hours % 24}h" if hours >= 24 else f"{hours}h {minutes}m" if hours else f"{minutes}m"
 
 
 def ahead(window: str, used: float, left: float) -> float:
@@ -95,13 +110,13 @@ class Throttle:
         used, left = self.pace()[window]
         if used < 100 and ahead(window, used, left) <= margin:
             return ""
-        return f"{window} usage is {used}%, ahead of the {100 * (1 - left / LENGTHS[window]):.0f}% of the window gone."
+        return f"The {NAMES[window]} is {used:.0f}% used with {until(left)} to go, faster than it can last."
 
     def _hold(self, at: str, five_margin: str, week_margin: str) -> str:
         """Which rule the 5h window follows depends on the hour. The week always has to last to its reset, so running short means a break."""
         if self.working():
             five = self.pace()["5h"][0]
-            held = f"5h usage is {five}%, and {self.limits[at]}% is the most in working hours." if five >= self.limits[at] else ""
+            held = f"The 5h limit is {five:.0f}% used, and in working hours the rest is kept for you." if five >= self.limits[at] else ""
         else:
             held = self._ahead("5h", self.limits[five_margin])
         return held or self._ahead("7d", self.limits[week_margin])
