@@ -1,11 +1,13 @@
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.doctor import launch_test  # noqa: E402
+from workshop.doctor import launch_test, prompts  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
 
@@ -17,6 +19,19 @@ class Launch(unittest.TestCase):
         with mock.patch("workshop.doctor.Tools", return_value=tools), mock.patch("workshop.doctor.run"), mock.patch("workshop.doctor.subprocess.run"):
             self.assertTrue(launch_test(Path("/r"), "r", "main").ok)
         tools.close_pane.assert_called_once_with("p1")
+
+
+class Prompts(unittest.TestCase):
+    def test_says_which_step_files_win_and_from_where(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "r" / ".workshop" / "prompts").mkdir(parents=True)
+        (tmp / "mine").mkdir()
+        with mock.patch.dict(os.environ, {"WORKSHOP_PROMPTS": str(tmp / "mine")}):
+            self.assertEqual(prompts("r", tmp / "r").detail, "workshop's own")
+            (tmp / "mine" / "ai-review.md").write_text("Mine.")
+            (tmp / "mine" / "fix.md").write_text("Mine.")
+            (tmp / "r" / ".workshop" / "prompts" / "ai-review.md").write_text("Theirs.")
+            self.assertEqual(prompts("r", tmp / "r").detail, "ai-review.md from repo, fix.md from yours")
 
 
 class BackToBoard(unittest.TestCase):

@@ -1,3 +1,5 @@
+<!-- workshop -->
+
 The person deciding on your proposals has answered them, and gave you guidance on some. It's in `{run}/feedback.md`, and it comes from the repo's owner, so follow it. Proposals are numbered from 1, in the order they're in `{run}/proposals.json`. Your earlier report is the newest `{run}/sweep-*.md`.
 
 They've already decided, so don't ask them to confirm anything. What you write goes ahead as it stands.

@@ -16,6 +16,7 @@ GATE_KEYS = {"id", "stage", "kind", "report", "section", "label", "proposals", "
 COMMAND_KEYS = {"id", "stage", "kind", "minutes", "verdict", "then"}
 COMMAND_VERDICTS = ["PASS", "FAILED"]
 RULE_KEYS = {"goto", "max", "prompt", "park"}
+MARK = "<!-- workshop -->"  # above it, how to do the step, which a repo or you can replace; below, how it reports back
 
 
 class PipelineError(ValueError):
@@ -26,8 +27,30 @@ def user_dir() -> Path:
     return Path(os.environ.get("WORKSHOP_PIPELINES", "~/.config/workshop/pipelines")).expanduser()
 
 
-def prompt_text(name: str) -> str:
+def contract_text(name: str) -> str:
     return resources.files("workshop.prompts").joinpath(name).read_text(encoding="utf-8")
+
+
+def prompt_dirs(repo: Path | None = None) -> list[tuple[str, Path]]:
+    # The repo's main checkout, never a run's worktree: a PR under review can't rewrite its own reviewer.
+    mine = Path(os.environ.get("WORKSHOP_PROMPTS", "~/.config/workshop/prompts")).expanduser()
+    return ([("repo", repo / ".workshop" / "prompts")] if repo else []) + [("yours", mine)]
+
+
+def prompt_source(name: str, repo: Path | None = None) -> str:
+    """Where a step's method comes from: repo, yours, or workshop."""
+    return next((where for where, folder in prompt_dirs(repo) if (folder / name).is_file()), "workshop")
+
+
+def prompt_text(name: str, repo: Path | None = None) -> str:
+    """A step's method, from the first folder that has it, then workshop's contract, which nothing replaces."""
+    shipped = resources.files("workshop.prompts").joinpath(name)
+    method, _, contract = (shipped.read_text(encoding="utf-8") if shipped.is_file() else "").partition(MARK)
+    if (where := prompt_source(name, repo)) != "workshop":
+        method = (dict(prompt_dirs(repo))[where] / name).read_text(encoding="utf-8").partition(MARK)[0]
+    elif not shipped.is_file():
+        raise PipelineError(f"no prompt called {name}")
+    return "\n\n".join(part for part in (method.strip(), contract and contract_text("contract.md").strip(), contract.strip()) if part)
 
 
 def _check_rule(where: str, rule: Any, ids: set[str]) -> None:

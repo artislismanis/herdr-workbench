@@ -1,6 +1,8 @@
-Build the change described in `{run}/tasks.md`, following this repo's conventions. Add tests for the behaviour you change, and check your work with the repo's own commands from its CLAUDE.md, README or package config.
+Build the change in the task list, following this repo's conventions. Add tests for the behaviour you change, and check your work with the repo's own commands from its CLAUDE.md, README or package config.
 
-Do not commit or push: the runner does that.
+<!-- workshop -->
+
+The task list is in `{run}/tasks.md`. Do not commit or push: the runner does that.
 
 Write the PR description to `{run}/implement.md`: what changed and why, and what a person still needs to check. If something must be done by hand when this ships, such as a data refresh, list it under a `## Release steps` heading. Leave the heading out when there's nothing.
 

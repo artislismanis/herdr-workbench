@@ -95,6 +95,19 @@ An agent step's `again` names the prompt for later rounds. In `ticket` and `gate
 
 Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh` share one agent, so they must agree on the model.
 
+## Changing how a step works
+
+Every agent runs in the repo, so it already follows the repo's `CLAUDE.md`, skills and agents, and your own under `~/.claude`. Each step's prompt says so, and they win over workshop's general advice.
+
+To change what a step is told, put a file with its prompt's name, such as `ai-review.md`, in either:
+
+1. `<repo>/.workshop/prompts/`, versioned with the repo, for everyone who runs it. It's read from the repo's checkout, never a run's branch, so a PR under review can't change its reviewer.
+2. `~/.config/workshop/prompts/`, yours, for every repo without its own.
+
+The first one found replaces workshop's method for that step, so it can be a line such as `Run /our-review on this change.`, and the skill does the rest. A skill can hand work to a subagent. Workshop always adds its part underneath: where the agent reads and writes, the verdict, how to ask you, and that it doesn't commit, push or post. Your file can't change those. To start from workshop's own, copy it from `workshop/prompts/`: only the part above `<!-- workshop -->` counts. `workshop doctor` lists the files in use.
+
+Your own pipeline can also name a prompt that only exists in `~/.config/workshop/prompts/`.
+
 ## Terms
 
 | Term | Means |
