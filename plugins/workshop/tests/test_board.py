@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Board  # noqa: E402
-from workshop.boardview import Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, pipe, pull, pull_status, pull_story, pulls, run_style, stage_groups, stage_state, timeline, to_go, usage_line, usage_view  # noqa: E402
+from workshop.boardview import Line, Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, pipe, pull, pull_status, pull_story, pulls, refs, run_style, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -99,14 +99,10 @@ class Deliveries(unittest.TestCase):
     def test_what_needs_you_comes_first(self):
         lines = deliveries([run("1"), run("2", "parked", reason="It broke"), run("3", "waiting", reason="Which API?")], [], lambda r: "Title", WIDE)
         self.assertEqual([line.run.key for line in lines if line.run], ["2", "3", "1"])
-        self.assertIn("It broke", next(line.text for line in lines if line.run and line.run.key == "2"))
-        self.assertIn(" 2  needs you", lines[2].text)
+        self.assertIn("Needs you 2", joined(lines))
 
     def test_limits_show_on_one_line(self):
-        self.assertIn("5h 40% (2h0m)", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[0].text)
-
-    def test_usage_sits_above_the_counts(self):
-        self.assertIn("needs you", deliveries([], [], lambda r: "", WIDE, {"5h": (40, 7200)})[2].text)
+        self.assertIn("5h 40% (2h0m)", Line(usage_line({"5h": (40, 7200)}, None)).text)
 
     def test_limits_are_coloured_by_whether_they_last_until_the_reset(self):
         hour, day = 3600, 86400
@@ -120,16 +116,15 @@ class Deliveries(unittest.TestCase):
 
     def test_the_machine_shows_when_it_can_be_read(self):
         found = {"cpu": 40, "cores": 8, "ram": 80, "memory": 31.4, "cpu_peak": 90, "ram_peak": 85}
-        line = deliveries([], [], lambda r: "", WIDE, {"5h": (58.0, 2880)}, found)[0]
+        line = Line(usage_line({"5h": (58.0, 2880)}, found))
         self.assertEqual(line.text.split(), ["5h", "58%", "(48m)", "CPU", "40%", "RAM", "80%"])
-        self.assertEqual(columns(line.text), WIDE)
 
     def test_time_to_go_reads_like_claudes_status_line(self):
         self.assertEqual([to_go(s) for s in (300, 16740, 190000)], ["5m", "4h39m", "2d4h"])
 
     def test_all_is_well_is_quiet_and_only_trouble_has_colour(self):
-        line = usage_line({}, {"cpu": 40, "ram": 80})
-        self.assertEqual([s.style for s in line.spans if "%" in s.text], ["row-", "row-yellow"])
+        spans = usage_line({}, {"cpu": 40, "ram": 80})
+        self.assertEqual([s.style for s in spans if "%" in s.text], ["", "yellow"])
 
     def test_the_usage_tab_says_when_theres_nothing_yet(self):
         self.assertIn("No samples yet", joined(usage_view([], [], None, 1000.0)))
@@ -200,6 +195,46 @@ class Backlog(unittest.TestCase):
 
     def test_says_so_before_the_first_poll(self):
         self.assertIn("Press r", backlog({}, {}, lambda repo, key: False)[0].text)
+
+    def test_each_card_can_be_selected_wide_or_narrow(self):
+        for width in (WIDE, 60):
+            found = {ref for line in backlog(self.snapshot, {}, lambda repo, key: False, width) for _, ref in refs(line)}
+            self.assertEqual(found, {("#ticket", f"r/{n}") for n in "1234"})
+
+    def test_a_filter_keeps_matching_cards(self):
+        lines = joined(backlog(self.snapshot, {}, lambda repo, key: False, WIDE, keep="read"))
+        self.assertIn("Ready", lines)
+        self.assertNotIn("New one", lines)
+
+
+class Ages(unittest.TestCase):
+    friday_five = datetime(2026, 11, 6, 17).timestamp()
+
+    def stamp(self, at):
+        return datetime.fromtimestamp(at, UTC).isoformat()
+
+    def test_a_weekend_doesnt_count(self):
+        monday_nine = datetime(2026, 11, 9, 9).timestamp()
+        self.assertEqual(working(self.friday_five, monday_nine), 7200)
+        self.assertEqual(stale(self.stamp(self.friday_five), monday_nine), "yellow")
+
+    def test_amber_after_an_hour_and_red_after_a_working_day(self):
+        monday_eight = datetime(2026, 11, 9, 8).timestamp()
+        self.assertEqual(stale(self.stamp(monday_eight), monday_eight + 1800), "dim")
+        self.assertEqual(stale(self.stamp(monday_eight), monday_eight + 3600), "yellow")
+        self.assertEqual(stale(self.stamp(monday_eight), monday_eight + 10 * 3600), "red")
+
+    def test_only_what_waits_on_you_is_coloured(self):
+        start = datetime(2026, 11, 9, 8).timestamp()
+        events = [{"type": "parked", "repo": "r", "key": k, "at": self.stamp(start)} for k in ("1", "2")]
+        lines = [line for line in deliveries([run("1", "parked"), run("2")], events, lambda r: "", WIDE, start + 5 * 3600) if line.run]
+        ages = {line.run.key: next(span.style for span in line.spans if span.text.strip() == "5h") for line in lines}
+        self.assertEqual(ages, {"1": "yellow", "2": "dim"})
+
+    def test_a_run_row_shows_its_prs_ci(self):
+        line = next(line for line in deliveries([run(pr="u")], [], lambda r: "", WIDE, ci=lambda url: "FAILURE") if line.run)
+        self.assertEqual(line.spans[-1].style, "red")
+        self.assertEqual(next(line for line in deliveries([run()], [], lambda r: "", WIDE) if line.run).spans[-1].text, " ")
 
 
 class Drill(unittest.TestCase):
@@ -394,15 +429,17 @@ class PRs(unittest.TestCase):
 
     def test_a_row_is_mark_status_pr_title_author_ci(self):
         row = self.rows(pr(state="comments to address", mine=True))[0]
-        self.assertRegex(row.text, r"^ ⬥ changes    r#7 A change +you ●$")
+        self.assertRegex(row.text, r"^ ⬥ changes    ⌕ r#7 A change +you +0s ●$")
         self.assertEqual(columns(row.text), WIDE - 2)
 
-    def test_a_row_at_panel_width_keeps_long_names_whole(self):
+    def test_a_narrow_row_drops_who_before_the_title(self):
         long = pr(title="T" * 90, repo="herdr-workbench", number=125, author="artislismanis-ai")
         row = next(line for line in pulls({"prs": {"error": "", "items": [long]}}, 84) if line.pr)
         self.assertIn("herdr-workbench#125", row.text)
-        self.assertIn("artislismanis-ai", row.text)
+        self.assertNotIn("artislismanis-ai", row.text)
+        self.assertIn("T" * 30, row.text)
         self.assertEqual(columns(row.text), 82)
+        self.assertIn("artislismanis-ai", next(line for line in pulls({"prs": {"error": "", "items": [long]}}, WIDE) if line.pr).text)
 
     def test_the_title_gives_way_before_the_ci_dot(self):
         long = pr(repo="herdr-workbench", number=125, author="artislismanis-ai")
@@ -743,7 +780,7 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.board.tab = DELIVERY
         self.board.press(ord("\t"))
-        self.assertIn("PRs 5m old", self.board.header().text)
+        self.assertIn("PRs 5m old", self.board.status().text)
         self.board.press(10)
         self.assertEqual(self.board.open, ("#pr", "u"))
         self.assertIn("Reviews", joined(self.board.lines(100)))
@@ -769,10 +806,10 @@ class Keys(unittest.TestCase):
         self.assertNotIn("no workspace", self.board.footer().text)
 
     def test_a_new_file_shows_on_the_next_reload_and_opening_makes_no_calls(self):
-        self.assertIn("not polled", self.board.header().text)
+        self.assertIn("not polled", self.board.status().text)
         self.store.write(SNAPSHOT, {"repos": {"r": {"polled_at": 200.0, "error": "", "items": []}}})
         self.board.reload()
-        self.assertIn("backlog 5m old", self.board.header().text)
+        self.assertIn("backlog 5m old", self.board.status().text)
         self.tools.assert_not_called()
 
     def test_what_a_step_was_told_stays_off_the_board(self):
@@ -1306,6 +1343,52 @@ class Keys(unittest.TestCase):
         self.type_in("7")
         self.assertEqual(self.sent(), ("prepare", "two/7"))
 
+    def on_backlog(self):
+        self.store.write(SNAPSHOT, {"repos": {"b": Backlog.snapshot["repos"]["r"]}})  # r has runs 1 and 2, so its cards would be started
+        self.board.cfg = {"repos": {"b": {}}}
+        self.board.seen = None
+        self.board.reload()
+        self.board.tab = BACKLOG
+
+    def test_backlog_cards_are_chosen_down_each_column_then_across(self):
+        self.on_backlog()
+        lines = self.board.lines(WIDE)
+        self.assertEqual(self.board.choices(lines), [("#ticket", f"b/{n}") for n in "1234"])
+        self.board.press(curses.KEY_DOWN, WIDE)
+        self.assertEqual(self.board.selected(self.board.lines(WIDE)), ("#ticket", "b/2"))
+
+    def test_enter_opens_a_card_and_p_prepares_it(self):
+        self.on_backlog()
+        self.board.press(curses.KEY_DOWN, WIDE)
+        self.board.press(10, WIDE)
+        self.assertIn("p starts the next Prepare talk", joined(self.board.lines(WIDE)))
+        self.board.press(ord("p"), WIDE)
+        self.assertEqual(self.board.asking.options[0][0], "b/2  Ready")
+        self.assertEqual(self.sent(), ("prepare", "b/2"))
+
+    def test_p_on_a_card_still_takes_an_idea(self):
+        self.on_backlog()
+        self.board.press(ord("p"), WIDE)
+        self.type_in("a dark mode")
+        self.assertEqual(self.sent(), ("prepare", "b/a dark mode"))
+
+    def test_a_filter_narrows_the_list_and_its_keys_are_only_typing(self):
+        self.board.tab = DELIVERY
+        self.store.save(run("2", "parked", pane="w2:p1"))
+        self.board.seen = None
+        self.board.reload()
+        self.board.press(ord("/"))
+        for key in "r/1":
+            self.board.press(ord(key))
+        self.board.press(ord("d"))
+        self.assertIsNone(self.board.asking)
+        self.board.press(curses.KEY_BACKSPACE)
+        self.board.press(10)
+        self.assertEqual([line.run.key for line in self.board.lines(WIDE) if line.run], ["1"])
+        self.assertIn("esc clear /r/1", self.board.footer().text)
+        self.board.press(27)
+        self.assertEqual(len([line for line in self.board.lines(WIDE) if line.run]), 2)
+
     def test_no_prepare_key_away_from_the_backlog(self):
         self.board.tab = REVIEW
         self.assertNotIn("p prepare", self.board.footer().text)
@@ -1610,7 +1693,7 @@ class Mouse(Keys):
     def test_a_selected_row_keeps_its_colour_on_the_selection_background(self):
         drawn = []
         screen = mock.Mock(addnstr=lambda y, x, text, size, attr: drawn.append((text, attr)))
-        line = deliveries([run()], [], lambda r: "", 150)[4]
+        line = next(line for line in deliveries([run()], [], lambda r: "", 150) if line.run)
         self.board.put(screen, 3, line, collections.defaultdict(int, {"row-": 1, "row-dim": 2}), 200, True)
         self.assertTrue(any(attr == 2 for text, attr in drawn))
         self.assertEqual(drawn[-1][1], 1)
