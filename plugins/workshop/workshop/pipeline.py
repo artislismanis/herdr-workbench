@@ -44,13 +44,28 @@ def prompt_source(name: str, repo: Path | None = None) -> str:
 
 def prompt_text(name: str, repo: Path | None = None) -> str:
     """A step's method, from the first folder that has it, then workshop's contract, which nothing replaces."""
-    shipped = resources.files("workshop.prompts").joinpath(name)
-    method, _, contract = (shipped.read_text(encoding="utf-8") if shipped.is_file() else "").partition(MARK)
+    method, _, contract = (contract_text(name) if shipped(name) else "").partition(MARK)
     if (where := prompt_source(name, repo)) != "workshop":
         method = (dict(prompt_dirs(repo))[where] / name).read_text(encoding="utf-8").partition(MARK)[0]
-    elif not shipped.is_file():
-        raise PipelineError(f"no prompt called {name}")
+    elif not shipped(name):
+        raise PipelineError(f"no prompt called {name}: put one in {' or '.join(str(folder) for _, folder in prompt_dirs(repo))}")
     return "\n\n".join(part for part in (method.strip(), contract and contract_text("contract.md").strip(), contract.strip()) if part)
+
+
+def shipped(name: str) -> bool:
+    return resources.files("workshop.prompts").joinpath(name).is_file()
+
+
+def prompts_of(pipeline: dict[str, Any]) -> list[str]:
+    steps = pipeline["steps"]
+    named = [s[k] for s in steps for k in ("prompt", "again") if k in s] + [r["prompt"] for s in steps for r in s.get("then", {}).values() if "prompt" in r]
+    return list(dict.fromkeys(named))
+
+
+def _check_prompt(where: str, name: Any) -> None:
+    # A prompt of your own may live in a repo, so whether it exists is for the run and doctor to say.
+    if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*\.md", name):
+        raise PipelineError(f"{where}: a prompt is a file name, like security.md")
 
 
 def _check_rule(where: str, rule: Any, ids: set[str]) -> None:
@@ -64,7 +79,7 @@ def _check_rule(where: str, rule: Any, ids: set[str]) -> None:
         if not isinstance(rule.get("max"), int) or rule["max"] < 1:
             raise PipelineError(f"{where}: a goto needs a max of 1 or more, so it can't loop forever")
     if "prompt" in rule:
-        prompt_text(rule["prompt"])
+        _check_prompt(where, rule["prompt"])
 
 
 def validate(raw: Any) -> dict[str, Any]:
@@ -89,9 +104,9 @@ def validate(raw: Any) -> dict[str, Any]:
         if step["kind"] == "agent":
             if "prompt" not in step:
                 raise PipelineError(f"{where}: an agent step needs a prompt")
-            prompt_text(step["prompt"])
+            _check_prompt(where, step["prompt"])
             if "again" in step:
-                prompt_text(step["again"])
+                _check_prompt(where, step["again"])
             if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
                 raise PipelineError(f"{where}: minutes must be 1 or more")
             if not re.fullmatch(r"[a-z0-9-]+\.[a-z]+", step.get("output", "report.md")):

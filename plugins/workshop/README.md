@@ -106,7 +106,23 @@ To change what a step is told, put a file with its prompt's name, such as `ai-re
 
 The first one found replaces workshop's method for that step, so it can be just `/our-review`, and the skill does the rest. A first line that's a skill command is typed as one, so the skill runs. A skill can hand work to a subagent. Workshop always adds its part underneath: where the agent reads and writes, the verdict, how to ask you, and that it doesn't commit, push or post. Your file can't change those. To start from workshop's own, copy it from `workshop/prompts/`: only the part above `<!-- workshop -->` counts. `workshop doctor` lists the files in use.
 
-Your own pipeline can also name a prompt that only exists in `~/.config/workshop/prompts/`.
+## Adding a step
+
+Copy a pipeline to `~/.config/workshop/pipelines/` and add the step. Its prompt only says what to do, in either prompts folder above:
+
+```toml
+[[steps]]
+id = "security"
+stage = "Test"
+kind = "agent"
+prompt = "security.md"   # e.g. "Check for secrets, injection and unsafe dependencies", or /our-security-scan
+fresh = true
+read_only = true
+verdict = ["PASS", "CHANGES_NEEDED"]
+then.CHANGES_NEEDED = { goto = "implement", max = 2 }
+```
+
+Workshop adds the rest from the step's settings: where the brief and earlier steps' reports are, its report file (`security.md`, or `output`), the verdict line, that a read-only step edits nothing, and that nothing gets committed, pushed or posted. A `goto` back to an earlier step tells it which step sent the work back and where its report is, unless the rule names its own `prompt`. On the board the step sits under its `stage`, with its report and earlier rounds. A prompt that's in neither folder stops the run before it starts, and `workshop doctor` names it.
 
 ## Terms
 
@@ -218,7 +234,7 @@ The same poll saves your open PRs, PRs you're asked to review or have reviewed, 
 
 ## Run files
 
-Briefs, reports and notes live in `~/.local/state/workshop/runs/<repo>--<key>/`, not in the repo, so they outlive the worktree. Each round's report, notes and replies are kept as `<name>-<n>`. On the board a file sits under the step that wrote it, the latest round shows, and `+n older` opens the earlier rounds in place. Only what the run started from and what people added sit with the ticket. Agents reach the folder through `--add-dir`. Each agent step is typed one line pointing at `prompt-<step>.md`, the full prompt it was given, kept round by round and left off the board.
+Briefs, reports and notes live in `~/.local/state/workshop/runs/<repo>--<key>/`, not in the repo, so they outlive the worktree. Each round's report, notes and replies are kept as `<name>-<n>`. On the board a file sits under the step that wrote it, the latest round shows, and `+n older` opens the earlier rounds in place. Only what the run started from and what people added sit with the ticket. Agents reach the folder through `--add-dir`. Each agent step is typed one line pointing at `prompt-<step>-<n>.md`, the full prompt for that round, a new file each round so an agent that keeps its session never mistakes it for one it has done. They stay off the board.
 
 A step can set `output`, the file it writes, and `publish`: `pr` makes it the PR description and `ticket` posts it as a ticket comment.
 

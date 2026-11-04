@@ -18,7 +18,7 @@ from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
-PIPELINE = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "verify", "kind": "agent"}, {"id": "pr", "kind": "draft_pr"}]}
+PIPELINE = {"name": "x", "steps": [{"id": "plan", "kind": "agent", "prompt": "tasks.md"}, {"id": "verify", "kind": "agent", "prompt": "ai-review.md"}, {"id": "pr", "kind": "draft_pr"}]}
 WIDE = 160
 
 
@@ -228,7 +228,7 @@ class Drill(unittest.TestCase):
         self.assertEqual(lines[heads[0] + 3], "")
 
     def test_rows_under_a_step_follow_the_tree(self):
-        steps = [{"id": "a", "kind": "agent", "stage": "Build"}, {"id": "b", "kind": "agent", "stage": "Build"}]
+        steps = [{"id": "a", "kind": "agent", "prompt": "implement.md", "stage": "Build"}, {"id": "b", "kind": "agent", "prompt": "ai-review.md", "stage": "Build"}]
         staged = run(step=0, status="parked")
         staged.pipeline = {"name": "x", "steps": steps}
         lines = texts(drill(staged, [], "", "", "/f", 90, ("/f/a.md", "/f/notes.json", "/f/brief.md"), ("a.md", "## Findings\n- Broken\n")))
@@ -533,7 +533,7 @@ class PRs(unittest.TestCase):
         self.assertLess(text.index("Totals"), text.index("Last 24 hours"))
 
     def test_draft_replies_sit_under_the_step_that_wrote_them(self):
-        steps = [{"id": "reply", "stage": "Review", "kind": "agent", "output": "reply.md"}]
+        steps = [{"id": "reply", "stage": "Review", "kind": "agent", "prompt": "reply-pr.md", "output": "reply.md"}]
         draft = run("reply-7", "done")
         draft.pipeline = {"name": "reply", "steps": steps}
         lines = [line.text for line in timeline(draft, [], ("/x/reply.md", "/x/replies.json", "/x/brief.md"), WIDE)]
@@ -542,7 +542,7 @@ class PRs(unittest.TestCase):
 
     def test_a_rounds_files_stay_together_under_its_step(self):
         draft = run("reply-7", "done")
-        draft.pipeline = {"name": "reply", "steps": [{"id": "reply", "stage": "Review", "kind": "agent", "output": "reply.md"}]}
+        draft.pipeline = {"name": "reply", "steps": [{"id": "reply", "stage": "Review", "kind": "agent", "prompt": "reply-pr.md", "output": "reply.md"}]}
         files = ("/x/brief.md", "/x/reply.md", "/x/replies.json", "/x/reply-1.md", "/x/replies-1.json")
         shut = [line.text for line in timeline(draft, [], files, WIDE)]
         self.assertIn("+1 older", joined(timeline(draft, [], files, WIDE)))
@@ -552,6 +552,12 @@ class PRs(unittest.TestCase):
         self.assertEqual(order, sorted(order))
         self.assertIn("round 1", next(text for text in lines if "reply-1.md" in text))
         self.assertIn("draft replies", next(text for text in lines if "replies-1.json" in text))
+
+    def test_a_step_of_your_own_after_the_review_leaves_its_notes_with_it(self):
+        done = run("7", "done")
+        done.pipeline = {"name": "x", "steps": [{"id": "ai-review", "kind": "agent", "prompt": "ai-review.md"}, {"id": "security", "kind": "agent", "prompt": "security.md"}]}
+        lines = [line.text for line in timeline(done, [], ("/x/ai-review.md", "/x/notes.json", "/x/security.md"), WIDE)]
+        self.assertLess(next(i for i, text in enumerate(lines) if "notes.json" in text), next(i for i, text in enumerate(lines) if "security.md" in text))
 
     def test_replies_show_before_they_go(self):
         draft = run("reply-7", "done", pr="u", replying=True)

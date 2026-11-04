@@ -10,6 +10,7 @@ from itertools import groupby, zip_longest
 from typing import Any, NamedTuple
 
 from .backlog import COLUMNS
+from .pipeline import shipped
 from .review import section
 from .store import Run
 from .throttle import ahead
@@ -617,7 +618,8 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
     every = [*(files_of(step, reports) for step in steps), *alongside]
     owned = {path for latest, older in every for path in (latest, *(p for _, p in older))}
     lines = ticket_rows(run, sorted((path for path in reports if path not in owned), key=lambda path: not path.endswith("/brief.md")), staged, room)
-    writes_notes = max((index for index, step in enumerate(steps) if step["kind"] == "agent"), default=-1)
+    # Only workshop's own prompts and proposing steps are asked for these, so a step of your own after them doesn't take them.
+    writes_notes = max((index for index, step in enumerate(steps) if step["kind"] == "agent" and (shipped(step.get("prompt", "")) or step.get("proposes"))), default=-1)
     groups = stage_groups(steps)
     starts = {indexes[0]: indexes for indexes in groups}
     ends = {indexes[-1] for indexes in groups}

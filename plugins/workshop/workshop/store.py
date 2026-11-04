@@ -36,6 +36,7 @@ class Run:
     started_at: float = 0.0
     baseline: list[str] = field(default_factory=list)
     next_prompt: str = ""
+    sent_back: str = ""  # the step that sent the work back, so the next prompt can point at its findings
     loops: dict[str, int] = field(default_factory=dict)
     pr: str = ""
     blocked_at: float = 0.0  # set while a comment on the ticket can unblock it
