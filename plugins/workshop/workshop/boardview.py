@@ -31,14 +31,15 @@ RESPOND = ("changes requested", "comments to address")
 ASK_AGAIN = "re-review"  # on your own PR, where it's yours to ask for
 WORDS = ("fix", "decide", "check", "merge", "respond", "review", "working", "waiting", "merged", "closed", "dropped", "done")  # every word a row can say. Waiting on you, what you do; otherwise working, waiting or how it ended
 REASONS = {"needs review": "asked of you", "open": "not asked of you", "checks failing": ""}  # the facts beside it say CI failing
-OWNER = {True: "mine", False: "dim"}  # the colour of a row's tab symbol: yours in the accent, others' grey
+OWNER = {True: "", False: "dim"}  # the colour of a row's tab symbol: yours plain like the titles, others' grey
 SIGNS = {"Now": "✱", "Backlog": "☰", "Delivery": "▸", "Review": "⌕", "Operate": "⟳", "Usage": "⧖"}  # on each tab, and on Now rows to say which tab they belong to. One column wide, so rows line up
 NEXT_UP = ("fix", "decide", "check", "merge", "respond", "review")  # what waiting on you says: what you do next, closest to done first, as finishing frees someone. Unstopping a run comes before all of it
 YOUR_MOVE = {"checks failing": "fix", "approved": "merge", "you approved": "merge"}  # your own PR, by its state. The rest of yours is respond
 CI_DOTS = {"SUCCESS": "green", "FAILURE": "red", "ERROR": "red", "PENDING": "yellow", "EXPECTED": "yellow"}
 PACE_AMBER, PACE_RED = 10, 25  # points ahead of an even pace, so a busy start isn't an alarm
 MACHINE_AMBER, MACHINE_RED = 75, 90
-COLUMN_COLOURS = {"new": "dim", "planned": "others", "designed": "mine", "queued": "green"}
+COLUMN_COLOURS = {"new": "others", "planned": "mine", "designed": "yellow", "queued": "green"}  # never grey, which is the selection
+COLUMN_GAP = 3
 REVIEW_MARKS = {"APPROVED": ("✓", "green"), "CHANGES_REQUESTED": ("✗", "red")}
 MAX_LINES = 2000
 TICKET_LINES = 8  # of the ticket under Needs you. All of it is in brief.md
@@ -380,12 +381,14 @@ def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable
                 why = f"  skipped: {skipped[ticket]}" if ticket in skipped else ""
                 lines.append(Line([Span(f"  {cell(ticket, 22)} {clean(item['title'])}{clean(why)}", "yellow" if why else "", ("#ticket", ticket))]))
         return lines
-    size = (width - 3) // len(COLUMNS) - 1
-    heads = [(f"{column.title()} {len(items)} ", COLUMN_COLOURS[column]) for column, items in found.items()]
-    lines.append(Line([part for title, colour in heads for part in (Span(title, f"{colour}" if colour != "dim" else "bold"), Span("─" * max(size - columns(title), 0) + " ", "dim"))]))
+    size = (width - 1) // len(COLUMNS) - COLUMN_GAP
+    gap = Span(" " * COLUMN_GAP)
+    heads = [(f" {column.title()} {len(items)} ", COLUMN_COLOURS[column]) for column, items in found.items()]
+    lines.append(Line([part for title, colour in heads for part in (Span(title, f"on-{colour}"), Span(" " + "─" * max(size - columns(title) - 1, 0), "dim"), gap)]))
+    lines.append(plain())
     cards = [[row for ticket, item in items for row in card(ticket, item, skipped)] for items in found.values()]
     for row in zip_longest(*cards, fillvalue=("", "", "")):
-        lines.append(Line([part for text, style, ref in row for part in (Span(cell(text, size), style, ref), Span(" "))]))
+        lines.append(Line([part for text, style, ref in row for part in (Span(cell(text, size), style, ref), gap)]))
     return lines
 
 

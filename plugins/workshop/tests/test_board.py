@@ -1798,7 +1798,8 @@ class Mouse(Keys):
         self.drawn()
         rows = {y: "".join(text for _, text in parts) for y, parts in self.board.painted.items()}
         self.assertIn("not updated yet", rows[29])
-        self.assertIn("q quit", rows[28])
+        self.assertIn("q quit", rows[27])
+        self.assertNotIn(28, rows)  # a gap between the keys and the status line
         self.assertNotIn(2, rows)  # the gap under the tabs stays blank
 
     def test_clicking_a_tab_switches_to_it_even_from_a_run(self):

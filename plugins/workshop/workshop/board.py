@@ -817,7 +817,7 @@ class Board:
     def selection(self, start: tuple[int, int], end: tuple[int, int]) -> list[tuple[int, int, int]]:
         """Rows as (y, from, to), held to the column the drag began in, so the list and panel never mix."""
         left, right = (0, self.edge or self.right) if not self.edge or start[0] < self.edge else (self.edge + 2, self.right)
-        first, last = TOP + 2, self.rows - 3
+        first, last = TOP + 2, self.rows - 4
         (top, x1), (bottom, x2) = sorted(((min(max(y, first), last), max(min(x, right - 1), left)) for x, y in (start, end)))
         return [(y, x1 if y == top else left, x2 + 1 if y == bottom else right) for y in range(top, bottom + 1)]
 
@@ -878,8 +878,8 @@ class Board:
         self.right, self.rows = width - 1, rows
         screen.erase()
         self.put(screen, TOP, self.header(), styles, width)
-        foot = self.note(width - 1)[-(rows - TOP - 4) :]
-        height = rows - TOP - 3 - len(foot)  # the status line takes the bottom row
+        foot = self.note(width - 1)[-(rows - TOP - 5) :]
+        height = rows - TOP - 4 - len(foot)  # the status line takes the bottom row, with a gap above it
         panelled = self.panelled(width - 1)
         edge = self.list_width(width - 1) + 1 if panelled else width
         self.edge = edge if panelled else 0
@@ -892,7 +892,7 @@ class Board:
                 screen.addnstr(y, edge, "│", 1, styles["dim"])
             for y, line in enumerate(side[self.side : self.side + height], TOP + 2):
                 self.put(screen, y, line, styles, width, left=edge + 2)
-        for y, line in enumerate(foot, rows - 1 - len(foot)):
+        for y, line in enumerate(foot, rows - 2 - len(foot)):
             self.put(screen, y, line, styles, width)
         self.put(screen, rows - 1, self.status(), styles, width)  # under the keys, out of the way of the page
         if self.grab and self.reach:
