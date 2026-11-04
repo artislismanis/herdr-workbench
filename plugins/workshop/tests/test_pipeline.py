@@ -9,7 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.pipeline import MARK, PipelineError, load, prompt_source, prompt_text, validate  # noqa: E402
+from workshop.pipeline import MARK, PipelineError, expand, load, pipeline_source, prompt_source, prompt_text, validate  # noqa: E402
 
 
 def agent(**extra):
@@ -204,3 +204,74 @@ class Prompts(unittest.TestCase):
         for name in resources.files("workshop.prompts").iterdir():
             if name.name.endswith(".md") and name.name not in {"asking.md", "decision.md", "proposals.md", "contract.md"}:
                 self.assertIn(MARK, name.read_text(encoding="utf-8"), name.name)
+
+
+class StepLists(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.repo, self.mine, self.repos = self.tmp / "repo", self.tmp / "mine", self.tmp / "repos"
+        for folder in (self.repo / ".workshop" / "pipelines", self.mine, self.repos / "r" / "pipelines"):
+            folder.mkdir(parents=True)
+        env = mock.patch.dict(os.environ, {"WORKSHOP_PIPELINES": str(self.mine), "WORKSHOP_REPOS": str(self.repos), "WORKSHOP_PROMPTS": str(self.tmp / "prompts")})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def steps(self, text):
+        (self.mine / "x.toml").write_text(text)
+        return {step["id"]: step for step in load("x")["steps"]}
+
+    def rejects(self, text, why):
+        (self.mine / "x.toml").write_text(text)
+        with self.assertRaisesRegex(PipelineError, why):
+            load("x")
+
+    def test_a_list_of_workshops_steps_is_a_pipeline_named_after_its_file(self):
+        (self.mine / "hotfix.toml").write_text('steps = ["implement", "qa", "open-pr"]\n')
+        found = load("hotfix")
+        self.assertEqual(found["name"], "hotfix")
+        self.assertEqual(found["steps"][1], {"id": "qa", "stage": "Test", "kind": "command", "verdict": ["PASS", "FAILED"], "then": {"FAILED": {"goto": "implement", "max": 2, "prompt": "fix-qa.md"}}})
+
+    def test_a_table_changes_one_setting_and_keeps_the_rest(self):
+        review = self.steps('steps = ["implement", "ai-review"]\n[step.ai-review]\nmodel = "opus"\n')["ai-review"]
+        self.assertEqual((review["model"], review["prompt"], review["fresh"], review["then"]["CHANGES_NEEDED"]["goto"]), ("opus", "ai-review.md", True, "implement"))
+
+    def test_a_step_of_your_own_goes_where_you_list_it_and_is_an_agent(self):
+        steps = self.steps('steps = ["implement", "security", "open-pr"]\n[step.security]\nstage = "Test"\nprompt = "security.md"\nread_only = true\nverdict = ["PASS", "CHANGES_NEEDED"]\nthen.CHANGES_NEEDED = { goto = "implement", max = 2 }\n')
+        self.assertEqual(list(steps), ["implement", "security", "open-pr"])
+        self.assertEqual((steps["security"]["kind"], steps["security"]["then"]), ("agent", {"CHANGES_NEEDED": {"goto": "implement", "max": 2}}))
+
+    def test_a_rule_replaces_workshops_for_that_verdict_and_new_verdicts_drop_workshops(self):
+        steps = self.steps('steps = ["qa", "ai-review"]\n[step.qa]\nthen.FAILED = { goto = "ai-review", max = 1 }\n[step.ai-review]\nverdict = ["APPROVE", "COMMENT"]\n')
+        self.assertEqual(steps["qa"]["then"], {"FAILED": {"goto": "ai-review", "max": 1}})
+        self.assertNotIn("then", steps["ai-review"])
+
+    def test_mistakes_say_what_to_do(self):
+        self.rejects('steps = ["implement", "securty"]\n', r"no step called securty, so define it with \[step.securty\]")
+        self.rejects('steps = ["implement"]\n[step.security]\nprompt = "security.md"\n', r"\[step.security\] isn't in steps")
+        self.rejects('steps = ["implement"]\n[step.implement]\nid = "build"\n', "a step's id is its name in steps")
+        self.rejects('steps = ["implement"]\n[step.implement]\nthen = 1\n', "a table of settings")
+        self.rejects('steps = ["sweep"]\n', "an agent step needs a prompt")
+        self.rejects('steps = ["qa"]\n', "goto names an unknown step: implement")
+        self.rejects("steps = []\n", "non-empty")
+
+    def test_a_pipeline_of_whole_steps_still_loads(self):
+        self.assertEqual(expand({"name": "x", "steps": [agent()]}, "x"), {"name": "x", "steps": [agent()]})
+        (self.mine / "x.toml").write_text('name = "x"\n[[steps]]\nid = "build"\nkind = "agent"\nprompt = "implement.md"\n')
+        self.assertEqual(load("x")["steps"], [agent()])
+
+    def test_yours_for_the_repo_beats_the_repos_which_beats_yours_and_workshops(self):
+        self.assertEqual(pipeline_source("ticket", self.repo, "r"), "workshop")
+        for folder, where in ((self.mine, "yours"), (self.repo / ".workshop" / "pipelines", "repo"), (self.repos / "r" / "pipelines", "yours for this repo")):
+            (folder / "ticket.toml").write_text(f'steps = ["implement"]\n[step.implement]\nmodel = "{where}"\n')
+            self.assertEqual(pipeline_source("ticket", self.repo, "r"), where)
+            self.assertEqual(load("ticket", self.repo, "r")["steps"][0]["model"], where)
+        self.assertEqual(load("ticket", self.repo)["steps"][0]["model"], "repo")
+        self.assertEqual(load("ticket")["steps"][0]["model"], "yours")
+
+    def test_yours_for_the_repo_also_holds_its_prompts(self):
+        (self.repos / "r" / "prompts").mkdir()
+        (self.repos / "r" / "prompts" / "ai-review.md").write_text("Just mine, here.\n")
+        (self.repo / ".workshop" / "prompts").mkdir()
+        (self.repo / ".workshop" / "prompts" / "ai-review.md").write_text("The team's.\n")
+        self.assertTrue(prompt_text("ai-review.md", self.repo, "r").startswith("Just mine, here."))
+        self.assertEqual((prompt_source("ai-review.md", self.repo, "r"), prompt_source("ai-review.md", self.repo, "other")), ("yours for this repo", "repo"))

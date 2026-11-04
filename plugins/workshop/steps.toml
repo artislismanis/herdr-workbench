@@ -1,0 +1,106 @@
+# Workshop's steps. A pipeline lists them by name and changes any setting with a [step.<name>] table of its own.
+
+[step.tasks]
+stage = "Build"
+kind = "agent"
+prompt = "tasks.md"
+read_only = true
+verdict = ["READY", "BLOCKED"]
+then.BLOCKED = { park = "The ticket needs clarifying before it can be built." }
+
+# A person approves the tasks before anything is built: workshop approve <key>, or workshop reject <key> "what to change".
+[step.approve]
+stage = "Build"
+kind = "gate"
+go = "Start building"
+ask = "Are these the right tasks to build?"
+report = "tasks"
+then.REJECTED = { goto = "tasks", max = 2, prompt = "revise.md" }
+
+[step.implement]
+stage = "Build"
+kind = "agent"
+prompt = "implement.md"
+publish = "pr"
+
+[step.qa]
+stage = "Test"
+kind = "command"
+verdict = ["PASS", "FAILED"]
+then.FAILED = { goto = "implement", max = 2, prompt = "fix-qa.md" }
+
+[step.ai-review]
+stage = "Test"
+kind = "agent"
+prompt = "ai-review.md"
+again = "ai-re-review.md"
+fresh = true
+read_only = true
+verdict = ["PASS", "CHANGES_NEEDED"]
+then.CHANGES_NEEDED = { goto = "implement", max = 2, prompt = "fix.md" }
+
+[step.open-pr]
+stage = "Deploy"
+kind = "draft_pr"
+
+# Comments on your own PR to fixes and draft replies. Nothing is pushed or posted until your go.
+[step.reply]
+stage = "Review"
+kind = "agent"
+prompt = "reply-pr.md"
+
+# One talk per stage. Your yes to the agent's summary is the go, and nothing reaches the ticket before it.
+[step.requirements]
+stage = "Plan"
+kind = "agent"
+prompt = "grill-requirements.md"
+interactive = true
+fresh = true
+read_only = true
+verdict = ["READY"]
+section = "Requirements"
+label = "planned"
+
+[step.design]
+stage = "Design"
+kind = "agent"
+prompt = "grill-design.md"
+interactive = true
+fresh = true
+read_only = true
+verdict = ["READY"]
+section = "Design"
+label = "designed"
+queues = true
+
+[step.queue]
+stage = "Queue"
+kind = "agent"
+prompt = "queue.md"
+interactive = true
+fresh = true
+read_only = true
+verdict = ["READY"]
+queues = true
+
+# A scheduled look at a repo, which needs a prompt saying what to look at. Nothing changes until your go on what it proposes.
+[step.sweep]
+stage = "Maintain"
+kind = "agent"
+fresh = true
+read_only = true
+proposes = true
+verdict = ["DONE"]
+
+[step.decide]
+stage = "Maintain"
+kind = "gate"
+change = "Tell the agent what to do instead"
+report = "sweep"
+proposals = true
+
+[step.logs]
+stage = "Maintain"
+kind = "command"
+verdict = ["PASS", "FAILED"]
+then.FAILED = { goto = "sweep", max = 1 }

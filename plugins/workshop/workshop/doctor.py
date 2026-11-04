@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .pipeline import PipelineError, load, prompt_dirs, prompts_of, shipped
+from .pipeline import PipelineError, load, pipeline_source, prompt_dirs, prompts_of, shipped
 from .shell import ToolError, run
 from .sources import make_source
 from .tools import Tools, slug
@@ -67,22 +67,27 @@ def _screen(pane: str) -> str:
     return " | ".join(line.strip() for line in done.stdout.splitlines() if line.strip())[-300:]
 
 
-def _loaded(name: str) -> dict[str, Any] | None:
-    try:
-        return load(name)
-    except (PipelineError, OSError):
-        return None  # the pipeline check says why
-
-
 def prompts(name: str, path: Path, pipelines: list[dict[str, Any]] | None = None) -> Result:
     """Which steps run someone else's method, so a misnamed file shows by its absence, and any step whose prompt is nowhere."""
     found: dict[str, str] = {}
-    for where, folder in prompt_dirs(path):
+    for where, folder in prompt_dirs(path, name):
         for file in sorted(folder.glob("*.md")) if folder.is_dir() else []:
             found.setdefault(file.name, where)
     missing = [n for pipeline in pipelines or [] for n in prompts_of(pipeline) if not shipped(n) and n not in found]
-    detail = f"no {', '.join(dict.fromkeys(missing))} in {' or '.join(str(folder) for _, folder in prompt_dirs(path))}"
+    detail = f"no {', '.join(dict.fromkeys(missing))} in {' or '.join(str(folder) for _, folder in prompt_dirs(path, name))}"
     return Result(f"{name} prompts", not missing, detail, ", ".join(f"{n} from {where}" for n, where in found.items()) or "workshop's own")
+
+
+def pipelines(name: str, path: Path, named: list[str]) -> tuple[Result, list[dict[str, Any]]]:
+    """Every pipeline the repo runs, and where each one comes from, so a file in the wrong folder shows."""
+    loaded, broken = [], []
+    for pipeline in dict.fromkeys(named):
+        try:
+            loaded.append(load(pipeline, path, name))
+        except (PipelineError, OSError) as stop:
+            broken.append(str(stop))
+    mine = [f"{n} from {where}" for n in dict.fromkeys(named) if (where := pipeline_source(n, path, name)) != "workshop"]
+    return Result(f"{name} pipelines", not broken, "; ".join(broken), ", ".join(mine) or "workshop's own"), loaded
 
 
 def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -> list[Result]:
@@ -94,13 +99,9 @@ def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -
     base = repo.get("base", "main")
     found = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"origin/{base}"], cwd=path, capture_output=True)
     results.append(Result(f"{name} base branch", found.returncode == 0, f"no origin/{base}"))
-    try:
-        load(repo.get("pipeline", "ticket"))
-        results.append(Result(f"{name} pipeline", True))
-    except (PipelineError, OSError) as stop:
-        results.append(Result(f"{name} pipeline", False, str(stop)))
     named = [repo.get("pipeline", "ticket"), repo.get("review_pipeline", "review"), repo.get("reply_pipeline", "reply"), repo.get("prepare_pipeline", "prepare"), *(f"sweep-{sweep}" for sweep in repo.get("sweeps", {}))]
-    results.append(prompts(name, path, [pipeline for pipeline in map(_loaded, named) if pipeline]))
+    found, loaded = pipelines(name, path, named)
+    results += [found, prompts(name, path, loaded)]
     try:
         ready = make_source(name, repo, jira).ready()
         results.append(Result(f"{name} source", True, note=f"{len(ready)} ready"))

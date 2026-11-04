@@ -16,6 +16,8 @@ GATE_KEYS = {"id", "stage", "kind", "report", "section", "label", "proposals", "
 COMMAND_KEYS = {"id", "stage", "kind", "minutes", "verdict", "then"}
 COMMAND_VERDICTS = ["PASS", "FAILED"]
 RULE_KEYS = {"goto", "max", "prompt", "park"}
+SHIPPED = Path(__file__).resolve().parent.parent / "pipelines"
+STEPS = SHIPPED.parent / "steps.toml"  # workshop's steps, which pipelines list by name
 MARK = "<!-- workshop -->"  # above it, how to do the step, which a repo or you can replace; below, how it reports back
 
 
@@ -23,32 +25,34 @@ class PipelineError(ValueError):
     pass
 
 
-def user_dir() -> Path:
-    return Path(os.environ.get("WORKSHOP_PIPELINES", "~/.config/workshop/pipelines")).expanduser()
+def folders(kind: str, path: Path | None = None, repo: str = "") -> list[tuple[str, Path]]:
+    """Where your and a repo's pipelines or prompts live, the first with the file winning: yours for this repo, the repo's, then yours for every repo."""
+    # The repo's main checkout, never a run's worktree: a PR under review can't rewrite its own reviewer.
+    repos = Path(os.environ.get("WORKSHOP_REPOS", "~/.config/workshop/repos")).expanduser()
+    mine = Path(os.environ.get(f"WORKSHOP_{kind.upper()}", f"~/.config/workshop/{kind}")).expanduser()
+    return ([("yours for this repo", repos / repo / kind)] if repo else []) + ([("repo", path / ".workshop" / kind)] if path else []) + [("yours", mine)]
 
 
 def contract_text(name: str) -> str:
     return resources.files("workshop.prompts").joinpath(name).read_text(encoding="utf-8")
 
 
-def prompt_dirs(repo: Path | None = None) -> list[tuple[str, Path]]:
-    # The repo's main checkout, never a run's worktree: a PR under review can't rewrite its own reviewer.
-    mine = Path(os.environ.get("WORKSHOP_PROMPTS", "~/.config/workshop/prompts")).expanduser()
-    return ([("repo", repo / ".workshop" / "prompts")] if repo else []) + [("yours", mine)]
+def prompt_dirs(path: Path | None = None, repo: str = "") -> list[tuple[str, Path]]:
+    return folders("prompts", path, repo)
 
 
-def prompt_source(name: str, repo: Path | None = None) -> str:
-    """Where a step's method comes from: repo, yours, or workshop."""
-    return next((where for where, folder in prompt_dirs(repo) if (folder / name).is_file()), "workshop")
+def prompt_source(name: str, path: Path | None = None, repo: str = "") -> str:
+    """Where a step's method comes from: one of prompt_dirs, or workshop."""
+    return next((where for where, folder in prompt_dirs(path, repo) if (folder / name).is_file()), "workshop")
 
 
-def prompt_text(name: str, repo: Path | None = None) -> str:
+def prompt_text(name: str, path: Path | None = None, repo: str = "") -> str:
     """A step's method, from the first folder that has it, then workshop's contract, which nothing replaces."""
     method, _, contract = (contract_text(name) if shipped(name) else "").partition(MARK)
-    if (where := prompt_source(name, repo)) != "workshop":
-        method = (dict(prompt_dirs(repo))[where] / name).read_text(encoding="utf-8").partition(MARK)[0]
+    if (where := prompt_source(name, path, repo)) != "workshop":
+        method = (dict(prompt_dirs(path, repo))[where] / name).read_text(encoding="utf-8").partition(MARK)[0]
     elif not shipped(name):
-        raise PipelineError(f"no prompt called {name}: put one in {' or '.join(str(folder) for _, folder in prompt_dirs(repo))}")
+        raise PipelineError(f"no prompt called {name}: put one in {' or '.join(str(folder) for _, folder in prompt_dirs(path, repo))}")
     return "\n\n".join(part for part in (method.strip(), contract and contract_text("contract.md").strip(), contract.strip()) if part)
 
 
@@ -146,12 +150,44 @@ def validate(raw: Any) -> dict[str, Any]:
     return raw
 
 
-def load(name: str) -> dict[str, Any]:
+def blocks() -> dict[str, dict[str, Any]]:
+    return tomllib.loads(STEPS.read_text(encoding="utf-8"))["step"]
+
+
+def expand(raw: Any, name: str) -> Any:
+    """A list of step names to the steps themselves: workshop's, changed by any [step.<name>] table, and yours, which a table defines."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("steps"), list) or not all(isinstance(step, str) for step in raw["steps"]):
+        return raw  # [[steps]] tables, each a whole step, which still load
+    tables = raw.get("step", {})
+    if not isinstance(tables, dict) or not all(isinstance(table, dict) and isinstance(table.get("then", {}), dict) for table in tables.values()):
+        raise PipelineError(f"{name}: each [step.<name>] is a table of settings")
+    if extra := sorted(set(tables) - set(raw["steps"])):
+        raise PipelineError(f"{name}: [step.{extra[0]}] isn't in steps")
+    if named := sorted(id for id, table in tables.items() if "id" in table):
+        raise PipelineError(f"{name}.{named[0]}: a step's id is its name in steps")
+    ours = blocks()
+    steps = []
+    for id in raw["steps"]:
+        if id not in ours and id not in tables:
+            raise PipelineError(f"{name}: workshop has no step called {id}, so define it with [step.{id}]")
+        base, mine = ours.get(id, {"kind": "agent"}), tables.get(id, {})
+        # Workshop's rules are for workshop's verdicts, so new verdicts start without them.
+        then = ({} if "verdict" in mine else base.get("then", {})) | mine.get("then", {})
+        step = {"id": id} | {k: v for k, v in (base | mine).items() if k != "then"} | ({"then": then} if then else {})
+        steps.append(step)
+    return {k: v for k, v in raw.items() if k != "step"} | {"name": raw.get("name", name), "steps": steps}
+
+
+def pipeline_source(name: str, path: Path | None = None, repo: str = "") -> str:
+    """Where a pipeline comes from: one of folders, or workshop."""
+    return next((where for where, folder in folders("pipelines", path, repo) if (folder / f"{name}.toml").is_file()), "workshop")
+
+
+def load(name: str, path: Path | None = None, repo: str = "") -> dict[str, Any]:
     if not re.fullmatch(r"[a-z][a-z0-9-]*", name):
         raise PipelineError(f"bad pipeline name: {name}")
-    user = user_dir() / f"{name}.toml"
-    shipped = Path(__file__).resolve().parent.parent / "pipelines" / f"{name}.toml"
-    path = user if user.exists() else shipped
-    if not path.exists():
+    where = pipeline_source(name, path, repo)
+    file = (dict(folders("pipelines", path, repo))[where] if where != "workshop" else SHIPPED) / f"{name}.toml"
+    if not file.exists():
         raise PipelineError(f"no pipeline called {name}")
-    return validate(tomllib.loads(path.read_text(encoding="utf-8")))
+    return validate(expand(tomllib.loads(file.read_text(encoding="utf-8")), name))

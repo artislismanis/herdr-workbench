@@ -1,20 +1,5 @@
-# A scheduled look at a repo. Nothing changes until your go on what it proposes. Copy to ~/.config/workshop/pipelines/ to change it.
-name = "sweep-deps"
+# A scheduled look at a repo. Nothing changes until your go on what it proposes.
+steps = ["sweep", "decide"]
 
-[[steps]]
-id = "sweep"
-stage = "Maintain"
-kind = "agent"
+[step.sweep]
 prompt = "sweep-deps.md"
-fresh = true
-read_only = true
-proposes = true
-verdict = ["DONE"]
-
-[[steps]]
-id = "decide"
-stage = "Maintain"
-kind = "gate"
-change = "Tell the agent what to do instead"
-report = "sweep"
-proposals = true
