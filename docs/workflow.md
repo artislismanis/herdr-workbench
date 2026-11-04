@@ -9,7 +9,7 @@ The board is where you work. Open it with `prefix+shift+b`. Agents do the work, 
 | Stage | What happens | Your part |
 |---|---|---|
 | Capture | An idea becomes a ticket, by hand or with `p` on the Backlog tab. Sweeps can propose tickets too | Type the idea |
-| Prepare | Two separate talks with fresh agents: requirements, which makes the ticket `planned`, then design, which makes it `designed`. `p` with the ticket's number starts whichever is next, and on a designed or queued ticket that's the queue | Answer in the agent's pane. When it plays back a summary, your yes puts it on the ticket, with nothing to approve on the board |
+| Prepare | Two separate talks with fresh agents: requirements, which makes the ticket `planned`, then design, which makes it `designed`. `p` on its Backlog card starts whichever is next, and on a designed or queued ticket that's the queue | Answer in the agent's pane. When it plays back a summary, your yes puts it on the ticket, with nothing to approve on the board |
 | Queue | The design talk ends by asking if it's ready and where it goes among what's queued. Agents take tickets in that order as slots free up | Say so in the talk, or say no and read it first. `p` with its number queues it later, moves it, or takes it back out to `designed`. Adding the delivery label by hand works too |
 | Build | An agent plans the tasks and implements them | Nothing, unless it stops |
 | Test | The repo's checks run, then a fresh agent reviews the work | Nothing, unless it stops |

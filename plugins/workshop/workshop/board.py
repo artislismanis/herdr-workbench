@@ -12,12 +12,13 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, RESPOND, SIGNS, Line, Span, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, live, now_view, operations, plain, pull, pull_group, pull_story, pulls, rule, timeline, usage_line, usage_view, wrapped
+from .boardview import ASK_AGAIN, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, heading, live, now_view, only, operations, plain, pull, pull_group, pull_story, pulls, refs, rule, ticket_view, timeline, usage_line, usage_view, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .prs import FAILING
 from .review import decisions
 from .store import Run
 from .system import Meter
+from .throttle import DEFAULTS
 from .usage import samples
 
 SKIPPED = "skipped.json"
@@ -47,6 +48,7 @@ AI_REVIEW = ord("a")  # with nothing stopped under it, where the same key answer
 AI_REVIEW_OTHER = ord("A")  # the mode you don't usually use
 CLAIM = ord("m")
 PREPARE = ord("p")
+FIND = ord("/")
 CHOOSE_REPO = "choose-repo"  # stays on the board: its answer leads to the next question
 RENEWED = ("re-review", "new commits")
 ENTERS = (10, 13, curses.KEY_ENTER)
@@ -107,6 +109,7 @@ class Board:
         self.failed = False  # a failure stays until a key, so it can be read
         self.drafts: dict[tuple[str, str], str] = {}  # what esc left, for when you come back
         self.regions: list[tuple[int, int, int, Action]] = []
+        self.finding, self.filter = False, ""  # typing a filter, and what the list is narrowed to
         self.reload()
 
     def stamp(self) -> tuple[int, ...]:
@@ -163,7 +166,15 @@ class Board:
         path = self.store.files(run) / name
         return (name, path.read_text(encoding="utf-8", errors="replace")) if path.exists() else ("", "")
 
+    def ticket(self, ref: tuple[str, str] | None) -> dict[str, Any] | None:
+        if not ref or ref[0] != "#ticket":
+            return None
+        repo, _, key = ref[1].partition("/")
+        return next((i for i in self.snapshot.get("repos", {}).get(repo, {}).get("items", []) if i["key"] == key), None)
+
     def detail(self, ref: tuple[str, str] | None, width: int) -> list[Line]:
+        if (item := self.ticket(ref)) and ref:
+            return ticket_view(ref[1], item, self.skipped, width)
         if pr := next((p for p in self.pr_items() if ("#pr", p["url"]) == ref), None):
             return pull(pr, width, self.pull_context(pr, width), self.linked(pr))
         run = next((r for r in self.runs if (r.repo, r.key) == ref), None)
@@ -172,8 +183,13 @@ class Board:
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
         return drill(run, events, self.title(run), "", str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run))
 
-    def band(self, width: int) -> Line:
-        return usage_line(self.engine.throttle.pace(), self.meter.read(), width)
+    def work(self) -> Work:
+        limits = DEFAULTS | self.cfg.get("throttle", {})
+        return tuple(limits["work_hours"]), limits["work_days"]
+
+    def ci(self, url: str) -> str:
+        """A run's PR checks, drafts included, from the last poll."""
+        return next((p["checks"] for p in self.snapshot.get("prs", {}).get("items", []) if p["url"] == url), "") if url else ""
 
     def building(self) -> list[Run]:
         return [r for r in self.runs if not r.on_a_pr and not r.operating]
@@ -234,18 +250,25 @@ class Board:
         return [(f"{repo}/{i['key']}", i["title"]) for repo, i in sorted(found, key=lambda pair: self.engine.queue_place(pair[0], pair[1]["key"]))]
 
     def listing(self, width: int) -> list[Line]:
-        if self.tab == NOW:
-            return now_view(self.runs, self.pr_items(), self.linked, self.title, self.queued(), self.events, self.clock(), width, self.band(width))
         if self.tab == USAGE:
             return usage_view(samples(self.store.root), self.events, self.meter.read(), self.clock(), width)
-        if self.tab == DELIVERY:
-            return deliveries(self.building(), self.events, self.title, width, self.engine.throttle.pace(), self.meter.read())
-        if self.tab == OPERATE:
-            return operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), self.clock(), width, self.band(width))
-        return backlog(self.snapshot, self.skipped, self.store.exists, width, self.engine.queue_place) if self.tab == BACKLOG else pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked, self.band(width))
+        if self.tab == BACKLOG:
+            return backlog(self.snapshot, self.skipped, self.store.exists, width, self.engine.queue_place, self.filter)
+        now, work = self.clock(), self.work()
+        if self.tab == NOW:
+            lines = now_view(self.runs, self.pr_items(), self.linked, self.title, self.queued(), self.events, now, width, self.ci, work)
+        elif self.tab == DELIVERY:
+            lines = deliveries(self.building(), self.events, self.title, width, now, self.ci, work)
+        elif self.tab == OPERATE:
+            lines = operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), now, width, self.ci, work)
+        else:
+            lines = pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked, now, work)
+        return only(lines, self.filter) if self.filter else lines
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:
-        return [line.ref for line in lines if line.ref]
+        """Down a column, then on to the next, so Backlog cards go in the order they're read."""
+        found = sorted((x, y, ref) for y, line in enumerate(lines) for x, ref in refs(line))
+        return list(dict.fromkeys(ref for _, _, ref in found))
 
     def selected(self, lines: list[Line]) -> tuple[str, str] | None:
         choices = self.choices(lines)
@@ -266,6 +289,9 @@ class Board:
             return True  # the timeout that redraws, so a message stays until a real key
         if self.asking:
             self.type_key(key)
+            return True
+        if self.finding:
+            self.find_key(key)
             return True
         lines = self.lines(width)
         self.message, self.failed = "", False
@@ -293,12 +319,11 @@ class Board:
         if key == CLAIM and (found := self.claimable(lines)):
             self.send("claim", found.key)
             return True
-        if key == PREPARE and self.tab == BACKLOG and not self.open:
-            repos = list(self.cfg["repos"])
-            if len(repos) > 1:  # a ticket number means nothing without one
-                self.begin_note(Ask("", "Prepare in which repo?", (), tuple((name, CHOOSE_REPO, name) for name in repos), "Or write it as repo/ticket or repo/idea", "prepare"))
-            else:
-                self.ask_what_to_prepare()
+        if key == PREPARE and self.tab == BACKLOG:
+            self.ask_to_prepare(self.open or self.selected(lines))
+            return True
+        if key == FIND and self.tab != USAGE and not self.open:
+            self.finding, self.picked = True, None
             return True
         if key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
@@ -308,6 +333,8 @@ class Board:
             self.enter(self.selected(lines))
         elif key == ESCAPE and (self.open or self.viewing):
             self.back()
+        elif key == ESCAPE and self.filter:
+            self.filter = ""
         elif key == ord("q"):
             if not self.open and not self.viewing:
                 return False
@@ -317,7 +344,7 @@ class Board:
         elif key in (curses.KEY_NPAGE, curses.KEY_PPAGE):
             self.scroll(PAGE if key == curses.KEY_NPAGE else -PAGE, width)
         elif key in (TAB_KEY, curses.KEY_BTAB) and not self.open:
-            self.tab, self.viewing, self.offset, self.side = (self.tab + (1 if key == TAB_KEY else -1)) % len(TABS), "", 0, 0
+            self.tab, self.viewing, self.offset, self.side, self.filter = (self.tab + (1 if key == TAB_KEY else -1)) % len(TABS), "", 0, 0, ""
         elif key == ord("r"):
             self.refresh()
         elif key == ord("g"):
@@ -328,7 +355,20 @@ class Board:
 
     def link(self, lines: list[Line]) -> str:
         ref = self.open or self.selected(lines)
+        if item := self.ticket(ref):
+            return item["url"]
         return ref[1] if ref and ref[0] == "#pr" else run.pr if (run := self.target(lines)) else ""
+
+    def find_key(self, key: int) -> None:
+        """Narrows the list as you type. Enter keeps it, esc drops it."""
+        if key == ESCAPE:
+            self.finding, self.filter = False, ""
+        elif key in ENTERS:
+            self.finding = False
+        elif key in BACKSPACES:
+            self.filter = self.filter[:-1]
+        elif 32 <= key < curses.KEY_MIN and key != 127:
+            self.filter += chr(key)
 
     def open_link(self, url: str) -> None:
         try:
@@ -454,6 +494,20 @@ class Board:
         self.say(f"{run.key}: {run.label}")
         if waiting := next((r for r in self.runs if self.run_actions(r).get(ANSWER)), None):
             self.picked = (waiting.repo, waiting.key)
+
+    def ask_to_prepare(self, ref: tuple[str, str] | None) -> None:
+        """The selected card is the likely answer, but an idea or another ticket can still be typed."""
+        repos = list(self.cfg["repos"])
+        item = self.ticket(ref)
+        if item is None or ref is None:
+            if len(repos) > 1:  # a ticket number means nothing without one
+                self.begin_note(Ask("", "Prepare in which repo?", (), tuple((name, CHOOSE_REPO, name) for name in repos), "Or write it as repo/ticket or repo/idea", "prepare"))
+            else:
+                self.ask_what_to_prepare()
+            return
+        within = repos[0] if len(repos) == 1 else ""
+        typed = "Or another ticket number, or an idea to make into a ticket" if within else "Or write it as repo/ticket or repo/idea"
+        self.begin_note(Ask("", "What should be prepared?", (), ((f"{ref[1]}  {item['title']}", "prepare", ref[1].partition("/")[2] if within else ref[1]),), typed, "prepare", within))
 
     def ask_what_to_prepare(self, repo: str = "") -> None:
         self.begin_note(Ask("", f"What should be prepared in {repo}?" if repo else "What should be prepared?", (), (), "A ticket number, or an idea to make into a ticket", "prepare", repo))
@@ -597,19 +651,24 @@ class Board:
         return len(pile), tickets, stopped(self.building()), sum(pull_group(p, self.linked(p)) == "Needs you" for p in self.pr_items()), stopped(r for r in self.runs if r.operating)
 
     def header(self) -> Line:
-        tabs = [part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {SIGNS[tab]} {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))]
+        return Line([part for i, (tab, count) in enumerate(zip(TABS, (*self.counts(), ""), strict=True)) for part in (Span(f" {SIGNS[tab]} {tab} {count} ".replace("  ", " "), "tab-on" if i == self.tab and not self.open else "tab", f"tab:{i}"), Span(" "))])
+
+    def status(self) -> Line:
+        """One quiet line under the tabs, the same on every tab: what's left of the limits and machine, how old the list is, and why new work waits."""
         kind = "PRs" if self.tab == REVIEW else "backlog"
         sources = [self.snapshot.get("prs", {})] if self.tab == REVIEW else self.snapshot.get("repos", {}).values()
         times = [source.get("polled_at", 0) for source in sources]
         age = f"{kind} {ago(self.clock() - min(times))} old" if times and min(times) else f"{kind} not polled"
         held = self.engine.throttle.hold_new(len([r for r in self.runs if r.status == "running"])) or full_pile(self.runs, self.snapshot.get("prs", {}).get("items", []), self.cfg.get("max_waiting", 0))
-        return Line([*tabs, Span(f" {age}", "dim"), Span(f"   held: {held}" if held else "", "yellow")])
+        return Line([*usage_line(self.engine.throttle.pace(), self.meter.read()), Span(f"  {age}", "dim"), Span(f"   held: {held}" if held else "", "yellow")])
 
     def footer(self, width: int = 120) -> Line:
         if self.refreshing:
             return Line([Span("Working...", "dim")])
         if self.message and self.clock() - self.said < MESSAGE_SECONDS:
             return Line([Span(self.message, "yellow")])
+        if self.finding:
+            return Line([Span(f" / {self.filter}{CURSOR}", "bold"), Span("   enter keeps it, esc clears it", "dim")])
         moves = [("esc back", ESCAPE)] if self.open else [("tab switch", TAB_KEY), ("enter open", 10)]
         lines = self.lines(width)
         run = self.target(lines)
@@ -619,7 +678,8 @@ class Board:
         offers = [("a re-review", AI_REVIEW)] if self.askable(lines) else offers
         offers = [("a fix CI", AI_REVIEW)] if self.fixable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
-        offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG and not self.open)
+        offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG)
+        offers += [(f"esc clear /{self.filter}", ESCAPE)] if self.filter and not self.open else [("/ filter", FIND)] * (self.tab != USAGE and not self.open)
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run.pane if run else self.tab not in (NOW, REVIEW)) + [("o link", ord("o"))] * bool(self.link(lines)) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
@@ -735,19 +795,19 @@ class Board:
 
     def window(self, lines: list[Line], height: int) -> list[Line]:
         chosen = self.selected(lines)
-        at = next((i for i, line in enumerate(lines) if line.ref and line.ref == chosen), None)
+        at = next((i for i, line in enumerate(lines) if any(ref == chosen for _, ref in refs(line))), None)
         if at is not None:
             self.offset = max(min(self.offset, at), at - height + 1)
         self.offset = max(0, min(self.offset, len(lines) - height))
         return lines[self.offset : self.offset + height]
 
-    def put(self, screen: curses.window, y: int, line: Line, styles: dict[str, int], width: int, selected: bool = False, left: int = 0) -> None:
+    def put(self, screen: curses.window, y: int, line: Line, styles: dict[str, int], width: int, selected: bool = False, left: int = 0, chosen: tuple[str, str] | None = None) -> None:
         x = left
         for span in line.spans:
             text = clean(span.text)
             if x >= width - 1:
                 break
-            attr = styles.get(f"row-{span.style}", styles[span.style]) if selected else styles[span.style]
+            attr = styles.get(f"row-{span.style}", styles[span.style]) if selected or (chosen and span.action == chosen) else styles[span.style]
             screen.addnstr(y, x, text, width - 1 - x, attr)
             self.painted.setdefault(y, []).append((x, text))
             if span.action:
@@ -766,13 +826,14 @@ class Board:
         self.right, self.rows = width - 1, rows
         screen.erase()
         self.put(screen, TOP, self.header(), styles, width)
+        self.put(screen, TOP + 1, self.status(), styles, width)
         foot = self.note(width - 1)[-(rows - TOP - 3) :]
         height = rows - TOP - 2 - len(foot)
         panelled = self.panelled(width - 1)
         edge = self.list_width(width - 1) + 1 if panelled else width
         self.edge = edge if panelled else 0
         for y, line in enumerate(self.window(lines, height), TOP + 2):
-            self.put(screen, y, line, styles, edge, bool(line.ref) and line.ref == chosen)
+            self.put(screen, y, line, styles, edge, bool(line.ref) and line.ref == chosen, chosen=chosen)
         if panelled:
             side = self.panel(width - 1)
             self.side = max(0, min(self.side, len(side) - height))

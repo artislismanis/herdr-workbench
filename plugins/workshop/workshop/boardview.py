@@ -5,7 +5,7 @@ import textwrap
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import groupby, zip_longest
 from typing import Any, NamedTuple
 
@@ -13,10 +13,12 @@ from .backlog import COLUMNS
 from .pipeline import shipped
 from .review import section
 from .store import Run
-from .throttle import ahead
+from .throttle import DAYS, DEFAULTS, ahead
 from .usage import KEEP_DAYS, by_hour, top, totals
 
 Usage = dict[str, tuple[float, float]]
+Work = tuple[tuple[int, int], list[str]]  # working hours and days, from the throttle's settings
+WORK: Work = (tuple(DEFAULTS["work_hours"]), DEFAULTS["work_days"])
 
 HEADINGS = {"parked": "Needs you", "waiting": "Needs you", "running": "With agents", "done": "With people"}
 ORDER = ("parked", "waiting", "running", "done")
@@ -47,13 +49,14 @@ RECENT = 10
 LIMITED = "GitHub's hourly limit is used up, so this is from the last update. It clears within the hour."
 LANDED = 5
 KANBAN_WIDTH = 80
-PIPE_WIDTH = 13
+WHO_WIDTH = 100  # narrower than this, the who column goes, as the title says more. By width, so every tab drops it together
+STALE_AMBER = 3600  # working seconds waiting on you
 
 
 class Span(NamedTuple):
     text: str
     style: str = ""
-    action: str = ""
+    action: str | tuple[str, str] = ""  # a key or tab to press, or what a click selects
 
 
 @dataclass
@@ -78,6 +81,31 @@ class Line:
         if self.pr:
             return ("#pr", self.pr["url"])
         return (self.run.repo, self.run.key) if self.run else None
+
+
+def refs(line: Line) -> list[tuple[int, tuple[str, str]]]:
+    """What a line lets you select, with its column. A Backlog row holds a card from each column."""
+    if line.ref:
+        return [(0, line.ref)]
+    found, x = [], 0
+    for span in line.spans:
+        if isinstance(span.action, tuple):
+            found.append((x, span.action))
+        x += columns(span.text)
+    return found
+
+
+def only(lines: list[Line], text: str) -> list[Line]:
+    """The rows that match, under their headings. A heading with none goes, and so does what isn't a row."""
+    kept: list[Line] = []
+    heading: Line | None = None
+    for line in lines:
+        if refs(line) and text.lower() in line.text.lower():
+            kept += [*([plain()] if kept and heading else []), *([heading] if heading else []), line]
+            heading = None
+        elif line.text.startswith("─ "):
+            heading = line
+    return kept or [plain(f"  Nothing matches {text}.", "dim")]
 
 
 def plain(text: str = "", style: str = "") -> Line:
@@ -168,8 +196,7 @@ def pipe(run: Run) -> list[Span]:
     """The run's stages at a glance, each coloured by its steps."""
     groups = stage_groups(run.pipeline["steps"])
     marks = [("●", "green")] * bool(run.pipeline.get("ticket_stage")) + [stage_state(run, indexes)[:2] for indexes in groups]
-    spans = [part for number, mark in enumerate(marks) for part in ([Span("─", "dim")] if number else []) + [Span(*mark)]]
-    return [*spans, Span(" " * max(PIPE_WIDTH - 2 * len(marks) + 1, 0))]
+    return [part for number, mark in enumerate(marks) for part in ([Span("─", "dim")] if number else []) + [Span(*mark)]]
 
 
 def recent(events: list[dict[str, Any]], count: int) -> list[Line]:
@@ -196,16 +223,6 @@ def limit_style(window: str, used: float, left: float) -> str:
     return "red" if used >= 100 or over > PACE_RED else "yellow" if over > PACE_AMBER else "green"
 
 
-def tiles(runs: list[Run]) -> Line:
-    active = [r for r in runs if not r.landed]
-    return tally(*(sum(heading(r) == name for r in active) for name in ("Needs you", "With agents", "With people")))
-
-
-def tally(*counts: int) -> Line:
-    labels = ("on-red", "needs you"), ("on-green", "with agents"), ("on-others", "with people")
-    return Line([part for count, (style, label) in zip(counts, labels, strict=True) for part in (Span(f" {count} ", style), Span(f" {label}    "))])
-
-
 def calm(style: str) -> str:
     """Colour means something needs a look, so all's well is plain."""
     return "" if style == "green" else style
@@ -221,12 +238,11 @@ def machine_style(value: float) -> str:
     return "red" if value > MACHINE_RED else "yellow" if value > MACHINE_AMBER else "green"
 
 
-def usage_line(usage: Usage, machine: dict[str, Any] | None, width: int = 120) -> Line:
-    """A band, so it reads as one block of what you've got left."""
+def usage_line(usage: Usage, machine: dict[str, Any] | None) -> list[Span]:
+    """What you've got left, quietly, under the tabs. A number is coloured only when it needs a look."""
     parts = [(window, used, calm(limit_style(window, used, left)), f" ({to_go(left)})" if left else "") for window, (used, left) in usage.items()]
     parts += [(name.upper(), machine[name], calm(machine_style(machine[name])), "") for name in ("cpu", "ram")] if machine else []
-    spans = [span for name, value, style, time in parts for span in (Span(f" {name} ", "row-"), Span(f"{value:.0f}%", f"row-{style}"), Span(time, "row-others"), Span("  ", "row-"))]
-    return Line([*spans, Span(" " * max(width - sum(columns(span.text) for span in spans), 0), "row-")]) if spans else Line()
+    return [span for name, value, style, time in parts for span in (Span(f" {name} ", "dim"), Span(f"{value:.0f}%", style), Span(time, "dim"), Span(" "))]
 
 
 def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine: dict[str, Any] | None, now: float, width: int = 120) -> list[Line]:
@@ -255,35 +271,30 @@ def heading(run: Run) -> str:
     return "Needs you" if run.with_you or run.your_turn else HEADINGS[run.status]
 
 
-def delivery(run: Run, title: str, width: int) -> Line:
-    number = run.pr.rstrip("/").rsplit("/", 1)[-1] if run.pr else ""
-    detail = run.held or run.reason or run.landed or (f"PR #{number}" if number else "")
-    room = max(width - 60, 30)
-    title_width = room * 3 // 5
-    return Line([Span("  "), Span(" " + cell(run.label, 9), "dim" if run.landed else "yellow" if run.with_you or run.your_turn else COLOURS[run.status]), Span(" "), Span(cell(name(run), 22) + " "), *pipe(run), Span(" "), Span(cell(step_id(run), 9) + " ", "dim"), Span(cell(title, title_width) + " "), Span(cell(detail, room - title_width - 1), "dim")], run)
-
-
-def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, usage: Usage | None = None, machine: dict[str, Any] | None = None) -> list[Line]:
-    lines = [usage_line(usage or {}, machine, width), plain(), tiles(runs), plain(), *run_groups(runs, events, title, width)]
-    if not runs:
-        lines += [plain("  No tickets picked up yet.", "dim"), plain()]
+def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
+    lines = run_groups(runs, events, title, width, now, ci, work) or [plain("  No tickets picked up yet.", "dim"), plain()]
     return [*lines, rule("Recent", width), *recent(events, RECENT)]
 
 
-def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int) -> list[Line]:
+def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
     last = {(e["repo"], e["key"]): e["at"] for e in events}
     landed = sorted((r for r in runs if r.landed), key=lambda r: last.get((r.repo, r.key), ""))[-LANDED:]
     active = sorted((r for r in runs if not r.landed), key=lambda r: (rank(r.label), last.get((r.repo, r.key), "")) if heading(r) == "Needs you" else (len(NEXT_UP) + 1 + ORDER.index(r.status), ""))
-    lines = []
-    for name in dict.fromkeys(heading(r) for r in active):
-        group = [r for r in active if heading(r) == name]
-        lines += [rule(f"{name} {len(group)}", width), *(delivery(r, title(r), width) for r in group), plain()]
-    return lines + ([rule("Landed", width), *(delivery(r, title(r), width) for r in landed), plain()] if landed else [])
+    groups = {name: [r for r in active if heading(r) == name] for name in dict.fromkeys(heading(r) for r in active)} | ({"Landed": landed} if landed else {})
+    items = {name: [run_item(r, title(r), last.get((r.repo, r.key), ""), ci(r.pr)) for r in group] for name, group in groups.items()}
+    return rows_under(items, width, now, work)
 
 
-def operations(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], schedule: list[dict[str, Any]], now: float, width: int = 120, band: Line | None = None) -> list[Line]:
+def rows_under(groups: dict[str, list["Item"]], width: int, now: float, work: Work) -> list[Line]:
+    """Each group under its heading and count, in one row shape, with columns sized across them all so they line up."""
+    shown = [item for items in groups.values() for item in items]
+    sizes = max((columns(item.name) for item in shown), default=0), max((columns(item.who) for item in shown), default=0)
+    return [line for heading_name, items in groups.items() if items for line in (rule(f"{heading_name} {len(items)}", width), *(item_row(item, sizes, width, now, work) for item in items), plain())]
+
+
+def operations(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], schedule: list[dict[str, Any]], now: float, width: int = 120, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
     """After the merge: getting it live, then looking after it. What a sweep turns up becomes a ticket on the Backlog."""
-    lines = [*([band, plain()] if band else []), tiles(runs), plain(), *(run_groups(runs, events, title, width) or [plain("  Nothing merged or swept yet.", "dim"), plain()])]
+    lines = run_groups(runs, events, title, width, now, ci, work) or [plain("  Nothing merged or swept yet.", "dim"), plain()]
     return [*lines, rule("Sweeps", width), *(sweep_row(item, now) for item in schedule)] if schedule else [*lines, rule("Sweeps", width), plain("  None scheduled. A repo lists them in its config, as `sweeps = { docs = \"monthly\" }`.", "dim")]
 
 
@@ -293,34 +304,43 @@ def sweep_row(item: dict[str, Any], now: float) -> Line:
     return plain(f"  {cell(item['repo'], 22)} {cell(item['sweep'], 9)} {cell(item['cadence'], 9)} {cell(last, 16)} {'next in ' + to_go(left) if left > 0 else 'due'}")
 
 
-def card(ticket: str, item: dict[str, Any], skipped: dict[str, str]) -> list[tuple[str, str]]:
-    found = [(ticket, "dim"), (item["title"], "")]
+def card(ticket: str, item: dict[str, Any], skipped: dict[str, str]) -> list[tuple[str, str, tuple[str, str] | str]]:
+    ref = ("#ticket", ticket)
+    found: list[tuple[str, str, tuple[str, str] | str]] = [(ticket, "dim", ref), (item["title"], "", ref)]
     if ticket in skipped:
-        found.append((f"skipped: {skipped[ticket]}", "yellow"))
-    return [*found, ("", "")]
+        found.append((f"skipped: {skipped[ticket]}", "yellow", ref))
+    return [*found, ("", "", "")]
 
 
-def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable[[str, str], bool], width: int = 120, place: Callable[[str, str], int] = lambda repo, key: 0) -> list[Line]:
+def backlog(snapshot: dict[str, Any], skipped: dict[str, str], started: Callable[[str, str], bool], width: int = 120, place: Callable[[str, str], int] = lambda repo, key: 0, keep: str = "") -> list[Line]:
     repos = snapshot.get("repos", {})
     if not repos:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
     limited = any("rate limit" in r["error"] for r in repos.values())
     lines = [plain(LIMITED, "yellow")] if limited else [plain(f"{repo}: couldn't update: {first_line(r['error'])}", "red") for repo, r in repos.items() if r["error"]]
-    found = {column: [(f"{repo}/{i['key']}", i) for repo, r in repos.items() for i in r["items"] if i["column"] == column and not started(repo, i["key"])] for column in COLUMNS}
+    found = {column: [(f"{repo}/{i['key']}", i) for repo, r in repos.items() for i in r["items"] if i["column"] == column and not started(repo, i["key"]) and keep.lower() in f"{repo}/{i['key']} {i['title']}".lower()] for column in COLUMNS}
     found["queued"].sort(key=lambda pair: place(*pair[0].split("/", 1)))  # first to go at the top
     if width < KANBAN_WIDTH:
         for column, items in found.items():
             lines.append(rule(f"{column.title()} {len(items)}", width))
             for ticket, item in items:
                 why = f"  skipped: {skipped[ticket]}" if ticket in skipped else ""
-                lines.append(plain(f"  {cell(ticket, 22)} {clean(item['title'])}{clean(why)}", "yellow" if why else ""))
+                lines.append(Line([Span(f"  {cell(ticket, 22)} {clean(item['title'])}{clean(why)}", "yellow" if why else "", ("#ticket", ticket))]))
         return lines
     size = (width - 3) // len(COLUMNS) - 1
     lines.append(Line([part for column, items in found.items() for part in (Span(" " + cell(f"{column.title()} {len(items)}", size - 1), f"on-{COLUMN_COLOURS[column]}"), Span(" "))]))
     cards = [[row for ticket, item in items for row in card(ticket, item, skipped)] for items in found.values()]
-    for row in zip_longest(*cards, fillvalue=("", "")):
-        lines.append(Line([part for text, style in row for part in (Span(cell(text, size), style), Span(" "))]))
+    for row in zip_longest(*cards, fillvalue=("", "", "")):
+        lines.append(Line([part for text, style, ref in row for part in (Span(cell(text, size), style, ref), Span(" "))]))
     return lines
+
+
+def ticket_view(ticket: str, item: dict[str, Any], skipped: dict[str, str], width: int) -> list[Line]:
+    """A card on the Backlog, opened: enough to decide whether to prepare it now."""
+    lines = [*wrapped(f"{ticket}  {item['title']}", width, "bold"), *wrapped(f"Ticket: {item['url']}", width), Line([Span(f" {item['column']} ", f"on-{COLUMN_COLOURS[item['column']]}")])]
+    lines += wrapped(f"Skipped: {skipped[ticket]}", width, "yellow") if ticket in skipped else []
+    step = "It's queued, so delivery picks it up in turn. p asks again if you want to change it." if item["column"] == "queued" else "p starts the next Prepare talk on it, with the agent beside you."
+    return [*lines, plain(), Line([Span("▌ Next", "yellow")]), *(plain("  " + part.text) for part in wrapped(step, width - 2))]
 
 
 def facts(pr: dict[str, Any]) -> str:
@@ -368,13 +388,6 @@ def author(pr: dict[str, Any]) -> str:
     return "you" if pr["mine"] else pr["author"]
 
 
-def pull_row(pr: dict[str, Any], width: int, name_width: int, author_width: int, run: Run | None = None) -> Line:
-    label, colour = pull_status(pr, run)
-    mark, tone = MARKS[pr["mine"]]
-    room = max(width - name_width - author_width - 20, 10)  # the title gives way, so the CI dot stays on a narrow panel
-    return Line([Span(" "), Span(mark + " ", tone), Span(cell(label, 10) + " ", colour), Span(cell(pr_name(pr), name_width) + " "), Span(cell(pr["title"], room) + " ", "yellow" if pr["beaten"] else ""), Span(cell(author(pr), author_width) + " ", tone), Span("●", CI_DOTS.get(pr["checks"], "dim"))], pr=pr)
-
-
 def pull_status(pr: dict[str, Any], run: Run | None) -> tuple[str, str]:
     """The same word and colour in the row and the detail."""
     return (run.label, "yellow" if run.with_you else COLOURS[run.status]) if live(run) else (STATUS.get(pr["state"], pr["state"]), pr_style(pr))
@@ -418,7 +431,7 @@ def pull_story(pr: dict[str, Any], run: Run | None, advice: str, handover: str, 
     return lines + drafted(replies or [], width) + briefing(handover, width) + ([plain(), rule("Workflow", width), *workflow] if workflow else [])
 
 
-def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str, Any]], Run | None] = lambda pr: None, band: Line | None = None) -> list[Line]:
+def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str, Any]], Run | None] = lambda pr: None, now: float = 0.0, work: Work = WORK) -> list[Line]:
     found = snapshot.get("prs")
     if not found:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
@@ -426,12 +439,7 @@ def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str
     lines = [plain(LIMITED, "yellow")] if limited else [plain(f"Couldn't update: {first_line(found['error'])}", "red")] if found["error"] else []
     grouped = {heading: [(p, linked(p)) for p in found["items"] if pull_group(p, linked(p)) == heading] for heading in REVIEW_GROUPS}
     grouped["Needs you"].sort(key=lambda found: pull_rank(*found))
-    name_width, author_width = max(map(columns, map(pr_name, found["items"])), default=0), max(map(columns, map(author, found["items"])), default=0)  # one width across the groups, and authors in full
-    lines = [*([band, plain()] if band else []), *lines, tally(*(len(grouped[heading]) for heading in REVIEW_GROUPS[:3])), plain()]
-    for heading, items in grouped.items():
-        if items:
-            lines += [rule(f"{heading} {len(items)}", width), *(pull_row(p, width, name_width, author_width, run) for p, run in items), plain()]
-    return lines
+    return [*lines, *rows_under({heading: [pull_item(p, run) for p, run in items] for heading, items in grouped.items()}, width, now, work)]
 
 
 def since(stamp: str, now: float) -> str:
@@ -453,24 +461,53 @@ class Item:
     kind: str = "Review"
     run: Run | None = None
     pr: dict[str, Any] | None = None
+    waiting: bool = False  # on you, so its age turns amber then red
+    tone: str = ""  # the title's colour: yellow when someone reviewed first
 
 
 def pull_item(pr: dict[str, Any], run: Run | None) -> Item:
-    return Item(pull_rank(pr, run), MARKS[pr["mine"]], pull_status(pr, run), pr_name(pr), pr["title"], author(pr), pr["updated"], Span("●", CI_DOTS.get(pr["checks"], "dim")), pr=pr)
+    waiting = pull_group(pr, run) == "Needs you"
+    stamp = pr.get("since") or pr["updated"] if waiting else pr["updated"]
+    return Item(pull_rank(pr, run), MARKS[pr["mine"]], pull_status(pr, run), pr_name(pr), pr["title"], author(pr), stamp, Span("●", CI_DOTS.get(pr["checks"], "dim")), pr=pr, waiting=waiting, tone="yellow" if pr["beaten"] else "")
 
 
-def run_item(run: Run, title: str, stamp: str) -> Item:
-    colour = "yellow" if run.with_you or run.your_turn else COLOURS[run.status]
+def run_item(run: Run, title: str, stamp: str, checks: str = "") -> Item:
+    colour = "dim" if run.landed else "yellow" if run.with_you or run.your_turn else COLOURS[run.status]
     kind = "Review" if run.on_a_pr else "Operate" if run.operating else "Delivery"  # the tab it lives on
-    return Item((rank(run.label), stamp), MARKS[True], (run.label, colour), name(run), title, "you" if run.with_you else step_id(run), stamp, Span(" "), kind, run=run)
+    dot = Span("●", CI_DOTS.get(checks, "dim")) if run.pr else Span(" ")
+    return Item((rank(run.label), stamp), MARKS[True], (run.label, colour), name(run), title, "you" if run.with_you else "" if run.status == "done" else step_id(run), stamp, dot, kind, run=run, waiting=heading(run) == "Needs you" and not run.landed)
 
 
-def item_row(item: Item, sizes: tuple[int, int], width: int, now: float) -> Line:
-    room = max(width - sizes[0] - sizes[1] - 27, 10)
-    return Line([Span(" "), Span(item.mark[0] + " ", item.mark[1]), Span(cell(item.status[0], 10) + " ", item.status[1]), Span(SIGNS[item.kind] + " ", "dim"), Span(cell(item.name, sizes[0]) + " "), Span(cell(item.title, room) + " "), Span(cell(item.who, sizes[1]) + " ", item.mark[1]), Span(f"{since(item.stamp, now):>4} ", "dim"), item.dot], item.run, item.pr)
+def working(start: float, end: float, work: Work = WORK) -> float:
+    """Seconds of working time between two moments, so what stopped on Friday evening isn't red on Monday morning."""
+    (first, last), days = work
+    total, at = 0.0, max(start, end - 30 * 86400)
+    while at < end:
+        moment = datetime.fromtimestamp(at)
+        step = min(end, (moment.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)).timestamp())
+        if DAYS[moment.weekday()] in days and first <= moment.hour < last:
+            total += step - at
+        at = step
+    return total
 
 
-def now_view(runs: list[Run], prs: list[dict[str, Any]], linked: Callable[[dict[str, Any]], Run | None], title: Callable[[Run], str], queued: list[tuple[str, str]], events: list[dict[str, Any]], now: float, width: int, band: Line) -> list[Line]:
+def stale(stamp: str, now: float, work: Work = WORK) -> str:
+    """Amber after an hour waiting on you, red after a working day."""
+    waited = working(datetime.fromisoformat(stamp).timestamp(), now, work) if stamp else 0
+    day = (work[0][1] - work[0][0]) * 3600
+    return "red" if waited >= day else "yellow" if waited >= STALE_AMBER else "dim"
+
+
+def item_row(item: Item, sizes: tuple[int, int], width: int, now: float, work: Work = WORK) -> Line:
+    """The one row shape, on every tab. On a narrow panel the who column goes first, then the title gives way, so the age and CI dot stay."""
+    who = sizes[1] if width >= WHO_WIDTH else 0
+    room = width - sizes[0] - who - (27 if who else 26)
+    told = [Span(cell(item.who, who) + " ", item.mark[1])] if who else []
+    age = Span(f"{since(item.stamp, now):>4} ", stale(item.stamp, now, work) if item.waiting else "dim")
+    return Line([Span(" "), Span(item.mark[0] + " ", item.mark[1]), Span(cell(item.status[0], 10) + " ", item.status[1]), Span(SIGNS[item.kind] + " ", "dim"), Span(cell(item.name, sizes[0]) + " "), Span(cell(item.title, max(room, 10)) + " ", item.tone), *told, age, item.dot], item.run, item.pr)
+
+
+def now_view(runs: list[Run], prs: list[dict[str, Any]], linked: Callable[[dict[str, Any]], Run | None], title: Callable[[Run], str], queued: list[tuple[str, str]], events: list[dict[str, Any]], now: float, width: int, ci: Callable[[str], str] = lambda url: "", work: Work = WORK) -> list[Line]:
     """Everything in one list, in the order to do it, so the board doesn't need reading tab by tab."""
     last = {(e["repo"], e["key"]): e["at"] for e in events}
     on_prs = {p["url"] for p in prs}
@@ -481,18 +518,12 @@ def now_view(runs: list[Run], prs: list[dict[str, Any]], linked: Callable[[dict[
             groups[pull_group(pr, run)].append(pull_item(pr, run))
     for run in runs:
         if not run.landed and not run.on_a_pr and run.pr not in on_prs and heading(run) != "With people" and not (run.pr == "" and run.status == "done"):
-            groups[heading(run)].append(run_item(run, title(run), last.get((run.repo, run.key), "")))
-    shown = [item for key in ("Needs you", "With agents") for item in groups[key]]
-    sizes = max((columns(item.name) for item in shown), default=0), max((columns(item.who) for item in shown), default=0)
-    lines = [band, plain(), Line([*tally(*(len(items) for items in groups.values())).spans, Span(f" {len(queued)} ", "on-dim"), Span(" queued")]), plain()]
-    for heading_name, style in (("Needs you", "Clear now"), ("With agents", "With agents")):
-        items = sorted(groups[heading_name], key=lambda item: item.place)
-        if items:
-            lines += [rule(f"{style} {len(items)}", width), *(item_row(item, sizes, width, now) for item in items), plain()]
+            groups[heading(run)].append(run_item(run, title(run), last.get((run.repo, run.key), ""), ci(run.pr)))
+    lines = rows_under({"Clear now": sorted(groups["Needs you"], key=lambda item: item.place), "With agents": sorted(groups["With agents"], key=lambda item: item.place)}, width, now, work)
     if not groups["Needs you"]:
-        lines += [plain("  Nothing needs you.", "dim"), plain()]
+        lines = [plain("  Nothing needs you.", "dim"), plain(), *lines]
     if queued:
-        lines += [rule("Up next", width), *(plain(f"   {cell(ticket, 22)} {clean(text)}", "dim") for ticket, text in queued[:3]), plain()]
+        lines += [rule(f"Up next {len(queued)}", width), *(plain(f"   {cell(ticket, 22)} {clean(text)}", "dim") for ticket, text in queued[:3]), plain()]
     return lines
 
 
@@ -520,7 +551,7 @@ def pull(pr: dict[str, Any], width: int = 120, story: list[Line] | None = None, 
     why = REASONS.get(pr["state"], pr["state"])
     beside = "   ".join(part for part in ("" if why == STATUS.get(pr["state"], pr["state"]) else why, facts(pr)) if part)
     lines = [*wrapped(f"{pr_name(pr)}  {pr['title']}", width, "bold"), *wrapped(f"PR: {pr['url']}", width), *wrapped(f"Author: {author(pr)}", width)]
-    lines += [Line([Span(f" {label} ", block(colour)), Span(f"   {beside}" if beside else "", "dim")])]
+    lines += [Line([Span(f" {label} ", block(colour)), *([Span("  "), *pipe(run)] if run else []), Span(f"   {beside}" if beside else "", "dim")])]
     lines += [*(story or []), plain(), rule("Reviews", width)]
     for who, state in pr["reviews"].items():
         mark, tone = REVIEW_MARKS.get(state, ("•", "dim"))
@@ -675,7 +706,7 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
     lines = wrapped(f"{name(run)}  {title}", width, "bold")
     lines += wrapped(f"PR: {run.pr}" if run.pr else "", width)
-    lines += [Line([Span(f" {run.label} ", run_style(run)), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
+    lines += [Line([Span(f" {run.label} ", run_style(run)), Span("  "), *pipe(run), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
     if run.status in ("parked", "waiting"):
         context = ticket_context(brief, width) if not run.sweeping else []
         head, *rest = needs_you(run, stopped[1], width)

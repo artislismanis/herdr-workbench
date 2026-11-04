@@ -2,6 +2,7 @@
 
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from .chat import CHAT
@@ -25,6 +26,13 @@ def asked_in_chat(store: Store) -> dict[str, float]:
     return {url: float(found["ts"]) for url, found in store.read(CHAT).get("found", {}).items() if not found.get("taken")}
 
 
+def waiting_since(items: list[dict[str, Any]], before: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
+    """When each PR became yours to move. GitHub's updated time moves with any comment, yours included, so it can't say how long something has waited."""
+    earlier = {pr["url"]: pr.get("since", "") for pr in before if pr.get("move") == "you"}
+    stamp = datetime.fromtimestamp(now, UTC).isoformat()
+    return [{**pr, "since": earlier.get(pr["url"]) or stamp} if pr.get("move") == "you" else pr for pr in items]
+
+
 def poll(cfg: dict[str, Any], store: Store, clock: Callable[[], float] = time.time) -> dict[str, Any]:
     """One repo failing keeps its last good list, so the board shows it stale, not empty."""
     previous = store.read(SNAPSHOT)
@@ -38,7 +46,7 @@ def poll(cfg: dict[str, Any], store: Store, clock: Callable[[], float] = time.ti
         except STOPS as failed:
             repos[name] = {"polled_at": 0.0, "items": [], **before.get(name, {}), "error": str(failed)}
     try:
-        prs = {"polled_at": clock(), "error": "", "items": fetch(cfg.get("prs", {}).get("search", ""), clock(), asked_in_chat(store), cfg.get("prs", {}).get("intake") == "chat")}
+        prs = {"polled_at": clock(), "error": "", "items": waiting_since(fetch(cfg.get("prs", {}).get("search", ""), clock(), asked_in_chat(store), cfg.get("prs", {}).get("intake") == "chat"), previous.get("prs", {}).get("items", []), clock())}
     except STOPS as failed:
         prs = {"polled_at": 0.0, "items": [], **previous.get("prs", {}), "error": str(failed)}
     snapshot = {"repos": repos, "prs": prs}
