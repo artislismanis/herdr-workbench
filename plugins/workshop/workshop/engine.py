@@ -762,6 +762,8 @@ class Engine:
             self.store.event(run, "worktree", path=run.worktree)
         if not run.pane:
             run.pane = self.tools.linked(Path(run.repo_path), Path(run.worktree), run.key)
+            if self._shares_checkout(run):  # that's the delivery's workspace, and its pane holds the delivery's agent
+                run.pane = self.tools.split(run.pane, Path(run.worktree))
         if not run.agent:
             run.agent = f"ws-{slug(run.key)}"[:AGENT_NAME]
 
@@ -774,6 +776,9 @@ class Engine:
         if path.resolve() == Path(run.repo_path).resolve():
             raise Park(f"{branch} is checked out in {run.repo_path}. Switch that checkout to another branch, then try again.")
         return path, branch
+
+    def _shares_checkout(self, run: Run) -> bool:
+        return any(r.worktree == run.worktree for r in self.store.all() if r.key != run.key)
 
     def _ci(self, run: Run, step: dict[str, Any]) -> None:
         """Pushes the fix and watches the PR's checks. A draft is yours alone, so its fix goes straight out. Once your team can see the PR, it waits for your go."""
@@ -1070,10 +1075,10 @@ class Engine:
             self.store.event(run, "green")
             self.store.save(run)
             self.tools.notify(f"Workshop: {run.key} green", f"{run.pr} passes its checks.")
-            if any(r.worktree == run.worktree for r in self.store.all() if r.key != run.key):
-                pane, run.worktree, run.pane, run.agent = run.pane, "", "", ""  # the delivery's checkout and agent stay
+            if self._shares_checkout(run):
+                pane, run.worktree, run.pane, run.agent = run.pane, "", "", ""  # the delivery's checkout, workspace and agent stay
                 self.store.save(run)
-                self.tools.close_workspace(pane)
+                self.tools.close_pane(pane)
             else:
                 self._tidy(run)
             return

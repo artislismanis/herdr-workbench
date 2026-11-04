@@ -1187,10 +1187,10 @@ class FixingCi(unittest.TestCase):
         delivery = Run(repo="r", key="7", repo_path=str(self.root), base="main", pipeline=load("ticket"), worktree=str(self.root / "delivered"), branch="workshop/7", pr=self.URL, status="done")
         self.engine.store.save(delivery)
         run = self.agent_says(self.start(), "FIXED")
-        self.assertEqual((run.worktree, run.branch, self.tools.worktrees), (str(self.root / "delivered"), "workshop/7", 0))
+        self.assertEqual((run.worktree, run.branch, run.pane, self.tools.worktrees), (str(self.root / "delivered"), "workshop/7", "p2", 0))
         self.tools.ci = self.GREEN
         run = self.later(run)
-        self.assertEqual((run.label, self.tools.removed, self.tools.closed_workspaces), ("green", [], ["p1"]))
+        self.assertEqual((run.label, self.tools.removed, self.tools.closed_workspaces, self.tools.closed), ("green", [], [], ["p2"]))
 
     def test_your_own_checkout_is_never_taken_over(self):
         self.tools.pr_worktree = lambda repo, number, base: (self.root, "my-branch")
