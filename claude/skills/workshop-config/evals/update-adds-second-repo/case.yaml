@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: update-adds-second-repo
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The existing config keeps its comments, max_active = 3 and the orders-api table unchanged, and gains [repos.web-portal] with path, source github, label, no base line (its default branch is main) and a qa command from package.json (npm test). Only questions about the new repo are asked. Valid TOML, still chmod 600.

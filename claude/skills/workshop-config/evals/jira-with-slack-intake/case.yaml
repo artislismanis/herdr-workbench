@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: jira-with-slack-intake
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  A config with the jira repo whose table name matches the repo label, [jira] with base_url and email and an empty token the user fills in themselves (never asked for in chat), [jira.moves] mapped to the real statuses, [prs] intake = "chat" with an org search, [review] claim = "chat-reaction", and [chat] using the claude.ai connector tool names (mcp__claude_ai_Slack__...) with only read tools in read_tools. chmod 600, valid TOML.

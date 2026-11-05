@@ -9,14 +9,18 @@ Walk the user through `~/.config/workshop/config.toml` (or `$WORKSHOP_CONFIG`), 
 
 ## How to ask
 
-- One question per `AskUserQuestion` call, recommended option first, the default named in the option text.
-- Detect before asking. Only ask what can't be found out, and offer the detected value as the recommended option.
+The user came here because the config has too many knobs. Every question should be a real decision, not a tour of the settings. A fresh one-repo setup is usually 3 to 5 questions; with Jira and chat, 6 to 8.
+
+- Take what the user already said as answered. "Tickets are in Jira", "reviews come through Slack" and a named org settle those questions, and pull the matching settings forward from whatever tier they sit in.
+- Detect before asking: base branch, the qa command, the org from the remotes, chat tools from the session. Don't ask to confirm each detected value or each default. Show them together as one proposal ("I'll use: source github, label `ai`, base `master`, qa `uv run pytest`") with "use these" as the recommended option and room to change any.
+- Ask singly only what has no good default and can't be found: where tickets live, whether the repo is trusted to run `qa`, how reviews show to the team, the Jira status mapping.
+- One `AskUserQuestion` per decision, recommended option first.
 - Never ask for a secret in chat. The user types it into the file themselves (see Jira).
-- Write only what differs from the default. A default written out reads as a choice and hides the real ones.
+- Write only what differs from the default. A default written out reads as a choice and hides the real ones. When updating, follow the file's own style instead: if its other repo tables write `label`, so does the new one.
 
 ## Start
 
-1. If the config exists, read it and say in two lines what's set. Ask which of these to do: add a repo, change one, fill in what's missing, or review the optional settings. Skip every question whose answer is already in the file.
+1. If the config exists, read it and say in two lines what's set. Unless the request already says, ask which of these to do: add a repo, change one, fill in what's missing, or review the optional settings. Skip every question whose answer is already in the file.
 2. If not, start at Tier 1 and create it at the end.
 
 ## Tier 1: needed to run at all
@@ -26,7 +30,7 @@ Per repo, repeat until the user has no more:
 | Key | Default | How to settle it |
 |---|---|---|
 | table name `[repos.<name>]` | none | Suggest the folder name. On Jira it must equal a label on the tickets (below) |
-| `path` | none | Must be a git checkout. Accept `~/...` |
+| `path` | none | Must be a git checkout. Write it as `~/...` or absolute, never relative: the tick timer runs from elsewhere |
 | `source` | none | `github` (issues), `jira` or `markdown` (intent files). Suggest from where the team keeps tickets |
 | `label` | `ai` | The label that queues a ticket for delivery. Ask what the team will tolerate seeing on tickets |
 | `intents` | none | markdown only, and required: folder of `*.md` intents |
@@ -46,17 +50,17 @@ If any repo is `jira`, `[jira]` needs:
 
 ## Tier 2: how it shows to your team
 
-These change what other people see. Ask each, with the default as an option.
+These change what other people see. Settle `[jira.moves]` and `[review] claim` with the user; the rest go in the proposal with their defaults unless something the user said points elsewhere.
 
 - **`[jira.moves]`**: the Jira status for each move: `working`, `blocked`, `review`, `approved`, `merged`, plus `preprod` and `dropped`. A move left out never changes the ticket. Offer to read the project's real statuses through the Atlassian MCP (a recent ticket's transitions) and map them. GitHub uses `ai-<move>` labels instead, nothing to set.
 - **`[jira] route`**: only if the board allows moving to the next column only. The columns in order.
 - **`[prs] search`**: narrows the PRs tab, in GitHub search terms. Suggest `org:<org>` from the repos' `origin` remotes.
-- **`[review] claim`**: how a review shows as yours: `none` (default, for teams that assign reviewers), `github-reviewer`, `github-assignee`, `chat-reaction` (needs `[chat]`). **`mode`**: `silent` (default, nobody sees anything until you post) or `claimed`.
+- **`[review] claim`**: how a review shows as yours: `none` (default, for teams that assign reviewers), `github-reviewer`, `github-assignee`, `chat-reaction` (needs `[chat]`). **`mode`**: `silent` (default, nobody sees anything until you post) or `claimed`. Only worth raising when `claim` isn't `none`.
 - **`comment_prefix`**: default `[ai]`, starts everything workshop posts. Only change it if the team wants another marker. It can't be empty.
 
 ## Tier 3: enhancements
 
-Offer as one multi-select question: "Anything else to set up? Each is off or at its default without it." Then take each chosen one in turn.
+Offer as one multi-select question: "Anything else to set up? Each is off or at its default without it." Leave out what's already settled, such as chat when the user said reviews come through Slack. Then take each chosen one in turn, again as a proposal rather than key by key.
 
 | Setting | Default without it | Worth it when |
 |---|---|---|
@@ -79,7 +83,7 @@ Offer as one multi-select question: "Anything else to set up? Each is off or at 
 
 - New file: follow `config.example.toml`'s layout: top-level keys first (TOML puts a key under the table above it), then `[repos.*]` and `[jira]`, then the team-facing tables, then enhancements. A one-line comment on any non-obvious value saying why it was chosen. Keep the example's first line, which says never to commit it.
 - Existing file: edit the text in place. Keep the user's comments, order and anything this run didn't touch. Don't regenerate it through a TOML library.
-- Then: `chmod 600`, parse check with `python3 -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' <file>`, and `workshop doctor --no-launch`. Fix what it reports, or explain what the user must do (a Jira token, `gh auth login`, a git identity).
+- Then: `chmod 600`, parse check with `python3 -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' <file>`, and `workshop doctor --no-launch`. Fix what it reports, or explain what the user must do (a Jira token, `gh auth login`, a git identity). Doctor's Jira check passes with an empty token, so say the login is unproven until the token is in and doctor runs again.
 - Offer the full `workshop doctor` last: it launches a real agent and spends a little.
 
 ## Finish
