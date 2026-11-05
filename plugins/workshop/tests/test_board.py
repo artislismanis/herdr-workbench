@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Ask, Board  # noqa: E402
-from workshop.boardview import Line, Span, ago, backlog, waiting, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, columns_of, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
+from workshop.boardview import Line, Span, ago, backlog, waiting, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -128,17 +128,12 @@ class Deliveries(unittest.TestCase):
         spans = usage_line({}, {"cpu": 40, "ram": 80})
         self.assertEqual([s.style for s in spans if "%" in s.text], ["", "yellow"])
 
-    def test_a_column_is_built_in_eighths_and_nothing_recorded_is_empty(self):
-        rows = columns_of([100, 50, None, 0], 100, 1)
-        self.assertEqual([row[0] for row in rows], ["█"] * 4)
-        self.assertEqual([row[2] for row in rows], [" ", " ", "█", "█"])
-        self.assertEqual({row[4] for row in rows} | {row[6] for row in rows}, {" "})
-
     def test_the_usage_tab_leads_with_the_limits(self):
         now = datetime(2026, 11, 4, 23, 30).timestamp()
         rows = [{"at": now - 300 * n, "cpu": 1, "ram": 6, "five": 60 - n, "week": 30 - n / 10, "agents": 3} for n in range(60, -1, -1)]
         text = joined(usage_view(rows, [], None, now, WIDE, {"5h": (6.0, 4.6 * 3600), "7d": (24.0, (4 * 24 + 1) * 3600)}))
-        self.assertLess(text.index("Limits"), text.index("Spend, last 7 days"))
+        self.assertLess(text.index("Limits"), text.index("Machine"))
+        self.assertNotIn("Spend, last 7 days", text)
         self.assertIn("at this pace: 75% by the reset, lasts", text)
         self.assertIn("57% by the reset, lasts, 43% spare", text)
         self.assertIn("resets Thu 04:06 (4h36m)", text)
@@ -163,12 +158,12 @@ class Deliveries(unittest.TestCase):
     def test_the_usage_tab_shows_machine_load_against_what_it_has(self):
         now = datetime(2026, 11, 2, 10, 30).timestamp()
         rows = [{"at": now - 600, "cpu": 61.0, "ram": 18.0, "five": 58, "week": 40, "agents": 4}, {"at": now - 300, "cpu": 20.0, "ram": 20.0, "five": 59, "week": 40, "agents": 1}]
-        spent = [event("spent", step="ai-review", usd=1.5, model="claude-sonnet-5-5") | {"at": datetime.fromtimestamp(now - 60, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}]
+        spent = [event("spent", step="ai-review", usd=1.5, model="claude-sonnet-5-5", tokens_in=12345, tokens_out=300) | {"at": datetime.fromtimestamp(now - 60, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}]
         text = joined(usage_view(rows, spent, {"cores": 16, "memory": 47.0}, now, WIDE))
         self.assertIn("Machine: 16 cores, 47G of memory", text)
         self.assertRegex(text, r"3-4 +1 +█+░+ +18% 8G +█+░+ +61% 9.8 cores")
         self.assertIn("haven't strained WSL", text)
-        self.assertRegex(text, r"Today +4 agents at once +\$1.50")
+        self.assertRegex(text, r"Today +4 agents at once +12k tokens in, 300 out +\$1.50")
         self.assertIn("Most of this week's spend: claude-sonnet-5-5, on ai-review", text)
 
     def test_a_peak_near_the_ceiling_says_what_to_do(self):

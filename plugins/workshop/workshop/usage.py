@@ -2,9 +2,9 @@
 
 import json
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -57,26 +57,10 @@ def _spend(events: list[dict[str, Any]]) -> float:
     return sum(e.get("usd") or 0 for e in events)
 
 
-def by_day(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float, days: int = KEEP_DAYS) -> list[dict[str, Any]]:
-    """Each of the last days, oldest first, with None for a day with nothing in it, so a trend shows its gaps."""
-    today = datetime.fromtimestamp(now).date()
-    first = today - timedelta(days=days - 1)
-    grouped: dict[Any, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[datetime.fromtimestamp(row["at"]).date()].append(row)
-    spending: dict[Any, list[dict[str, Any]]] = defaultdict(list)
-    for event in events:
-        spending[datetime.fromtimestamp(spent_at(event)).date()].append(event)
-    found = []
-    for n in range(days):
-        day = first + timedelta(days=n)
-        found.append({"day": day, **_peaks(grouped[day]), "spend": _spend(spending[day])} if grouped[day] or spending[day] else None)
-    return found
-
-
 def totals(rows: list[dict[str, Any]], events: list[dict[str, Any]], now: float, days: float) -> dict[str, Any]:
     since = now - days * DAY if days != 1 else datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-    return {**_peaks([r for r in rows if r["at"] >= since]), "spend": _spend([e for e in events if spent_at(e) >= since])}
+    spent = [e for e in events if spent_at(e) >= since]
+    return {**_peaks([r for r in rows if r["at"] >= since]), "spend": _spend(spent), "tokens_in": sum(e.get("tokens_in") or 0 for e in spent), "tokens_out": sum(e.get("tokens_out") or 0 for e in spent)}
 
 
 def top(events: list[dict[str, Any]], now: float) -> tuple[str, str]:

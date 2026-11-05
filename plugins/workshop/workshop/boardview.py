@@ -14,7 +14,7 @@ from .pipeline import shipped
 from .review import section
 from .store import Run
 from .throttle import DAYS, DEFAULTS, ahead
-from .usage import DAY, KEEP_DAYS, by_day, by_load, outlook, spent_at, top, totals, week_cost
+from .usage import DAY, KEEP_DAYS, by_load, outlook, spent_at, top, totals, week_cost
 
 Usage = dict[str, tuple[float, float]]
 Work = tuple[tuple[int, int], list[str]]  # working hours and days, from the throttle's settings
@@ -241,42 +241,8 @@ def usage_line(usage: Usage, machine: dict[str, Any] | None) -> list[Span]:
     return [span for name, value, style, time in parts for span in (Span(f" {name} ", "dim"), Span(f"{value:.0f}%", style), Span(time, "dim"), Span(" "))]
 
 
-EIGHTHS = " ▁▂▃▄▅▆▇█"
-CHART_ROWS = 4
-DAY_WIDE = 4  # a day's column, wide enough for its name underneath
-
-
-def columns_of(values: list[float | None], top: float, wide: int) -> list[str]:
-    """A column chart's rows, top first. Each value is a column `wide` cells across with a cell's gap after it, built in eighths of a row. Nothing recorded is an empty column."""
-    rows = []
-    for level in range(CHART_ROWS, 0, -1):
-        cells = [EIGHTHS[0 if v is None or not top else max(0, min(8, round(v / top * CHART_ROWS * 8 - (level - 1) * 8)))] for v in values]
-        rows.append("".join(c * wide + " " for c in cells))
-    return rows
-
-
-def chart(title: str, note: str, values: list[float | None], top: float, ticks: tuple[str, str], labels: list[tuple[int, str]], gutter: int, wide: int) -> list[Line]:
-    """One chart on the shared grid: the same gutter and column width as the others, so charts over the same hours line up."""
-    span = (wide + 1) * len(values)
-    lines = [Line([Span(f"  {' ' * gutter}  "), Span(title, "bold"), Span(f"{note:>{max(span - columns(title), 0)}}", "dim")])]
-    for n, row in enumerate(columns_of(values, top, wide)):
-        tick = ticks[0] if n == 0 else ticks[1] if n == CHART_ROWS // 2 else ""
-        lines.append(Line([Span(f"  {tick:>{gutter}} │", "dim"), Span(row.rstrip(), "mine")]))
-    under = [" "] * (span + 8)
-    for at, text in labels:
-        for n, letter in enumerate(text):
-            under[at * (wide + 1) + n] = letter
-    return [*lines, plain(f"  {' ' * gutter} └" + "─" * span, "dim"), plain(f"  {' ' * gutter}  " + "".join(under).rstrip(), "dim"), plain()]
-
-
-def spend_by_day(rows: list[dict[str, Any]], spent: list[dict[str, Any]], now: float, width: int) -> list[Line]:
-    days = by_day(rows, spent, now, 7)  # a week, as in the totals below
-    daily = [day["spend"] if day else None for day in days]
-    first = datetime.fromtimestamp(now).date() - timedelta(days=len(days) - 1)
-    top_day = max((v for v in daily if v), default=0)
-    ticks = (f"${top_day:.0f}", f"${top_day / 2:.0f}")
-    by_days = [(n, (first + timedelta(days=n)).strftime("%a")) for n in range(len(days))]
-    return [rule("Spend, last 7 days", width), *chart("Spend", f"${sum(v for v in daily if v):.2f}", daily, top_day, ticks, by_days, max(columns(t) for t in ticks), DAY_WIDE)]
+def count(n: float) -> str:
+    return f"{n / 1e6:.1f}M" if n >= 1e6 else f"{n / 1e3:.0f}k" if n >= 1e4 else f"{n:.0f}"
 
 
 def bar(value: float, wide: int) -> str:
@@ -348,15 +314,15 @@ def machine_view(rows: list[dict[str, Any]], machine: dict[str, Any] | None, now
 
 
 def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine: dict[str, Any] | None, now: float, width: int = 120, usage: Usage | None = None) -> list[Line]:
-    """Limits first, as they're what runs out, then spend, then whether the machine keeps up."""
+    """Limits first, as they're what runs out, then whether the machine keeps up, then what it all took."""
     spent = [e for e in events if e["type"] == "spent"]
     lines = limits_view(usage or {}, rows, now, width)
     if not rows and not spent:
         return [*lines, plain("  No samples yet. One arrives every 5 minutes.", "dim")]
-    lines += [*spend_by_day(rows, spent, now, width), *machine_view(rows, machine, now, width), rule("Totals", width)]
+    lines += [*machine_view(rows, machine, now, width), rule("Totals", width)]
     for label, days in (("Today", 1), ("Week", 7), ("Month", KEEP_DAYS)):
         found = totals(rows, spent, now, days)
-        lines.append(plain(f"  {label:8}{found['agents']:.0f} agents at once   ${found['spend']:.2f}"))
+        lines.append(plain(f"  {label:8}{found['agents']:.0f} agents at once   {count(found['tokens_in'])} tokens in, {count(found['tokens_out'])} out   ${found['spend']:.2f}"))
     model, step = top(spent, now)
     lines += [plain(f"  Most of this week's spend: {model}, on {step}", "dim")] if model else []
     return lines
