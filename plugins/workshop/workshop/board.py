@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, DONE_DAYS, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, now_view, only, operations, plain, pr_rows, pull, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
+from .boardview import ASK_AGAIN, DONE_HOURS, OPERATE_HOURS, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, now_view, only, operations, plain, pr_rows, pull, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
 from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .prs import FAILING
 from .review import decisions
@@ -263,11 +263,11 @@ class Board:
             lines = now_view(self.runs, self.pr_items(), self.linked, self.title, self.queued(), self.events, now, width, self.ci, work)
             return [*self.repo_chips(), *(only(lines, self.filter) if self.filter else lines)]
         elif self.tab == DELIVERY:
-            lines = deliveries(self.building(), self.events, self.title, width, now, self.ci, work, self.cfg.get("done_days", DONE_DAYS))
+            lines = deliveries(self.building(), self.events, self.title, width, now, self.ci, work, self.cfg.get("done_hours", DONE_HOURS))
         elif self.tab == OPERATE:
-            lines = operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), now, width, self.ci, work, self.cfg.get("done_days", DONE_DAYS))
+            lines = operations([r for r in self.runs if r.operating], self.events, self.title, self.schedule(), now, width, self.ci, work, OPERATE_HOURS)
         else:
-            lines = pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked, now, work)
+            lines = pulls({"prs": {**self.snapshot["prs"], "items": self.pr_items()}} if "prs" in self.snapshot else {}, width, self.linked, now, work, self.cfg.get("done_hours", DONE_HOURS))
         return only(lines, self.filter) if self.filter else lines
 
     def choices(self, lines: list[Line]) -> list[tuple[str, str]]:

@@ -176,12 +176,12 @@ class Deliveries(unittest.TestCase):
         text = joined(usage_view([{"at": now, "cpu": 20.0, "ram": 85.0, "agents": 9}], [], {"cores": 4, "memory": 8.0}, now, WIDE))
         self.assertIn("with 9+ agents open, RAM reached 85%. Give WSL more", text)
 
-    def test_finished_runs_stay_three_days_unless_configured(self):
+    def test_finished_runs_stay_a_day_newest_first_unless_configured(self):
         runs = [run(str(n), "done", landed="closed") for n in range(1, 8)]
         events = [{**event("landed", str(n)), "at": f"2026-10-0{n}T00:00:00Z"} for n in range(1, 8)]
         now = datetime(2026, 10, 7, 12, tzinfo=UTC).timestamp()
-        self.assertEqual([line.run.key for line in deliveries(runs, events, lambda r: "", WIDE, now) if line.run], ["5", "6", "7"])
-        self.assertEqual([line.run.key for line in deliveries(runs, events, lambda r: "", WIDE, now, keep_days=1) if line.run], ["7"])
+        self.assertEqual([line.run.key for line in deliveries(runs, events, lambda r: "", WIDE, now) if line.run], ["7"])
+        self.assertEqual([line.run.key for line in deliveries(runs, events, lambda r: "", WIDE, now, keep_hours=72) if line.run], ["7", "6", "5"])
 
     def test_rows_stay_inside_the_width(self):
         lines = deliveries([run(reason="x" * 300, status="parked")], [], lambda r: "y" * 300, 120)
@@ -498,6 +498,13 @@ class PRs(unittest.TestCase):
         self.assertIn(" you ", line.text)
         self.assertNotIn("sam", line.text)
         self.assertNotIn("reviewers", line.text)
+
+    def test_merged_prs_stay_a_day_newest_first(self):
+        now = datetime(2026, 11, 2, 12, tzinfo=UTC).timestamp()
+        items = [pr(f"m{n}", "done", True, state="merged", updated=f"2026-11-0{n}T10:00:00Z") for n in (1, 2)] + [pr("old", "done", True, state="merged", updated="2026-10-30T10:00:00Z")]
+        found = lambda hours: [line.pr["url"] for line in pulls({"prs": {"polled_at": 1.0, "error": "", "items": items}}, WIDE, now=now, keep_hours=hours) if line.pr]  # noqa: E731
+        self.assertEqual(found(24), ["m2"])
+        self.assertEqual(found(72), ["m2", "m1"])
 
     def test_groups_by_whose_move_it_is(self):
         lines = pulls({"prs": {"polled_at": 1.0, "error": "", "items": [pr("a", "others", True), pr("b"), pr("c", "done", True)]}}, WIDE)

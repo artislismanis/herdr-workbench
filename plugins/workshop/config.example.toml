@@ -2,7 +2,7 @@
 
 # max_active = 2             # runs at once
 # max_waiting = 10           # no new tickets while this many items wait on you. Off by default
-# done_days = 3              # how long finished runs stay on Delivery and Operate
+# done_hours = 24            # how long finished work stays on Delivery and Review
 # comment_prefix = "[ai]"    # starts everything workshop posts, so it never counts as your comment. Change it with no run blocked
 #
 # A ticket runs only if you were the last person to change it. To run one anyway, add the

@@ -48,7 +48,8 @@ BAD_VERDICTS = ("CHANGES_NEEDED", "BLOCKED", "FAILED")
 COMPANIONS = ("notes.json", "replies.json", "proposals.json")  # what the last agent writes beside its report, round by round
 FILE_NOTES = {"replies.json": "draft replies", "proposals.json": "proposals", "answers.md": "your answers", "context.md": "others' comments", "feedback.md": "your rejections", "notes.json": "line notes", "ask.md": "the open question"}
 LIMITED = "GitHub's hourly limit is used up, so this is from the last update. It clears within the hour."
-DONE_DAYS = 3  # how long a finished run stays in view, unless the config's done_days says otherwise
+DONE_HOURS = 24  # how long finished work stays on Delivery and Review, unless the config's done_hours says otherwise
+OPERATE_HOURS = 72  # after the merge things move slower
 KANBAN_WIDTH = 80
 WHO_WIDTH = 100  # narrower than this, the who column goes, as the title says more. By width, so every tab drops it together
 STALE_AMBER = 3600  # working seconds waiting on you
@@ -380,13 +381,13 @@ def heading(run: Run) -> str:
     return "Needs you" if run.with_you or run.your_turn else HEADINGS[run.status]
 
 
-def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK, keep_days: float = DONE_DAYS) -> list[Line]:
-    return run_groups(runs, events, title, width, now, ci, work, keep_days) or [plain("  No tickets picked up yet.", "dim")]
+def deliveries(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int = 120, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK, keep_hours: float = DONE_HOURS) -> list[Line]:
+    return run_groups(runs, events, title, width, now, ci, work, keep_hours) or [plain("  No tickets picked up yet.", "dim")]
 
 
-def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK, keep_days: float = DONE_DAYS) -> list[Line]:
+def run_groups(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], width: int, now: float = 0.0, ci: Callable[[str], str] = lambda url: "", work: Work = WORK, keep_hours: float = DONE_HOURS) -> list[Line]:
     last = {(e["repo"], e["key"]): e["at"] for e in events}
-    landed = sorted((r for r in runs if r.landed and (r.repo, r.key) in last and now - spent_at({"at": last[(r.repo, r.key)]}) <= keep_days * DAY), key=lambda r: last[(r.repo, r.key)])
+    landed = sorted((r for r in runs if r.landed and (r.repo, r.key) in last and now - spent_at({"at": last[(r.repo, r.key)]}) <= keep_hours * 3600), key=lambda r: last[(r.repo, r.key)], reverse=True)  # newest first
     active = sorted((r for r in runs if not r.landed), key=lambda r: (rank(doing(r)), last.get((r.repo, r.key), "")) if heading(r) == "Needs you" else (len(NEXT_UP) + 1 + ORDER.index(r.status), ""))
     groups = {name: [r for r in active if heading(r) == name] for name in dict.fromkeys(heading(r) for r in active)} | ({"Done lately": landed} if landed else {})
     items = {name: [run_item(r, title(r), last.get((r.repo, r.key), ""), ci(r.pr)) for r in group] for name, group in groups.items()}
@@ -400,9 +401,9 @@ def rows_under(groups: dict[str, list["Item"]], width: int, now: float, work: Wo
     return [line for heading_name, items in groups.items() if items for line in (rule(f"{heading_name} {len(items)}", width), *(item_row(item, sizes, width, now, work) for item in items), plain())]
 
 
-def operations(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], schedule: list[dict[str, Any]], now: float, width: int = 120, ci: Callable[[str], str] = lambda url: "", work: Work = WORK, keep_days: float = DONE_DAYS) -> list[Line]:
+def operations(runs: list[Run], events: list[dict[str, Any]], title: Callable[[Run], str], schedule: list[dict[str, Any]], now: float, width: int = 120, ci: Callable[[str], str] = lambda url: "", work: Work = WORK, keep_hours: float = DONE_HOURS) -> list[Line]:
     """After the merge: getting it live, then looking after it. What a sweep turns up becomes a ticket on the Backlog."""
-    lines = run_groups(runs, events, title, width, now, ci, work, keep_days) or [plain("  Nothing merged or swept yet.", "dim"), plain()]
+    lines = run_groups(runs, events, title, width, now, ci, work, keep_hours) or [plain("  Nothing merged or swept yet.", "dim"), plain()]
     return [*lines, rule("Sweeps", width), *(sweep_row(item, now) for item in schedule)] if schedule else [*lines, rule("Sweeps", width), plain("  None scheduled. A repo lists them in its config, as `sweeps = { docs = \"monthly\" }`.", "dim")]
 
 
@@ -589,7 +590,7 @@ def pull_story(pr: dict[str, Any], run: Run | None, advice: str, handover: str, 
     return lines + drafted(replies or [], width) + briefing(handover, width) + ([plain(), rule("Workflow", width), *workflow] if workflow else [])
 
 
-def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str, Any]], Run | None] = lambda pr: None, now: float = 0.0, work: Work = WORK) -> list[Line]:
+def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str, Any]], Run | None] = lambda pr: None, now: float = 0.0, work: Work = WORK, keep_hours: float = DONE_HOURS) -> list[Line]:
     found = snapshot.get("prs")
     if not found:
         return [plain("Nothing saved yet. Press r, or wait for the next tick.")]
@@ -597,6 +598,7 @@ def pulls(snapshot: dict[str, Any], width: int = 120, linked: Callable[[dict[str
     lines = [plain(LIMITED, "yellow")] if limited else [plain(f"Couldn't update: {first_line(found['error'])}", "red")] if found["error"] else []
     grouped = {heading: [(p, linked(p)) for p in found["items"] if pull_group(p, linked(p)) == heading] for heading in REVIEW_GROUPS}
     grouped["Needs you"].sort(key=lambda found: pull_rank(*found))
+    grouped["Done lately"] = sorted(((p, run) for p, run in grouped["Done lately"] if now - datetime.fromisoformat(p["updated"]).timestamp() <= keep_hours * 3600), key=lambda found: found[0]["updated"], reverse=True)
     return [*lines, *rows_under({heading: [pull_item(p, run) for p, run in items] for heading, items in grouped.items()}, width, now, work)]
 
 
