@@ -2,6 +2,7 @@
 
 # max_active = 2             # runs at once
 # max_waiting = 10           # no new tickets while this many items wait on you. Off by default
+# done_hours = 24            # how long finished work stays on Delivery and Review
 # comment_prefix = "[ai]"    # starts everything workshop posts, so it never counts as your comment. Change it with no run blocked
 #
 # A ticket runs only if you were the last person to change it. To run one anyway, add the
@@ -68,7 +69,7 @@ source = "github"
 label = "ai"
 # base = "main"
 # pipeline = "ticket"        # README: Your own pipelines and step files says where it can live
-# sweeps = { deps = "weekly", backlog = "weekly", docs = "monthly", logs = "weekly" }
+# sweeps = { deps = "weekly", backlog = "weekly", docs = "monthly", logs = "manual" }  # manual: only when you run it
 # environments = { main = "prod", dev = "preprod" }  # replaces the default, which also has master and preprod
 # review_pipeline = "review" # the same, for AI review of a PR
 # reply_pipeline = "reply"   # and for answering comments on your own PR

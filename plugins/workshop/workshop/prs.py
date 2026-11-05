@@ -30,8 +30,8 @@ def searches(scope: str, now: float) -> dict[str, tuple[str, int]]:
         "mine": (f"is:open is:pr author:@me {scope}", 25),
         "requested": (f"is:open is:pr review-requested:@me {scope}", 25),
         "reviewed": (f"is:open is:pr reviewed-by:@me -author:@me {scope}", 25),
-        "merged_mine": (f"{merged} author:@me", 5),
-        "merged_reviewed": (f"{merged} reviewed-by:@me -author:@me", 5),
+        "merged_mine": (f"{merged} author:@me", 25),
+        "merged_reviewed": (f"{merged} reviewed-by:@me -author:@me", 25),
     }
 
 

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Ask, Board  # noqa: E402
-from workshop.boardview import Line, Span, ago, backlog, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, columns_of, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
+from workshop.boardview import Line, Span, ago, backlog, waiting, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -119,7 +119,7 @@ class Deliveries(unittest.TestCase):
     def test_the_machine_shows_when_it_can_be_read(self):
         found = {"cpu": 40, "cores": 8, "ram": 80, "memory": 31.4, "cpu_peak": 90, "ram_peak": 85}
         line = Line(usage_line({"5h": (58.0, 2880)}, found))
-        self.assertEqual(line.text.split(), ["5h", "58%", "(48m)", "CPU", "40%", "RAM", "80%"])
+        self.assertEqual(line.text.split(), ["5h", "58%", "(48m)", "CPU", "40%", "of", "8", "RAM", "80%", "of", "31G"])
 
     def test_time_to_go_reads_like_claudes_status_line(self):
         self.assertEqual([to_go(s) for s in (300, 16740, 190000)], ["5m", "4h39m", "2d4h"])
@@ -128,38 +128,55 @@ class Deliveries(unittest.TestCase):
         spans = usage_line({}, {"cpu": 40, "ram": 80})
         self.assertEqual([s.style for s in spans if "%" in s.text], ["", "yellow"])
 
-    def test_a_column_is_built_in_eighths_and_nothing_recorded_is_empty(self):
-        rows = columns_of([100, 50, None, 0], 100, 1)
-        self.assertEqual([row[0] for row in rows], ["█"] * 4)
-        self.assertEqual([row[2] for row in rows], [" ", " ", "█", "█"])
-        self.assertEqual({row[4] for row in rows} | {row[6] for row in rows}, {" "})
+    def test_the_usage_tab_leads_with_the_limits(self):
+        now = datetime(2026, 11, 4, 23, 30).timestamp()
+        rows = [{"at": now - 300 * n, "cpu": 1, "ram": 6, "five": 60 - n, "week": 30 - n / 10, "agents": 3} for n in range(60, -1, -1)]
+        text = joined(usage_view(rows, [], None, now, WIDE, {"5h": (6.0, 4.6 * 3600), "7d": (24.0, (4 * 24 + 1) * 3600)}))
+        self.assertLess(text.index("Limits"), text.index("Machine"))
+        self.assertNotIn("Spend, last 7 days", text)
+        self.assertIn("at this pace: 75% by the reset, lasts", text)
+        self.assertIn("57% by the reset, lasts, 43% spare", text)
+        self.assertIn("resets Thu 04:06 (4h36m)", text)
+        self.assertIn("A full 5h window takes about 10% of the week.", text)
+        self.assertIn("Room: the week has about 8 full 5h windows left", text)
+        self.assertIn("Tip:  the week will have 43% to spare", text)
 
-    def test_the_usage_tab_leads_with_trends(self):
+    def test_a_pace_that_runs_out_says_so_and_what_to_do(self):
         now = datetime(2026, 11, 4, 12).timestamp()
-        rows = [{"at": now - 3600, "cpu": 5, "ram": 10, "five": 30, "agents": 2}, {"at": now, "cpu": 50, "ram": 20, "five": 60, "agents": 1}]
-        text = joined(usage_view(rows, [], None, now, WIDE))
-        self.assertLess(text.index("Last 24 hours, by the hour"), text.index("Totals"))
-        self.assertIn("5h limit used", text)
-        self.assertIn("peak 60%", text)
-        self.assertIn("Last 7 days, by the day", text)
+        text = joined(usage_view([], [], None, now, WIDE, {"5h": (50.0, 4 * 3600), "7d": (24.0, 4 * 86400)}))
+        self.assertIn("runs out in 1h0m, 3h0m before the reset", text)
+        self.assertIn("wait for that rather than slow down", text)
+
+    def test_a_week_running_short_comes_first(self):
+        now = datetime(2026, 11, 4, 12).timestamp()
+        text = joined(usage_view([], [], None, now, WIDE, {"5h": (50.0, 4 * 3600), "7d": (90.0, 4 * 86400)}))
+        self.assertIn("Tip:  the week runs out", text)
 
     def test_the_usage_tab_says_when_theres_nothing_yet(self):
         self.assertIn("No samples yet", joined(usage_view([], [], None, 1000.0)))
 
-    def test_the_usage_tab_shows_machine_limits_work_and_spend_together(self):
+    def test_the_usage_tab_shows_machine_load_against_what_it_has(self):
         now = datetime(2026, 11, 2, 10, 30).timestamp()
         rows = [{"at": now - 600, "cpu": 61.0, "ram": 18.0, "five": 58, "week": 40, "agents": 4}, {"at": now - 300, "cpu": 20.0, "ram": 20.0, "five": 59, "week": 40, "agents": 1}]
-        spent = [event("spent", step="ai-review", usd=1.5, model="claude-sonnet-5-5") | {"at": datetime.fromtimestamp(now - 60, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}]
-        text = joined(usage_view(rows, spent, {"cores": 16, "memory": 47.0}, now))
-        self.assertIn("16 cores", text)
-        self.assertIn("peak 59%", text)
-        self.assertRegex(text, r"Today +peak cpu 61% +ram 20% +4 agents at once +\$1.50")
+        spent = [event("spent", step="ai-review", usd=1.5, model="claude-sonnet-5-5", tokens_in=12345, tokens_out=300) | {"at": datetime.fromtimestamp(now - 60, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}]
+        text = joined(usage_view(rows, spent, {"cores": 16, "memory": 47.0}, now, WIDE))
+        self.assertIn("Machine: 16 cores, 47G of memory", text)
+        self.assertRegex(text, r"3-4 +1 +█+░+ +18% 8G +█+░+ +61% 9.8 cores")
+        self.assertIn("haven't strained WSL", text)
+        self.assertRegex(text, r"Today +4 agents at once +12k tokens in, 300 out +\$1.50")
         self.assertIn("Most of this week's spend: claude-sonnet-5-5, on ai-review", text)
 
-    def test_only_the_latest_landed_runs_stay(self):
-        runs = [run(str(n), "done", landed="merged") for n in range(8)]
-        events = [{**event("landed", str(n)), "at": f"2026-10-0{n + 1}T00:00:00Z"} for n in range(8)]
-        self.assertEqual([line.run.key for line in deliveries(runs, events, lambda r: "", WIDE) if line.run], ["3", "4", "5", "6", "7"])
+    def test_a_peak_near_the_ceiling_says_what_to_do(self):
+        now = 10 * 86400.0
+        text = joined(usage_view([{"at": now, "cpu": 20.0, "ram": 85.0, "agents": 9}], [], {"cores": 4, "memory": 8.0}, now, WIDE))
+        self.assertIn("with 9+ agents open, RAM reached 85%. Give WSL more", text)
+
+    def test_finished_runs_stay_a_day_newest_first_unless_configured(self):
+        runs = [run(str(n), "done", landed="closed") for n in range(1, 8)]
+        events = [{**event("landed", str(n)), "at": f"2026-10-0{n}T00:00:00Z"} for n in range(1, 8)]
+        now = datetime(2026, 10, 7, 12, tzinfo=UTC).timestamp()
+        self.assertEqual([line.run.key for line in deliveries(runs, events, lambda r: "", WIDE, now) if line.run], ["7"])
+        self.assertEqual([line.run.key for line in deliveries(runs, events, lambda r: "", WIDE, now, keep_hours=72) if line.run], ["7", "6", "5"])
 
     def test_rows_stay_inside_the_width(self):
         lines = deliveries([run(reason="x" * 300, status="parked")], [], lambda r: "y" * 300, 120)
@@ -207,6 +224,16 @@ class Backlog(unittest.TestCase):
         for width in (WIDE, 60):
             self.assertIn("skipped: last edited", joined(backlog(self.snapshot, {"r/3": "last edited by them"}, lambda repo, key: False, width)))
 
+    def test_a_ticket_being_prepared_shows_what_it_needs_and_opens_the_run(self):
+        talk = run("prep-2", preparing=True, your_turn=True)
+        lines = backlog(self.snapshot, {}, lambda repo, key: False, WIDE, preparing={"r/2": talk})
+        self.assertIn("decide", joined(lines))
+        self.assertIn(("r", "prep-2"), [ref for line in lines for _, ref in refs(line)])
+
+    def test_a_ticket_being_prepared_waits_on_the_backlog_tab(self):
+        talk = run("prep-2", preparing=True, your_turn=True)
+        self.assertEqual([w.tab for w in waiting([talk], [], lambda r: False, [])], ["Backlog"])
+
     def test_shows_a_failed_source(self):
         snapshot = {"repos": {"r": {"polled_at": 1.0, "error": "gh failed", "items": []}}}
         self.assertEqual(backlog(snapshot, {}, lambda repo, key: False)[0].style, "red")
@@ -248,6 +275,10 @@ class Ages(unittest.TestCase):
         lines = [line for line in deliveries([run("1", "parked"), run("2")], events, lambda r: "", WIDE, start + 5 * 3600) if line.run]
         ages = {line.run.key: next(span.style for span in line.spans if span.text.strip() == "5h") for line in lines}
         self.assertEqual(ages, {"1": "yellow", "2": "dim"})
+
+    def test_a_run_waiting_on_reviewers_names_you_as_its_author(self):
+        line = next(line for line in deliveries([run(status="done", pr="u", opened=True)], [], lambda r: "", WIDE) if line.run)
+        self.assertNotIn("reviewers", line.text)
 
     def test_a_run_row_shows_its_prs_ci(self):
         line = next(line for line in deliveries([run(pr="u")], [], lambda r: "", WIDE, ci=lambda url: "FAILURE") if line.run)
@@ -435,6 +466,20 @@ class Operate(unittest.TestCase):
         row = {"repo": "r", "sweep": "docs", "cadence": "weekly", "every": 7 * 86400, "last": 0}
         self.assertRegex(joined(operations([], [], lambda r: "", [row], 5000.0, WIDE)), "not run yet +due")
 
+    def test_a_manual_sweep_has_no_next(self):
+        row = {"repo": "r", "sweep": "docs", "cadence": "manual", "every": 0, "last": 1000.0, "going": False}
+        text = joined(operations([], [], lambda r: "", [row], 5000.0, WIDE))
+        self.assertIn("by hand", text)
+        self.assertNotIn("due", text)
+
+    def test_a_sweep_going_says_so(self):
+        row = {"repo": "r", "sweep": "docs", "cadence": "weekly", "every": 7 * 86400, "last": 1000.0, "going": True}
+        self.assertIn("running now", joined(operations([], [], lambda r: "", [row], 5000.0, WIDE)))
+
+    def test_a_sweep_row_can_be_selected(self):
+        row = {"repo": "r", "sweep": "docs", "cadence": "weekly", "every": 7 * 86400, "last": 0}
+        self.assertIn(("#sweep", "r/docs"), [ref for line in operations([], [], lambda r: "", [row], 5000.0, WIDE) for _, ref in refs(line)])
+
     def test_no_sweeps_says_how_to_add_them(self):
         self.assertIn("None scheduled", joined(operations([], [], lambda r: "", [], 1.0, WIDE)))
 
@@ -442,6 +487,19 @@ class Operate(unittest.TestCase):
 class PRs(unittest.TestCase):
     def rows(self, *items):
         return [line for line in pulls({"prs": {"polled_at": 1.0, "error": "", "items": list(items)}}, WIDE) if line.pr]
+
+    def test_every_row_names_its_author_not_who_it_waits_on(self):
+        line = self.rows(pr("a", "others", True, waiting_on=["sam"]))[0]
+        self.assertIn(" you ", line.text)
+        self.assertNotIn("sam", line.text)
+        self.assertNotIn("reviewers", line.text)
+
+    def test_merged_prs_stay_a_day_newest_first(self):
+        now = datetime(2026, 11, 2, 12, tzinfo=UTC).timestamp()
+        items = [pr(f"m{n}", "done", True, state="merged", updated=f"2026-11-0{n}T10:00:00Z") for n in (1, 2)] + [pr("old", "done", True, state="merged", updated="2026-10-30T10:00:00Z")]
+        found = lambda hours: [line.pr["url"] for line in pulls({"prs": {"polled_at": 1.0, "error": "", "items": items}}, WIDE, now=now, keep_hours=hours) if line.pr]  # noqa: E731
+        self.assertEqual(found(24), ["m2"])
+        self.assertEqual(found(72), ["m2", "m1"])
 
     def test_groups_by_whose_move_it_is(self):
         lines = pulls({"prs": {"polled_at": 1.0, "error": "", "items": [pr("a", "others", True), pr("b"), pr("c", "done", True)]}}, WIDE)
@@ -870,6 +928,12 @@ class Keys(unittest.TestCase):
         self.board.seen = None
         self.board.reload()
         self.assertIn(" ▸ Delivery 1 ", self.board.header().text)
+
+    def test_preparing_is_not_delivery(self):
+        self.store.save(run("prep-2", preparing=True, your_turn=True))
+        self.board.seen = None
+        self.board.reload()
+        self.assertEqual([r.key for r in self.board.building() if r.preparing], [])
 
     def test_r_refreshes_once_at_a_time(self):
         with mock.patch("workshop.board.threading.Thread") as thread:
@@ -1395,6 +1459,14 @@ class Keys(unittest.TestCase):
         self.sent()
         self.assertIn("no such run", self.board.footer().text)
 
+    def test_enter_on_a_sweep_runs_it_now_after_a_yes(self):
+        self.board.cfg = {"repos": {"r": {"sweeps": {"docs": "manual"}}}}
+        self.board.tab = OPERATE
+        self.assertIn("enter run now", self.board.footer(WIDE).text)
+        self.board.press(10, WIDE)
+        self.assertIn("Run the docs sweep on r now?", joined(self.board.note(100)))
+        self.assertEqual(self.sent(), ("sweep", "r", "docs"))
+
     def test_p_on_the_backlog_asks_which_ticket_to_prepare(self):
         self.board.tab = BACKLOG
         self.assertIn("p prepare", self.board.footer().text)
@@ -1503,8 +1575,8 @@ class Keys(unittest.TestCase):
         self.store.save(Run(repo="r", key="prep-7", repo_path="/", base="main", pipeline=PIPELINE, preparing=True, your_turn=True))
         self.board.seen = None
         self.board.reload()
-        self.board.tab = DELIVERY
-        self.assertEqual(len(self.board.piles()[DELIVERY]), 1)
+        self.board.tab = BACKLOG
+        self.assertEqual((len(self.board.piles()[BACKLOG]), len(self.board.piles()[DELIVERY])), (1, 0))
         self.assertEqual(list(self.board.run_actions(self.board.runs[-1]).values()), ["d drop"])
 
     def at_gate(self):

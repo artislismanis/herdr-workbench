@@ -25,6 +25,7 @@ PROPOSAL_FIELDS = {"create": ("title", "body", "why"), "close": ("key", "why"), 
 SWEEPS = "sweeps.json"  # when each ran, and what you've declined
 QUEUE = "queue.json"  # the delivery queue's order by repo, as tickets have no order of their own that every source shares
 SWEEP_EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
+MANUAL = "manual"  # a sweep only you start, from Operate
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 NO_STEPS = {"none", "n/a", "nothing", "no"}
 CI_SETTLE = 90  # seconds after a push or rerun before the checks count, so ones that haven't registered yet don't read as passed or failed
@@ -883,7 +884,12 @@ class Engine:
     def _talk(self, run: Run, step: dict[str, Any], agent: str, status: str) -> None:
         """A conversation has no time limit, and an agent going quiet just means it's your turn. Only a report with its verdict ends it."""
         run.your_turn = False
-        if status == "gone":
+        if status == "gone" and step.get("queues") and "section" not in step and not self._agreed(run, step):
+            # Walking away from only "queue it?" means not now, and nothing was lost. A design talk has its design to lose.
+            self.store.event(run, "step", step=step["id"], state="done", verdict="", usage=self.throttle.snapshot())
+            run.step, run.phase = run.step + 1, ""
+            return
+        if status == "gone" and not self._agreed(run, step):
             raise Park(f"Agent {agent} has gone, so {step['id']} didn't finish.")
         if status == "working":
             return
