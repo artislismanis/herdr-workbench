@@ -16,6 +16,7 @@ CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 RULES_DIR="$CLAUDE_DIR/rules/herdr-workbench"
 HERDR_CONFIG="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
 HERDR_SKILL="$CLAUDE_DIR/skills/herdr/SKILL.md"
+WORKSHOP_SKILL="$CLAUDE_DIR/skills/workshop-config/SKILL.md"
 HERDR_BIN="$HOME/.config/herdr/bin"
 HERDR_SCRIPTS=(wt-remove-current wt-prune hunk-review-open hunk-pr-notes hunk-pr-push open-link notify-send win-bridge win-bridge-listener.ps1 win-bridge-go.ps1)
 XDG_OPEN="$HOME/.local/bin/xdg-open"
@@ -46,7 +47,7 @@ rm -f$(printf ' "%s"' "${WT_HOOKS[@]/#/$WT_DIR/hooks/}")
 rmdir --ignore-fail-on-non-empty "$WT_DIR/hooks" 2>/dev/null || true
 # Strips only our block; your own worktrunk settings below it stay.
 sed -i '/^# >>> herdr-workbench:worktrunk >>>$/,/^# <<< herdr-workbench:worktrunk <<<$/d' "$WT_DIR/config.toml"
-rm -rf "$RULES_DIR" "$(dirname "$HERDR_SKILL")"
+rm -rf "$RULES_DIR" "$(dirname "$HERDR_SKILL")" "$(dirname "$WORKSHOP_SKILL")"
 sed -i '/^# >>> herdr-workbench:herdr >>>$/,/^# <<< herdr-workbench:herdr <<<$/d' "$HERDR_CONFIG"
 herdr integration uninstall claude 2>/dev/null || true
 rm -f$(printf ' "%s"' "${HERDR_SCRIPTS[@]/#/$HERDR_BIN/}")
@@ -87,6 +88,7 @@ for hook in "${WT_HOOKS[@]}"; do
 done
 ensure_top_block herdr-workbench:worktrunk "$REPO_ROOT/worktrunk/config.toml" "$WT_DIR/config.toml"
 install_file "$REPO_ROOT/claude/rules/workbench.md" "$RULES_DIR/workbench.md" 644
+install_file "$REPO_ROOT/claude/skills/workshop-config/SKILL.md" "$WORKSHOP_SKILL" 644
 
 # Review happens in hunk, so Claude Code's own diff panel only opens over the agent. Yours if you've set it.
 _diff_panel_off() {

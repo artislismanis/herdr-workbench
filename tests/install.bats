@@ -27,6 +27,7 @@ toml() {
   [ -x "$HOME/.config/worktrunk/hooks/sync-default-branch" ]
   [ "$(head -1 "$CONFIG")" = "# >>> herdr-workbench:worktrunk >>>" ]
   cmp "$REPO_ROOT/claude/rules/workbench.md" "$HOME/.claude/rules/herdr-workbench/workbench.md"
+  cmp "$REPO_ROOT/claude/skills/workshop-config/SKILL.md" "$HOME/.claude/skills/workshop-config/SKILL.md"
 }
 
 @test "the Claude rule follows CLAUDE_CONFIG_DIR" {
@@ -116,6 +117,7 @@ assert set(c["projects"]["github.com/acme/app"]) == {"merge"}, c
   printf '\n[merge]\nsquash = false\n' >>"$CONFIG"
   "$REPO_ROOT/install.sh" --rollback | bash
   [ ! -e "$HOME/.config/worktrunk/hooks" ]
+  [ ! -e "$HOME/.claude/skills/workshop-config" ]
   ! grep -q herdr-workbench "$CONFIG"
   grep -qx 'squash = false' "$CONFIG"
 }

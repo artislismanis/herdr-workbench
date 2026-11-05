@@ -1,104 +1,163 @@
-# Copy to ~/.config/workshop/config.toml and chmod 600. Never commit a real one.
-
-# max_active = 2             # runs at once
-# max_waiting = 10           # no new tickets while this many items wait on you. Off by default
-# done_hours = 24            # how long finished work stays on Delivery and Review
-# comment_prefix = "[ai]"    # starts everything workshop posts, so it never counts as your comment. Change it with no run blocked
+# Workshop config. Copy to ~/.config/workshop/config.toml and chmod 600. Never commit a real one.
+# Or ask Claude to set it up: the workshop-config skill asks the questions and writes this file.
 #
-# A ticket runs only if you were the last person to change it. To run one anyway, add the
-# label <label>-override yourself, or use: workshop start <repo> <key> --override
+# How to read this file:
+#   - Uncommented lines are examples of what you must fill in. Replace them with your own.
+#   - A commented `# key = value` line shows the default. Leave it commented unless you want something else.
+#   - Sections run from must-have to nice-to-have:
+#       1. Required        repos, and Jira if you use it. Nothing runs without these
+#       2. Team-facing     what other people see on tickets, PRs and chat. Worth a deliberate choice
+#       3. Enhancements    tuning and extras. Every one is off or sensible without it
+#   - After any change: workshop doctor --no-launch
 
-# The labels that mark how far a ticket has been prepared, on the board's Backlog tab. These are
-# the defaults. No label is new, and the delivery label means queued.
-# [backlog]
-# planned = "planned"
-# designed = "designed"
 
-# How PR reviews show to others. A repo's table can set its own [repos.<name>.review].
-# Silent shows nothing until you post, then claims just before the review. Claimed claims when the
-# review starts. `a` on the board uses mode, `A` the other one, and `m` claims one already going.
-# claim is none, github-reviewer, github-assignee or chat-reaction. Use none where reviewers are assigned for you.
-# after_post = "chat-reply" offers a thread reply once the review is posted, and waits for your go.
-# block_failing_ci = true    # takes approving off the table while the PR's CI is failing
-# [review]
-# mode = "silent"
-# claim = "none"
-# after_post = "none"
+# ── General ──────────────────────────────────────────────────────────────────────────────────────
+# Top-level keys. TOML puts any key under the [table] above it, so these must stay above every table.
 
-# Slack, or any chat with an MCP server set up in Claude Code. Leave it out for no chat at all.
-# Tool names depend on your server: `claude mcp list` shows it, and /mcp in Claude its tools.
-# Give read_tools only read tools, as what's in the messages steers that call. It needs to read channels and threads.
-# Channels may need IDs, and check_minutes is worth lowering where chat is how reviews get asked for.
-# [chat]
-# channels = ["#reviews"]
-# read_tools = ["mcp__slack__search_messages"]
-# react_tool = "mcp__slack__add_reaction"
-# reply_tool = "mcp__slack__post_message"
-# check_minutes = 30         # how often, in working hours only
+# max_active = 2              # agent runs at once. Runs stopped on you don't count
+# max_waiting = 0             # 0 is off. At this many items waiting on you, no new tickets or sweeps start
+# done_hours = 24             # how long finished work stays on Delivery and Review
+# comment_prefix = "[ai]"     # starts everything workshop posts, so it never reads as your comment. Can't be empty
+
+
+# ══ 1. Required ══════════════════════════════════════════════════════════════════════════════════
+
+# ── Repos ────────────────────────────────────────────────────────────────────────────────────────
+# One [repos.<name>] table per repo. <name> is how workshop and the board name it.
 #
-# Reactions on the ask, by name. The claim is the only one used by default, and any other reaction here means the review is taken.
-# With after_post = "chat-reply", approved or comments goes on after you post, with ci and copilot if they apply.
-# [chat.reactions]           # your team's emoji names; one that doesn't exist falls back to the standard one shown
-# claim = "eyes"
-# approved = "white_check_mark"
-# comments = "speech_balloon"
-# ci = "x"
-# copilot = "robot_face"
-# model = "claude-haiku-5-5"
+#   path      required. A git checkout. Run `cd <path> && claude` once to accept folder trust
+#   source    required. Where tickets come from: github (issues), jira, or markdown (intent files)
+#   label     default "ai". The label that queues a ticket for delivery. Moves show as <label>-<move> on GitHub
+#   base      default "main". The branch work starts from and PRs target. Needs origin/<base>
+#
+# A ticket runs only if you were the last person to change it, because ticket text steers the agent.
+# To run one anyway, add the label <label>-override yourself, or: workshop start <repo> <key> --override
 
-# The board's PRs tab covers everything GitHub shows you. This narrows it, in GitHub search terms.
-# [prs]
-# search = "org:my-company"
-# intake = "chat"            # only asks in chat reach Needs you, for teams where a GitHub request says nothing
-
-# Paces work against Claude's limits, in percent. These are the defaults.
-# [throttle]
-# work_hours = [8, 18]       # your local time, when the 5h window is kept for you too
-# work_days = ["mon", "tue", "wed", "thu", "fri"]
-# pause_new_at = 80          # in those hours, no new tickets at this 5h usage
-# pause_steps_at = 90        # in those hours, no new agent steps at this 5h usage
-# five_hour_pace_margin = 5  # out of hours, no new tickets this many points ahead of an even 5h pace
-# five_hour_pace_stop = 15   # out of hours, no new agent steps this far ahead
-# weekly_pace_margin = 5     # no new tickets this many points ahead of an even 7d pace
-# weekly_pace_stop = 15      # no new agent steps this far ahead
-
-# One table per repo. `source` is github, jira or markdown.
 [repos.my-app]
 path = "~/src/my-app"
 source = "github"
 label = "ai"
 # base = "main"
-# pipeline = "ticket"        # README: Your own pipelines and step files says where it can live
-# sweeps = { deps = "weekly", backlog = "weekly", docs = "monthly", logs = "manual" }  # manual: only when you run it
-# environments = { main = "prod", dev = "preprod" }  # replaces the default, which also has master and preprod
-# review_pipeline = "review" # the same, for AI review of a PR
-# reply_pipeline = "reply"   # and for answering comments on your own PR
-# ci_pipeline = "fix-ci"     # and for fixing your PR's failing CI
+
+# The commands workshop runs itself, with no agent and no tokens. They run as you, also on PR
+# branches you review, so only set them on repos you trust.
 # [repos.my-app.commands]
-# qa = "npm test"            # the qa step runs this. Without it, the step is skipped
+# qa = "npm test"             # strongly recommended. Without it the qa step is skipped and the AI reviewer runs checks itself
+# logs = "kubectl logs ..."   # only for the logs sweep (section 3). Without it that sweep proposes nothing
 
 [repos.my-service]
 path = "~/src/my-service"
 source = "jira"
-label = "ai"                 # tickets need this label and the repo's name
-skip_statuses = ["Backlog"]
+label = "ai"                  # a Jira ticket needs this label, a label equal to the table name (my-service), and you as assignee
+skip_statuses = ["Backlog"]   # default []. Statuses never picked up
 
 [repos.my-notes]
 path = "~/src/my-notes"
 source = "markdown"
-intents = "~/intents/my-notes"   # *.md here are queued; done ones move to done/
+intents = "~/intents/my-notes"   # required for markdown. *.md here are queued; done ones move to done/
+
+# ── Jira ─────────────────────────────────────────────────────────────────────────────────────────
+# Required if any repo has source = "jira". GitHub uses `gh` and needs nothing here.
 
 [jira]
 base_url = "https://example.atlassian.net"
 email = "you@example.com"
-token = ""                   # or set JIRA_TOKEN
-# Set this if your board allows only the next column: a longer move walks it.
+token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN in your shell overrides it, but the
+                              # tick timer doesn't see shell variables, so a scheduled tick needs it here
 # route = ["To Do", "In Progress", "Code Review", "Dev Done", "Ready for Release"]
+#                             # only if your board allows moving to the next column only: a longer move walks this list
+# project = "ABC"             # the project key new tickets go in. Needed by sweeps and `workshop prepare <idea>`
 
-# The Jira status for each move. A move left out doesn't change the ticket. GitHub uses labels instead.
+
+# ══ 2. Team-facing ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Ticket moves on Jira ─────────────────────────────────────────────────────────────────────────
+# The Jira status for each step of a run. A move left out never changes the ticket, so with none of these
+# your tickets stay where they are. GitHub needs nothing: it uses <label>-<move> labels.
 # [jira.moves]
-# working = "In Progress"
-# blocked = "Pause/Blocked"
-# review = "Code Review"          # the PR is out of draft
-# approved = "Dev Done"           # approved, not merged
-# merged = "Ready for Release"    # later statuses, like Done, belong to your release process
+# working = "In Progress"           # the run started. A draft PR stays here while you self-review
+# blocked = "Pause/Blocked"         # the run stopped on a question or problem. Comment on the ticket to answer
+# review = "Code Review"            # you marked the PR ready
+# approved = "Dev Done"             # approved, not merged
+# preprod = "In Preprod"            # merged to a preprod branch (see environments, section 3)
+# merged = "Ready for Release"      # merged to prod. Later statuses, like Done, belong to your release process
+# dropped = "Won't Do"              # you dropped the run, or a sweep closed the ticket. Sweeps can't close Jira tickets without it
+
+# ── PRs tab ──────────────────────────────────────────────────────────────────────────────────────
+# The board's PRs tab covers everything GitHub shows you. Narrow it at work.
+# [prs]
+# search = "org:my-company"   # GitHub search terms. Default: no filter
+# intake = "chat"            # default: GitHub review requests reach Needs you. "chat": only asks in chat do,
+#                             # for teams where a GitHub request says nothing (CODEOWNERS). Needs [chat]
+
+# ── Reviewing others' PRs ────────────────────────────────────────────────────────────────────────
+# How your AI-assisted reviews show to others. A repo can override any of these in [repos.<name>.review].
+# `a` on the board uses mode, `A` the other one, and `m` claims one already going.
+# [review]
+# mode = "silent"             # silent: nothing shows until you post, then the claim goes out just before the review
+#                             # claimed: the claim goes out when the review starts
+# claim = "none"              # none: for teams that assign reviewers. Or github-reviewer, github-assignee,
+#                             # or chat-reaction (needs [chat]): a reaction on the message that asked
+# after_post = "none"         # or "chat-reply": offers a thread reply once posted, and waits for your go. Needs [chat]
+# block_failing_ci = false    # true takes approving off the table while the PR's CI fails
+
+
+# ══ 3. Enhancements ══════════════════════════════════════════════════════════════════════════════
+
+# ── Chat ─────────────────────────────────────────────────────────────────────────────────────────
+# Slack, or any chat with an MCP server set up in Claude Code. Leave it out for no chat at all.
+# Picks up PR links from channels as review asks. Tool names depend on your server: `claude mcp list`, or
+# /mcp in Claude. A claude.ai Slack connector's start mcp__claude_ai_Slack__, not mcp__slack__.
+# [chat]
+# channels = ["#reviews"]     # may need channel IDs instead of names
+# read_tools = ["mcp__slack__search_messages"]   # read tools only: message text steers this call.
+#                                                # It must be able to read channels and threads
+# react_tool = "mcp__slack__add_reaction"        # only for claim = "chat-reaction" or after_post = "chat-reply"
+# reply_tool = "mcp__slack__post_message"        # only for after_post = "chat-reply"
+# check_minutes = 30          # how often, in working hours only. Lower it where chat is how reviews get asked for
+# model = "claude-haiku-5-5"  # the model that reads chat
+#
+# Reactions, by your workspace's emoji names. A name that doesn't exist falls back to the default shown.
+# claim is the only one used unless after_post = "chat-reply". Any of these from someone else means the review is taken.
+# [chat.reactions]
+# claim = "eyes"
+# approved = "white_check_mark"
+# comments = "speech_balloon"
+# ci = "x"                    # CI failing
+# copilot = "robot_face"      # unresolved Copilot comments
+
+# ── Pacing against Claude's limits ───────────────────────────────────────────────────────────────
+# In percent of the limit. In work hours part of the 5h window is kept for you; out of hours it only
+# has to last until its reset. The week always has to last. Running steps always finish.
+# [throttle]
+# work_hours = [8, 18]        # your local time
+# work_days = ["mon", "tue", "wed", "thu", "fri"]
+# pause_new_at = 80           # in work hours, no new tickets at this 5h usage
+# pause_steps_at = 90         # in work hours, no new agent steps at this 5h usage
+# five_hour_pace_margin = 5   # out of hours, no new tickets this many points ahead of an even 5h pace
+# five_hour_pace_stop = 15    # out of hours, no new agent steps this far ahead
+# weekly_pace_margin = 5      # no new tickets this many points ahead of an even 7d pace
+# weekly_pace_stop = 15       # no new agent steps this far ahead
+
+# ── Backlog labels ───────────────────────────────────────────────────────────────────────────────
+# The labels for how far `workshop prepare` has got a ticket. No label is New; the delivery label is Queued.
+# [backlog]
+# planned = "planned"
+# designed = "designed"
+
+# ── Per-repo extras ──────────────────────────────────────────────────────────────────────────────
+# These go in a repo's own [repos.<name>] table, above its sub-tables such as .commands.
+#
+# sweeps = { deps = "weekly", backlog = "weekly", docs = "monthly", logs = "manual" }
+#                             # default: none. Scheduled looks that propose tickets. Need the tick timer on.
+#                             # manual: only when you run it. On Jira, needs [jira] project and moves.dropped
+# environments = { main = "prod", dev = "preprod" }
+#                             # replaces the default: main and master are prod, dev and preprod are preprod
+# pipeline = "ticket"         # or "gated", for your approval after planning. README: Your own pipelines
+# review_pipeline = "review"  # AI review of someone's PR
+# reply_pipeline = "reply"    # answering comments on your own PR
+# ci_pipeline = "fix-ci"      # fixing your PR's failing CI
+# prepare_pipeline = "prepare"   # grilling you on a ticket before it's queued
+#
+# [repos.my-app.review]       # this repo's own [review] settings, same keys as above
+# claim = "github-reviewer"
