@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: fresh-github-uv-repo
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  A new config.toml with one github repo, base = "master" detected from the remote, qa = "uv run pytest" suggested from uv.lock, and no default values written out. The file is chmod 600 and valid TOML, the questions came one at a time with required ones first, and the user is told what is left (folder trust, schedule).

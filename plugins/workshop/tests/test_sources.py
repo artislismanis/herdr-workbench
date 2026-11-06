@@ -1,6 +1,8 @@
+import os
 import sys
 import tempfile
 import unittest
+import urllib.error
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest import mock
@@ -315,6 +317,23 @@ class Jira(unittest.TestCase):
         for part in ('labels = "ai"', 'labels = "etl"', 'labels != "ai-claimed"', "assignee = currentUser()"):
             self.assertIn(part, jql)
         self.assertNotIn("status not in", jql)
+
+    def test_login_needs_a_token(self):
+        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": ""})
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(ValueError, "no Jira token"):
+            source.login()
+
+    def test_login_says_when_jira_refuses_the_token(self):
+        source = self.source([])
+        refused = urllib.error.HTTPError("https://x.test/rest/api/2/myself", 401, "Unauthorized", {}, None)  # type: ignore[arg-type]
+        with mock.patch.object(source, "_call", side_effect=refused), self.assertRaisesRegex(ValueError, "refused the token for a@b"):
+            source.login()
+
+    def test_login_says_who_the_token_is(self):
+        source = self.source([])
+        with mock.patch.object(source, "_call", return_value={"displayName": "Sam"}) as call:
+            self.assertEqual(source.login(), "Sam")
+        call.assert_called_once_with("GET", "myself")
 
     def test_jql_skips_listed_statuses(self):
         self.assertIn('status not in ("Backlog", "Icebox")', self.source(["Backlog", "Icebox"]).jql())

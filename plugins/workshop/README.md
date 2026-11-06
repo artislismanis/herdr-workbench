@@ -4,7 +4,7 @@ Turns a ticket from GitHub, Jira or a Markdown intent into a self-reviewed draft
 
 ## Set up
 
-Copy `config.example.toml` to `~/.config/workshop/config.toml`, `chmod 600` it, and add your repos. Then:
+Ask Claude to set up workshop's config: the `workshop-config` skill asks the critical questions one at a time and writes the file. Or copy `config.example.toml` to `~/.config/workshop/config.toml`, `chmod 600` it, and add your repos. Then:
 
 ```bash
 cd <repo> && claude     # accept folder trust once per clone; its worktrees inherit it
