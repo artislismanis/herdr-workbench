@@ -8,7 +8,7 @@ from typing import Any
 
 from .pipeline import PipelineError, load, pipeline_source, prompt_dirs, prompts_of, shipped
 from .shell import ToolError, run
-from .sources import make_source
+from .sources import JiraSource, make_source
 from .tools import Tools, slug
 
 TOOLS = ("git", "gh", "wt", "herdr", "claude")
@@ -102,14 +102,19 @@ def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -
     named = [repo.get("pipeline", "ticket"), repo.get("review_pipeline", "review"), repo.get("reply_pipeline", "reply"), repo.get("prepare_pipeline", "prepare"), repo.get("ci_pipeline", "fix-ci"), *(f"sweep-{sweep}" for sweep in repo.get("sweeps", {}))]
     found, loaded = pipelines(name, path, named)
     results += [found, prompts(name, path, loaded)]
-    try:
-        ready = make_source(name, repo, jira).ready()
-        results.append(Result(f"{name} source", True, note=f"{len(ready)} ready"))
-    except (ToolError, OSError, KeyError, ValueError) as stop:
-        results.append(Result(f"{name} source", False, str(stop)))
+    results.append(source_check(name, repo, jira))
     if launch:
         results.append(launch_test(path, name, base))
     return results
+
+
+def source_check(name: str, repo: dict[str, Any], jira: dict[str, str]) -> Result:
+    try:
+        source = make_source(name, repo, jira)
+        who = f", as {source.login()}" if isinstance(source, JiraSource) else ""
+        return Result(f"{name} source", True, note=f"{len(source.ready())} ready{who}")
+    except (ToolError, OSError, KeyError, ValueError) as stop:
+        return Result(f"{name} source", False, str(stop))
 
 
 def doctor(cfg: dict[str, Any], launch: bool = True) -> list[Result]:

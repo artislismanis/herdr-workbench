@@ -83,7 +83,7 @@ Offer as one multi-select question: "Anything else to set up? Each is off or at 
 
 - New file: follow `config.example.toml`'s layout: top-level keys first (TOML puts a key under the table above it), then `[repos.*]` and `[jira]`, then the team-facing tables, then enhancements. A one-line comment on any non-obvious value saying why it was chosen. Keep the example's first line, which says never to commit it.
 - Existing file: edit the text in place. Keep the user's comments, order and anything this run didn't touch. Don't regenerate it through a TOML library.
-- Then: `chmod 600`, parse check with `python3 -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' <file>`, and `workshop doctor --no-launch`. Fix what it reports, or explain what the user must do (a Jira token, `gh auth login`, a git identity). Doctor's Jira check passes with an empty token, so say the login is unproven until the token is in and doctor runs again.
+- Then: `chmod 600`, parse check with `python3 -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' <file>`, and `workshop doctor --no-launch`. Fix what it reports, or explain what the user must do (a Jira token, `gh auth login`, a git identity). While the Jira token is still empty, doctor's source check fails with `no Jira token`. That's expected: tell the user to fill it in and run doctor again, which then signs in and names who the token belongs to.
 - Offer the full `workshop doctor` last: it launches a real agent and spends a little.
 
 ## Finish

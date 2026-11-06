@@ -7,7 +7,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.doctor import launch_test, pipelines, prompts  # noqa: E402
+from workshop.doctor import launch_test, pipelines, prompts, source_check  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
 
@@ -73,3 +73,21 @@ class BackToBoard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Source(unittest.TestCase):
+    JIRA = {"base_url": "https://x.test", "email": "a@b", "token": ""}
+
+    def test_a_jira_repo_without_a_token_fails_before_searching(self):
+        # Jira answers a search without a login, with nothing found, so "0 ready" proved nothing.
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch("workshop.sources.JiraSource.ready") as ready:
+            found = source_check("etl", {"path": "/r", "source": "jira"}, self.JIRA)
+        self.assertFalse(found.ok)
+        self.assertIn("no Jira token", found.detail)
+        ready.assert_not_called()
+
+    def test_a_jira_repo_says_who_it_signs_in_as(self):
+        with mock.patch("workshop.sources.JiraSource.login", return_value="Sam"), mock.patch("workshop.sources.JiraSource.ready", return_value=["AB-1"]):
+            found = source_check("etl", {"path": "/r", "source": "jira"}, {**self.JIRA, "token": "t"})
+        self.assertTrue(found.ok)
+        self.assertEqual(found.note, "1 ready, as Sam")

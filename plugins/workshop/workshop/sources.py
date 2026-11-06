@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -228,8 +229,8 @@ class JiraSource:
         self.repo_name, self.label, self.skip = repo_name, label, skip_statuses
         self.moves, self.route, self.project = cfg.get("moves", {}), cfg.get("route", []), cfg.get("project", "")
         self.base = cfg["base_url"].rstrip("/")
-        token = os.environ.get("JIRA_TOKEN") or cfg["token"]
-        pair = f"{cfg['email']}:{token}".encode()
+        self.email, self.token = cfg["email"], os.environ.get("JIRA_TOKEN") or cfg["token"]
+        pair = f"{self.email}:{self.token}".encode()
         self.auth = "Basic " + base64.b64encode(pair).decode()
 
     def _call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
@@ -253,6 +254,17 @@ class JiraSource:
             names = ", ".join(f'"{s}"' for s in self.skip)
             parts.append(f"status not in ({names})")
         return " AND ".join(parts) + " ORDER BY priority DESC, updated ASC"
+
+    def login(self) -> str:
+        """Who the token signs in as. Jira answers a search without a login, with nothing found, so only this proves it."""
+        if not self.token:
+            raise ValueError("no Jira token: set token in [jira], or JIRA_TOKEN")
+        try:
+            return self._call("GET", "myself")["displayName"]
+        except urllib.error.HTTPError as refused:
+            if refused.code in (401, 403):
+                raise ValueError(f"Jira refused the token for {self.email}") from refused
+            raise
 
     def ready(self) -> list[str]:
         query = urllib.parse.urlencode({"jql": self.jql(), "fields": "key", "maxResults": 20})
