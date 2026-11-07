@@ -42,22 +42,22 @@ UNIT = HOME / ".config/systemd/user/win-bridge.service"
 LISTENER = Path(__file__).resolve().parent / "win-bridge-listener.ps1"
 CLICK = Path(__file__).resolve().parent / "win-bridge-go.ps1"
 # A scheduled task, as conhost --headless runs it with no window, where a Startup shortcut flashes one.
-WINDOWS = """$d = "$env:LOCALAPPDATA\\win-bridge\\NAME"; $null = New-Item -ItemType Directory -Force $d
-iwr -UseBasicParsing http://127.0.0.1:PORT/listener.ps1 -Headers @{'X-Token'='TOKEN'} -OutFile "$d\\listener.ps1"
+WINDOWS = """$d = "$env:LOCALAPPDATA\\win-bridge\\@NAME@"; $null = New-Item -ItemType Directory -Force $d
+iwr -UseBasicParsing http://127.0.0.1:@PORT@/listener.ps1 -Headers @{'X-Token'='@TOKEN@'} -OutFile "$d\\listener.ps1"
 $run = New-ScheduledTaskAction -Execute conhost.exe -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$d\\listener.ps1`""
 $keep = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName win-bridge-NAME -Action $run -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME) -Settings $keep -Force > $null
-Start-ScheduledTask -TaskName win-bridge-NAME
+Register-ScheduledTask -TaskName win-bridge-@NAME@ -Action $run -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME) -Settings $keep -Force > $null
+Start-ScheduledTask -TaskName win-bridge-@NAME@
 
-To remove it: Unregister-ScheduledTask win-bridge-NAME -Confirm:$false; Remove-Item -Recurse "$env:LOCALAPPDATA\\win-bridge\\NAME"; Remove-Item -Recurse HKCU:\\Software\\Classes\\win-bridge-PORT
+To remove it: Unregister-ScheduledTask win-bridge-@NAME@ -Confirm:$false; Remove-Item -Recurse "$env:LOCALAPPDATA\\win-bridge\\@NAME@"; Remove-Item -Recurse HKCU:\\Software\\Classes\\win-bridge-@PORT@
 """
 # WSL stops a distro a while after its last terminal closes, and the bridge with it. A hidden sleep keeps it up.
-KEEP = """$run = New-ScheduledTaskAction -Execute conhost.exe -Argument "--headless wsl.exe -d DISTRO --exec sleep infinity"
+KEEP = """$run = New-ScheduledTaskAction -Execute conhost.exe -Argument "--headless wsl.exe -d @DISTRO@ --exec sleep infinity"
 $keep = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName WSL-KeepAlive-DISTRO -Action $run -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME) -Settings $keep -Force > $null
-Start-ScheduledTask -TaskName WSL-KeepAlive-DISTRO
+Register-ScheduledTask -TaskName WSL-KeepAlive-@DISTRO@ -Action $run -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME) -Settings $keep -Force > $null
+Start-ScheduledTask -TaskName WSL-KeepAlive-@DISTRO@
 
-To remove it: Unregister-ScheduledTask WSL-KeepAlive-DISTRO -Confirm:$false
+To remove it: Unregister-ScheduledTask WSL-KeepAlive-@DISTRO@ -Confirm:$false
 """
 POLL = 25
 LIVE = 60  # a poll ends every POLL seconds, so longer than that without one means nobody's there
@@ -277,10 +277,10 @@ def setup(asked: list[str]) -> int:
         return 1
     print(f"On, port {PORT}. Links open on: {', '.join(allowed)}.")
     steps = [("In Windows PowerShell: links and toasts",
-              "Paste this, no admin needed. It fetches the listener and runs it now and at every sign-in, with no window:\n\n" + WINDOWS.replace("NAME", os.environ.get("WSL_DISTRO_NAME") or f"port-{PORT}").replace("PORT", str(PORT)).replace("TOKEN", token()))]
+              "Paste this, no admin needed. It fetches the listener and runs it now and at every sign-in, with no window:\n\n" + WINDOWS.replace("@NAME@", os.environ.get("WSL_DISTRO_NAME") or f"port-{PORT}").replace("@PORT@", str(PORT)).replace("@TOKEN@", token()))]
     if name := os.environ.get("WSL_DISTRO_NAME", ""):
         steps.append((f"In Windows PowerShell: keep {name} running",
-                      "So toasts and workshop's timers don't stop when you close your terminals, paste this too:\n\n" + KEEP.replace("DISTRO", name)))
+                      "So toasts and workshop's timers don't stop when you close your terminals, paste this too:\n\n" + KEEP.replace("@DISTRO@", name)))
     if herdr_toasts() != "system":
         steps.append(("In WSL: herdr's notifications",
                       'herdr\'s own notifications, and workshop\'s, which go through herdr, reach Windows once ~/.config/herdr/config.toml has this, above the herdr-workbench block, then run herdr server reload-config:\n\n[ui.toast]\ndelivery = "system"\n'))

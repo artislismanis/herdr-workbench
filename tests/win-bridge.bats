@@ -167,6 +167,8 @@ focus_after() {
   [[ "$output" == *"Register-ScheduledTask -TaskName win-bridge"* ]]
   [[ "$output" == *"--headless wsl.exe -d TestEnv --exec sleep infinity"* ]]
   [[ "$output" == *"-TaskName WSL-KeepAlive-TestEnv"* ]]
+  [[ "$output" != *"@"[A-Z]*"@"* ]]
+  [ "$(grep -c -- '-User $env:USERNAME)' <<<"$output")" -eq 2 ]
   [ "$(cat "$HOME/.config/win-bridge/distro")" = TestEnv ]
   grep -qx "Environment=WIN_BRIDGE_PORT=$WIN_BRIDGE_PORT" "$HOME/.config/systemd/user/win-bridge.service"
 }
