@@ -1,0 +1,52 @@
+name: bump-plugins
+# Fortnightly: move the herdr plugin commits in pins to upstream's tip and open
+# (or refresh) one PR. Reviewing each compare link and merging is the approval,
+# as pins says.
+#
+# PRs opened with GITHUB_TOKEN don't trigger other workflows; close and reopen
+# the PR to run ci. Needs "Allow GitHub Actions to create and approve pull
+# requests" in the repo's Actions settings.
+on:
+  schedule:
+    - cron: "0 6 1,15 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BRANCH: bump-plugins
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Bump pins
+        id: bump
+        run: |
+          changes="$(.github/bump-plugins.sh pins)"
+          {
+            echo 'changes<<EOF'
+            echo "$changes"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or refresh PR
+        if: steps.bump.outputs.changes != ''
+        env:
+          CHANGES: ${{ steps.bump.outputs.changes }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C "$BRANCH"
+          git commit -am "Bump herdr plugin pins" -m "$CHANGES"
+          git push --force origin "$BRANCH"
+          body="$(printf 'Upstream moved. Vet each diff (hooks, scripts, network calls, anything touching credentials or ~/.claude) and install on a throwaway distro before merging:\n\n%s\n' "$(sed 's/^/- /' <<<"$CHANGES")")"
+          if gh pr view "$BRANCH" --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$BRANCH" --body "$body"
+          else
+            gh pr create --draft --head "$BRANCH" --title "Bump herdr plugin pins" --body "$body"
+          fi
