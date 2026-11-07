@@ -1066,6 +1066,8 @@ class Engine:
                 raise Park(f"{step['id']} still says {verdict} after {rule['max']} rounds. {where}")
         run.step, run.phase = target, ""
         back = target < run.index_of(step["id"])
+        if back:
+            self.store.event(run, "sent_back", step=rule["goto"], by=step["id"], verdict=verdict)
         # Sent back, the step is told who sent it and where its findings are, unless the rule names its own prompt.
         run.next_prompt, run.sent_back = rule.get("prompt") or ("fix.md" if back else ""), step["id"] if back else ""
 

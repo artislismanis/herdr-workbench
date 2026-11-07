@@ -984,6 +984,8 @@ class CustomSteps(unittest.TestCase):
         self.assertIn(f"Its report is `{files / 'security.md'}`.", sent)
         self.assertIn(f"write `{files / 'build.md'}` again", sent)
         self.assertEqual(self.run.sent_back, "")
+        logged = [e for e in self.engine.store.events(self.run) if e["type"] == "sent_back"]
+        self.assertEqual([(e["step"], e["by"], e["verdict"]) for e in logged], [("build", "security", "CHANGES_NEEDED")])
 
     def test_a_prompt_that_is_nowhere_stops_the_start_before_the_claim(self):
         (self.root / ".workshop" / "prompts" / "security.md").unlink()
@@ -996,6 +998,7 @@ class CustomSteps(unittest.TestCase):
         run = Run(repo="r", key="1", repo_path=str(self.root), base="main", pipeline=steps)
         self.engine._follow(run, steps["steps"][0], steps["steps"][0]["then"]["FAILED"], "FAILED", "")
         self.assertEqual((run.next_prompt, run.sent_back), ("", ""))
+        self.assertFalse([e for e in self.engine.store.events(run) if e["type"] == "sent_back"])
 
 class Snapshots(unittest.TestCase):
     def setUp(self):
