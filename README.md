@@ -118,6 +118,11 @@ bats tests/             # every test uses a throwaway HOME and temp git repos
 
 CI runs both on every PR. Test installs on a throwaway distro, not your daily one.
 
+Other workflows:
+
+- `bump-plugins`, on the 1st and 15th: moves the plugin commits in `pins` to upstream's tip and opens a draft PR with a compare link for each. Reviewing those diffs and merging is the approval. Close and reopen the PR to run CI on it. Dependabot bumps the Actions on the same days, after a week's cooldown.
+- `skill-evals`, when a skill changes: runs `workshop-config`'s eval cases against a real Claude. Needs an `ANTHROPIC_API_KEY` repo secret and skips without one. The HTML report is attached to the run.
+
 ## Licence
 
 MIT

@@ -1,0 +1,57 @@
+name: skill-evals
+# The workshop-config skill's eval cases, with a real Claude, when the skill or
+# what it writes changes. Each run costs API credit, so it needs an
+# ANTHROPIC_API_KEY repo secret and skips without one.
+on:
+  pull_request:
+    paths:
+      - "claude/skills/**"
+      - "plugins/workshop/config.example.toml"
+      - ".github/workflows/skill-evals.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workshop-config:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_VERSION: 2.1.319
+    steps:
+      - name: Skip without an API key
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::notice::No ANTHROPIC_API_KEY secret, so the skill evals didn't run."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.ANTHROPIC_API_KEY != ''
+
+      # The eval refuses to grant Bash without a sandbox. Ubuntu 24.04's AppArmor
+      # blocks the unprivileged user namespaces bubblewrap needs.
+      - name: Install Claude Code and its sandbox
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap socat
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          mkdir -p "$HOME/.local/bin"
+          ln -s "$PWD/plugins/workshop/bin/workshop" "$HOME/.local/bin/workshop"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run the evals
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          claude plugin eval claude/skills/workshop-config \
+            --runs 1 --ablation none --scaffold --trust-plugin \
+            --allow-tools Bash Write Edit \
+            --threshold 0.8 --max-cost-usd 5 \
+            --no-publish --report eval-report.html
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && env.ANTHROPIC_API_KEY != ''
+        with:
+          name: skill-eval-report
+          path: eval-report.html

@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      # Same days as bump-plugins.yml and wsl-starter-script's bumps.
+      interval: "cron"
+      cronjob: "0 6 1,15 * *"
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"
