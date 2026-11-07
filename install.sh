@@ -21,6 +21,7 @@ HERDR_BIN="$HOME/.config/herdr/bin"
 HERDR_SCRIPTS=(wt-remove-current wt-prune hunk-review-open hunk-pr-notes hunk-pr-push open-link notify-send win-bridge win-bridge-listener.ps1 win-bridge-go.ps1)
 XDG_OPEN="$HOME/.local/bin/xdg-open"
 NOTIFY_SEND="$HOME/.local/bin/notify-send"
+WIN_BRIDGE="$HOME/.local/bin/win-bridge"
 HERDR_PLUGINS="$HOME/.config/herdr/plugins"
 HUNKDIFF_CONFIG="$HERDR_PLUGINS/config/jhochenbaum.hunkdiff/config.toml"
 HUNK_CONFIG="$HOME/.config/hunk/config.toml"
@@ -59,6 +60,7 @@ herdr plugin uninstall workshop 2>/dev/null || true
 rm -f "$WORKSHOP_CLI"
 [ ! -L "$XDG_OPEN" ] || rm -f "$XDG_OPEN"
 [ ! -L "$NOTIFY_SEND" ] || rm -f "$NOTIFY_SEND"
+[ ! -L "$WIN_BRIDGE" ] || rm -f "$WIN_BRIDGE"
 systemctl --user disable --now workshop-tick.timer 2>/dev/null || true
 systemctl --user disable --now workshop-sample.timer 2>/dev/null || true
 systemctl --user disable --now win-bridge.service 2>/dev/null || true
@@ -197,6 +199,8 @@ else
   if [ -L "$NOTIFY_SEND" ] || ! command -v notify-send >/dev/null 2>&1; then
     ensure_symlink "$HERDR_BIN/notify-send" "$NOTIFY_SEND"
   fi
+  # So `win-bridge setup` and `win-bridge status` work as typed.
+  ensure_symlink "$HERDR_BIN/win-bridge" "$WIN_BRIDGE"
   _ensure_plugin worktrunk "$WORKTRUNK_PLUGIN" "$WORKTRUNK_PLUGIN_COMMIT"
   _ensure_plugin jhochenbaum.hunkdiff "$HUNKDIFF_PLUGIN" "$HUNKDIFF_PLUGIN_COMMIT"
   _ensure_plugin annotate "$ANNOTATE_PLUGIN" "$ANNOTATE_PLUGIN_COMMIT"

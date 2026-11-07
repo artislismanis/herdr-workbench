@@ -1,5 +1,5 @@
 # win-bridge's click handler on Windows, filled in by win-bridge and run through
-# the win-bridge: link a toast click opens. It asks WSL to focus the toast's
+# the win-bridge-<port>: link a toast click opens. It asks WSL to focus the toast's
 # workspace, then finds herdr's tab by the titles WSL says it may have (herdr's
 # own, then herdr, then the distro's), in whichever Windows Terminal window holds it, and
 # brings that forward.

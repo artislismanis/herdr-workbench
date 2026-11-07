@@ -235,7 +235,14 @@ STUB
   [ ! -e "$HOME/.config/herdr/bin" ]
   [ ! -e "$HOME/.plugin" ]
   [ ! -L "$HOME/.local/bin/workshop" ]
+  [ ! -L "$HOME/.local/bin/win-bridge" ]
   [ ! -e "$HOME/.claude/skills/hunk-review" ]
   [ ! -e "$HOME/.config/herdr/plugins/config/jhochenbaum.hunkdiff/config.toml" ]
   ! grep -q herdr-workbench "$HOME/.config/hunk/config.toml"
+}
+
+@test "win-bridge is on PATH as typed" {
+  install
+  [ "$status" -eq 0 ]
+  [ "$(readlink "$HOME/.local/bin/win-bridge")" = "$HOME/.config/herdr/bin/win-bridge" ]
 }

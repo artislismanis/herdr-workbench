@@ -25,14 +25,15 @@ function Allowed($url) {
 
 function Esc($s) { [Security.SecurityElement]::Escape([string]$s) }
 
-# Windows PowerShell can't hear a click on its own toast, so a click opens a win-bridge: link
-# instead, registered for you alone, whose handler takes you to herdr.
+# Windows PowerShell can't hear a click on its own toast, so a click opens a win-bridge-<port>: link
+# instead, registered for you alone, whose handler takes you to herdr. One link type per port, so
+# each distro's listener sends clicks back to its own distro.
 $Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/go.ps1" -Headers @{ 'X-Token' = $Token } -OutFile "$Dir\go.ps1" } catch {}
 try {
-    $key = 'HKCU:\Software\Classes\win-bridge'
+    $key = "HKCU:\Software\Classes\win-bridge-$Port"
     $null = New-Item -Path "$key\shell\open\command" -Force
-    Set-ItemProperty -Path $key -Name '(default)' -Value 'URL:win-bridge'
+    Set-ItemProperty -Path $key -Name '(default)' -Value "URL:win-bridge-$Port"
     Set-ItemProperty -Path $key -Name 'URL Protocol' -Value ''
     Set-ItemProperty -Path "$key\shell\open\command" -Name '(default)' -Value "conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$Dir\go.ps1`" `"%1`""
     $CanGo = $true
@@ -43,7 +44,7 @@ function Toast($e) {
     $link = Allowed $e.url
     # A click goes to herdr where it can, and the link gets a button; otherwise a click opens the link.
     $go = $CanGo -and $e.focus -match '^[0-9a-f]+$'
-    $click = if ($go) { " activationType=`"protocol`" launch=`"win-bridge:go?id=$($e.focus)`"" } elseif ($link) { " activationType=`"protocol`" launch=`"$(Esc $e.url)`"" } else { '' }
+    $click = if ($go) { " activationType=`"protocol`" launch=`"win-bridge-${Port}:go?id=$($e.focus)`"" } elseif ($link) { " activationType=`"protocol`" launch=`"$(Esc $e.url)`"" } else { '' }
     $button = if ($go -and $link) { "<actions><action content=`"$(if ($e.url -match '/pull/\d+') { 'Open PR' } else { 'Open link' })`" activationType=`"protocol`" arguments=`"$(Esc $e.url)`"/></actions>" } else { '' }
     $doc = New-Object Windows.Data.Xml.Dom.XmlDocument
     $doc.LoadXml("<toast$click><visual><binding template=`"ToastGeneric`"><text>$(Esc $e.title)</text><text>$(Esc $e.body)</text></binding></visual>$button</toast>")
