@@ -25,6 +25,9 @@ import subprocess
 import sys
 import time
 import tomllib
+import zlib
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -39,14 +42,14 @@ UNIT = HOME / ".config/systemd/user/win-bridge.service"
 LISTENER = Path(__file__).resolve().parent / "win-bridge-listener.ps1"
 CLICK = Path(__file__).resolve().parent / "win-bridge-go.ps1"
 # A scheduled task, as conhost --headless runs it with no window, where a Startup shortcut flashes one.
-WINDOWS = """$d = "$env:LOCALAPPDATA\\win-bridge"; $null = New-Item -ItemType Directory -Force $d
+WINDOWS = """$d = "$env:LOCALAPPDATA\\win-bridge\\NAME"; $null = New-Item -ItemType Directory -Force $d
 iwr -UseBasicParsing http://127.0.0.1:PORT/listener.ps1 -Headers @{'X-Token'='TOKEN'} -OutFile "$d\\listener.ps1"
 $run = New-ScheduledTaskAction -Execute conhost.exe -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$d\\listener.ps1`""
 $keep = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName win-bridge -Action $run -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME) -Settings $keep -Force > $null
-Start-ScheduledTask -TaskName win-bridge
+Register-ScheduledTask -TaskName win-bridge-NAME -Action $run -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME) -Settings $keep -Force > $null
+Start-ScheduledTask -TaskName win-bridge-NAME
 
-To remove it: Unregister-ScheduledTask win-bridge -Confirm:$false; Remove-Item -Recurse "$env:LOCALAPPDATA\\win-bridge"
+To remove it: Unregister-ScheduledTask win-bridge-NAME -Confirm:$false; Remove-Item -Recurse "$env:LOCALAPPDATA\\win-bridge\\NAME"; Remove-Item -Recurse HKCU:\\Software\\Classes\\win-bridge-PORT
 """
 # WSL stops a distro a while after its last terminal closes, and the bridge with it. A hidden sleep keeps it up.
 KEEP = """$run = New-ScheduledTaskAction -Execute conhost.exe -Argument "--headless wsl.exe -d DISTRO --exec sleep infinity"
@@ -206,12 +209,59 @@ def herdr_toasts() -> str:
         return ""
 
 
+def answer(port: int, tries: int = 1) -> int:
+    """What holds the port answers our token with: 404 is our own bridge, 403 another distro's, 0 nothing."""
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/nope", headers={"X-Token": token()})
+    for _ in range(tries):
+        try:
+            with urllib.request.urlopen(req, timeout=1) as reply:
+                return reply.status
+        except urllib.error.HTTPError as e:
+            return e.code
+        except OSError:
+            time.sleep(0.1)
+    return 0
+
+
+def free(port: int) -> bool:
+    try:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+
+
+def pick_port() -> int:
+    """WIN_BRIDGE_PORT, else the port this distro already has, else a free one.
+
+    All distros share one network, so each needs its own. The search starts at a
+    spot hashed from the distro's name, so two distros, one of them stopped and
+    so invisible, are unlikely to pick the same port.
+    """
+    if os.environ.get("WIN_BRIDGE_PORT"):
+        return PORT
+    try:
+        mine = int(re.search(r"^Environment=WIN_BRIDGE_PORT=(\d+)$", UNIT.read_text(), re.M).group(1))
+        if free(mine) or answer(mine) == 404:
+            return mine
+    except (OSError, AttributeError):
+        pass
+    start = zlib.crc32(os.environ.get("WSL_DISTRO_NAME", "").encode()) % 800
+    for i in range(800):
+        if free(port := 47200 + (start + i) % 800):
+            return port
+    raise SystemExit("No free port in 47200-47999 for win-bridge; set WIN_BRIDGE_PORT.")
+
+
 def setup(asked: list[str]) -> int:
+    global PORT
     CONFIG.mkdir(parents=True, exist_ok=True)
     if not (CONFIG / "token").exists():
         (CONFIG / "token").touch(mode=0o600)
         (CONFIG / "token").write_text(secrets.token_urlsafe(24))
     allowed = hosts(asked)
+    PORT = pick_port()
     if os.environ.get("WSL_DISTRO_NAME"):
         (CONFIG / "distro").write_text(os.environ["WSL_DISTRO_NAME"])
     # Windows checks links against these before opening them, so nothing in WSL can make it open anything else.
@@ -221,14 +271,21 @@ def setup(asked: list[str]) -> int:
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
     subprocess.run(["systemctl", "--user", "enable", "--now", "win-bridge.service"], check=True)
     subprocess.run(["systemctl", "--user", "restart", "win-bridge.service"], check=True)
-    print(f"On, port {PORT}. Links open on: {', '.join(allowed)}.\n")
-    print("Paste this into PowerShell on Windows, no admin needed. It fetches the listener and runs it now and at every sign-in, with no window:\n")
-    print(WINDOWS.replace("PORT", str(PORT)).replace("TOKEN", token()))
+    # The last guard, for a WIN_BRIDGE_PORT someone set: another distro's bridge would take the listener's requests.
+    if answer(PORT, tries=30) == 403:
+        print(f"Port {PORT} is taken by another distro's win-bridge: all WSL distros share one network. Run setup again without WIN_BRIDGE_PORT and it picks a free one.")
+        return 1
+    print(f"On, port {PORT}. Links open on: {', '.join(allowed)}.")
+    steps = [("In Windows PowerShell: links and toasts",
+              "Paste this, no admin needed. It fetches the listener and runs it now and at every sign-in, with no window:\n\n" + WINDOWS.replace("NAME", os.environ.get("WSL_DISTRO_NAME") or f"port-{PORT}").replace("PORT", str(PORT)).replace("TOKEN", token()))]
     if name := os.environ.get("WSL_DISTRO_NAME", ""):
-        print("To keep this distro running from sign-in, so toasts and workshop's timers don't stop when you close your terminals, paste this too:\n")
-        print(KEEP.replace("DISTRO", name))
+        steps.append((f"In Windows PowerShell: keep {name} running",
+                      "So toasts and workshop's timers don't stop when you close your terminals, paste this too:\n\n" + KEEP.replace("DISTRO", name)))
     if herdr_toasts() != "system":
-        print('herdr\'s own notifications, and workshop\'s, which go through herdr, reach Windows once herdr\'s config.toml has this, above the herdr-workbench block, and then herdr server reload-config:\n\n[ui.toast]\ndelivery = "system"\n')
+        steps.append(("In WSL: herdr's notifications",
+                      'herdr\'s own notifications, and workshop\'s, which go through herdr, reach Windows once ~/.config/herdr/config.toml has this, above the herdr-workbench block, then run herdr server reload-config:\n\n[ui.toast]\ndelivery = "system"\n'))
+    for n, (title, body) in enumerate(steps, 1):
+        print(f"\n── {n} of {len(steps)} · {title} " + "─" * max(4, 60 - len(title)) + f"\n\n{body}")
     return 0
 
 

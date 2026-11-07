@@ -170,3 +170,65 @@ focus_after() {
   [ "$(cat "$HOME/.config/win-bridge/distro")" = TestEnv ]
   grep -qx "Environment=WIN_BRIDGE_PORT=$WIN_BRIDGE_PORT" "$HOME/.config/systemd/user/win-bridge.service"
 }
+
+@test "setup's steps are numbered, and say which run in PowerShell and which in WSL" {
+  stub_systemctl
+  run env WSL_DISTRO_NAME=TestEnv "$REPO_ROOT/bin/win-bridge" setup github.com
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1 of 3 · In Windows PowerShell: links and toasts"* ]]
+  [[ "$output" == *"2 of 3 · In Windows PowerShell: keep TestEnv running"* ]]
+  [[ "$output" == *"3 of 3 · In WSL: herdr's notifications"* ]]
+}
+
+@test "setup refuses a WIN_BRIDGE_PORT another distro's win-bridge holds" {
+  stub_systemctl
+  # All distros share one network: a second server there answers with its own token.
+  other="$BATS_TEST_TMPDIR/other" port=$((WIN_BRIDGE_PORT + 1))
+  mkdir -p "$other/.config/win-bridge"
+  echo theirs >"$other/.config/win-bridge/token"
+  HOME="$other" WIN_BRIDGE_PORT=$port "$REPO_ROOT/bin/win-bridge" serve &
+  theirs=$!
+  for _ in $(seq 50); do WIN_BRIDGE_PORT=$port get /nope theirs 2>/dev/null | grep -q 404 && break; sleep 0.1; done
+  run env WIN_BRIDGE_PORT=$port "$REPO_ROOT/bin/win-bridge" setup github.com
+  kill "$theirs" 2>/dev/null || true
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Port $port is taken by another distro's win-bridge"* ]]
+  [[ "$output" != *"Register-ScheduledTask"* ]]
+}
+
+unit_port() { sed -n 's/^Environment=WIN_BRIDGE_PORT=//p' "$HOME/.config/systemd/user/win-bridge.service"; }
+
+@test "each distro gets its own port, folder, task and click link, and keeps the port on a re-run" {
+  stub_systemctl
+  run env -u WIN_BRIDGE_PORT WSL_DISTRO_NAME=TestEnv "$REPO_ROOT/bin/win-bridge" setup github.com
+  [ "$status" -eq 0 ]
+  port="$(unit_port)"
+  [ "$port" -ge 47200 ] && [ "$port" -lt 48000 ]
+  [[ "$output" == *'$env:LOCALAPPDATA\win-bridge\TestEnv'* ]]
+  [[ "$output" == *"-TaskName win-bridge-TestEnv"* ]]
+  [[ "$output" == *"http://127.0.0.1:$port/listener.ps1"* ]]
+  [[ "$output" == *"Classes\win-bridge-$port"* ]]
+  run env -u WIN_BRIDGE_PORT WSL_DISTRO_NAME=TestEnv "$REPO_ROOT/bin/win-bridge" setup github.com
+  [ "$(unit_port)" = "$port" ]
+}
+
+@test "a re-run moves off a port another distro has taken since" {
+  stub_systemctl
+  other="$BATS_TEST_TMPDIR/other" port=$((WIN_BRIDGE_PORT + 2))
+  mkdir -p "$other/.config/win-bridge" "$HOME/.config/systemd/user"
+  echo theirs >"$other/.config/win-bridge/token"
+  HOME="$other" WIN_BRIDGE_PORT=$port "$REPO_ROOT/bin/win-bridge" serve &
+  theirs=$!
+  for _ in $(seq 50); do WIN_BRIDGE_PORT=$port get /nope theirs 2>/dev/null | grep -q 404 && break; sleep 0.1; done
+  echo "Environment=WIN_BRIDGE_PORT=$port" >"$HOME/.config/systemd/user/win-bridge.service"
+  run env -u WIN_BRIDGE_PORT WSL_DISTRO_NAME=TestEnv "$REPO_ROOT/bin/win-bridge" setup github.com
+  kill "$theirs" 2>/dev/null || true
+  [ "$status" -eq 0 ]
+  [ "$(unit_port)" != "$port" ]
+}
+
+@test "the listener's click link is per port, so clicks go back to their own distro" {
+  run get /listener.ps1
+  [[ "$output" == *"Classes\win-bridge-\$Port"* ]]
+  [[ "$output" == *'win-bridge-${Port}:go?id='* ]]
+}
