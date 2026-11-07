@@ -54,6 +54,7 @@ These change what other people see. Settle `[jira.moves]` and `[review] claim` w
 
 - **`[jira.moves]`**: the Jira status for each move: `working`, `blocked`, `review`, `approved`, `merged`, plus `preprod` and `dropped`. A move left out never changes the ticket. Offer to read the project's real statuses through the Atlassian MCP (a recent ticket's transitions) and map them. GitHub uses `ai-<move>` labels instead, nothing to set.
 - **`[jira] route`**: only if the board allows moving to the next column only. The columns in order.
+- **`[jira] unblocked`**: statuses where a blocking ticket no longer holds work back, though Jira doesn't count them as Done, such as `Ready for Release`. Only if the user's board has them.
 - **`[prs] search`**: narrows the PRs tab, in GitHub search terms. Suggest `org:<org>` from the repos' `origin` remotes.
 - **`[review] claim`**: how a review shows as yours: `none` (default, for teams that assign reviewers), `github-reviewer`, `github-assignee`, `chat-reaction` (needs `[chat]`). **`mode`**: `silent` (default, nobody sees anything until you post) or `claimed`. Only worth raising when `claim` isn't `none`.
 - **`comment_prefix`**: default `[ai]`, starts everything workshop posts. Only change it if the team wants another marker. It can't be empty.

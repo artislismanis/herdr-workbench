@@ -46,6 +46,7 @@ A `decide` run stopped as planned, at a gate or with a question. A `fix` run sto
 ## Safety
 
 - A ticket runs only if you were the last person to change it, because ticket text steers the agent. Use `--override`, or add the `<label>-override` label yourself, to run one anyway.
+- A ticket waits while a ticket blocking it is still open: GitHub's "blocked by" or Jira's "is blocked by". On Jira a blocker counts as finished when it's Done, or in a status listed in `[jira] unblocked`.
 - Gates are answered only from this command line, so nothing in a ticket can approve one.
 - A blocked run takes guidance only from a comment you wrote, and nobody else edited. Other people's comments reach the agent as background, never as instructions. Everything workshop posts starts with `comment_prefix`, `[ai]` by default, so it can't count as your comment.
 - Agents never commit or push. Workshop does, and it only opens draft PRs.

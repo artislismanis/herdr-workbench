@@ -67,6 +67,8 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 # route = ["To Do", "In Progress", "Code Review", "Dev Done", "Ready for Release"]
 #                             # only if your board allows moving to the next column only: a longer move walks this list
 # project = "ABC"             # the project key new tickets go in. Needed by sweeps and `workshop prepare <idea>`
+# unblocked = ["Ready for Release"]
+#                             # a blocker in one of these statuses no longer holds a ticket back. Done always counts
 
 
 # ══ 2. Team-facing ═══════════════════════════════════════════════════════════════════════════════
