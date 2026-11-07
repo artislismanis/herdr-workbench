@@ -9,7 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.pipeline import MARK, PipelineError, load, pipeline_source, prompt_source, prompt_text, validate  # noqa: E402
+from workshop.pipeline import MARK, SHIPPED, PipelineError, load, pipeline_source, prompt_source, prompt_text, prompts_of, shipped, validate  # noqa: E402
 
 
 def agent(**extra):
@@ -20,6 +20,16 @@ class Validate(unittest.TestCase):
     def rejects(self, raw, text):
         with self.assertRaisesRegex(PipelineError, text):
             validate(raw)
+
+    def test_every_shipped_pipeline_loads_with_its_prompts(self):
+        empty = tempfile.mkdtemp()
+        names = sorted(f.stem for f in SHIPPED.glob("*.toml"))
+        self.assertIn("ticket", names)
+        with mock.patch.dict(os.environ, {"WORKSHOP_PIPELINES": empty, "WORKSHOP_PROMPTS": empty, "WORKSHOP_REPOS": empty}):
+            for name in names:
+                with self.subTest(name):
+                    self.assertEqual(pipeline_source(name), "workshop")
+                    self.assertTrue(all(shipped(p) for p in prompts_of(load(name))))
 
     def test_every_sweep_ends_at_a_go(self):
         for name in ("deps", "docs", "backlog", "logs"):
