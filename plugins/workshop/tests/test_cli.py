@@ -338,7 +338,7 @@ class Status(unittest.TestCase):
     def test_json_lists_runs_held_and_skipped(self):
         state = tempfile.mkdtemp()
         engine = mock.Mock()
-        run = cli.Run("r", "7", "/x", "main", {"steps": [{"id": "implement"}]}, status="parked", reason="tests fail", pr="https://pr/1")
+        run = cli.Run("r", "7", "/x", "main", {"steps": [{"id": "implement"}]}, status="parked", reason="tests fail", pr="https://pr/1", begun=5.0)
         engine.store.all.return_value = [run]
         engine.store.exists.return_value = False
         engine.throttle.hold_new.return_value = "5h pace"
@@ -349,7 +349,7 @@ class Status(unittest.TestCase):
         shown = json.loads(out.getvalue())
         self.assertEqual(shown["held"], "5h pace")
         self.assertEqual(shown["skipped"], {"r/9": "blocked by #3."})
-        self.assertEqual({k: shown["runs"][0][k] for k in ("key", "status", "step", "reason", "pr")}, {"key": "7", "status": "parked", "step": "implement", "reason": "tests fail", "pr": "https://pr/1"})
+        self.assertEqual({k: shown["runs"][0][k] for k in ("key", "status", "step", "reason", "pr", "begun")}, {"key": "7", "status": "parked", "step": "implement", "reason": "tests fail", "pr": "https://pr/1", "begun": 5.0})
 
 
 class Cli(unittest.TestCase):

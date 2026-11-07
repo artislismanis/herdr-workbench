@@ -332,7 +332,7 @@ def show_status(engine: Engine, cfg: dict[str, Any], as_json: bool = False) -> N
     found = json.loads(file.read_text(encoding="utf-8")) if file.exists() else {}
     skipped = {ticket: reason for ticket, reason in found.items() if not engine.store.exists(*ticket.split("/", 1))}
     if as_json:
-        fields = ("repo", "key", "label", "status", "reason", "held", "pr", "landed", "branch", "worktree")
+        fields = ("repo", "key", "label", "status", "reason", "held", "pr", "landed", "branch", "worktree", "begun")
         listed = [{f: getattr(run, f) for f in fields} | {"step": run.current["id"] if run.current else ""} for run in runs]
         print(json.dumps({"runs": listed, "held": held, "skipped": skipped}, indent=2))
         return
