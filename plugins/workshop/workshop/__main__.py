@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status [--json] | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -325,17 +325,24 @@ def save_skipped(skipped: dict[str, str]) -> None:
     (state_root() / "skipped.json").write_text(json.dumps(skipped, indent=2), encoding="utf-8")
 
 
-def show_status(engine: Engine, cfg: dict[str, Any]) -> None:
-    for run in engine.store.all():
+def show_status(engine: Engine, cfg: dict[str, Any], as_json: bool = False) -> None:
+    runs = engine.store.all()
+    held = engine.throttle.hold_new(len(running(engine))) or your_pile(engine, cfg)
+    file = state_root() / "skipped.json"
+    found = json.loads(file.read_text(encoding="utf-8")) if file.exists() else {}
+    skipped = {ticket: reason for ticket, reason in found.items() if not engine.store.exists(*ticket.split("/", 1))}
+    if as_json:
+        fields = ("repo", "key", "label", "status", "reason", "held", "pr", "landed", "branch", "worktree", "begun")
+        listed = [{f: getattr(run, f) for f in fields} | {"step": run.current["id"] if run.current else ""} for run in runs]
+        print(json.dumps({"runs": listed, "held": held, "skipped": skipped}, indent=2))
+        return
+    for run in runs:
         step = run.current["id"] if run.current else "-"
         print(f"{run.label:9} {run.repo}/{run.key} {step} {run.held or run.reason or run.pr}")
-    if held := engine.throttle.hold_new(len(running(engine))) or your_pile(engine, cfg):
+    if held:
         print(f"held     new tickets: {held}")
-    skipped = state_root() / "skipped.json"
-    if skipped.exists():
-        for ticket, reason in json.loads(skipped.read_text(encoding="utf-8")).items():
-            if not engine.store.exists(*ticket.split("/", 1)):
-                print(f"skipped  {ticket} {reason}")
+    for ticket, reason in skipped.items():
+        print(f"skipped  {ticket} {reason}")
 
 
 def show_needs_you(engine: Engine) -> None:
@@ -606,7 +613,7 @@ def main(argv: list[str]) -> int:
             case "start":
                 waited(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv, "--restart" in argv))))
             case "status":
-                show_status(engine, cfg)
+                show_status(engine, cfg, "--json" in argv)
             case "needs-you":
                 show_needs_you(engine)
             case "explain":

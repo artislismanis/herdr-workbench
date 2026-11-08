@@ -17,7 +17,7 @@ workshop doctor         # checks tools, logins and repos, and launches a real ag
 |---|---|
 | `workshop tick` | Moves every run on, then starts one ready ticket if there's room |
 | `workshop start <repo> <key> [--override] [--restart]` | Starts one ticket now. `--override` skips the last-editor check. `--restart` redoes a ticket that already has a run, in the same worktree and workspace |
-| `workshop status` | Every run, plus what's skipped or held |
+| `workshop status [--json]` | Every run, plus what's skipped or held. `--json` for scripts |
 | `workshop needs-you` | Only what's waiting on you, and what to run |
 | `workshop explain <key>` | One run in detail |
 | `workshop resume <key>` | Tries a stopped run's step again |
