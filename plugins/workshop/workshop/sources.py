@@ -228,6 +228,7 @@ class JiraSource:
     def __init__(self, repo_name: str, label: str, skip_statuses: list[str], cfg: dict[str, Any]) -> None:
         self.repo_name, self.label, self.skip = repo_name, label, skip_statuses
         self.moves, self.route, self.project = cfg.get("moves", {}), cfg.get("route", []), cfg.get("project", "")
+        self.unblocked = cfg.get("unblocked", [])
         self.base = cfg["base_url"].rstrip("/")
         self.email, self.token = cfg["email"], os.environ.get("JIRA_TOKEN") or cfg["token"]
         pair = f"{self.email}:{self.token}".encode()
@@ -368,6 +369,7 @@ class JiraSource:
             if link["type"]["inward"] == "is blocked by"
             and "inwardIssue" in link
             and link["inwardIssue"]["fields"]["status"]["statusCategory"]["key"] != "done"
+            and link["inwardIssue"]["fields"]["status"]["name"] not in self.unblocked
         ]
         if blockers:
             return f"blocked by {', '.join(blockers)}."

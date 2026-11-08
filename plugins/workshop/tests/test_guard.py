@@ -87,8 +87,9 @@ APP = {"accountId": "auto", "accountType": "app"}
 
 
 class Jira(unittest.TestCase):
-    def guard(self, fields, history=()):
-        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test", "email": "a@b", "token": "t"})
+    def guard(self, fields, history=(), unblocked=()):
+        cfg = {"base_url": "https://x.test", "email": "a@b", "token": "t", "unblocked": list(unblocked)}
+        source = JiraSource("etl", "ai", [], cfg)
         replies = {"myself": {"accountId": "me"}}
 
         def call(method, path, body=None):
@@ -124,9 +125,20 @@ class Jira(unittest.TestCase):
         history = [self.edit(BOB), self.edit(BOB, "labels", T3, "ai-override")]
         self.assertIn("bob", self.guard({}, history))
 
+    def blocker(self, status, category):
+        status = {"name": status, "statusCategory": {"key": category}}
+        return {"issuelinks": [{"type": {"inward": "is blocked by"}, "inwardIssue": {"key": "DE-9", "fields": {"status": status}}}]}
+
     def test_an_unfinished_blocker_stops_it(self):
-        link = {"type": {"inward": "is blocked by"}, "inwardIssue": {"key": "DE-9", "fields": {"status": {"statusCategory": {"key": "new"}}}}}
-        self.assertIn("DE-9", self.guard({"issuelinks": [link]}))
+        self.assertIn("DE-9", self.guard(self.blocker("To Do", "new")))
+
+    def test_a_finished_blocker_lets_it_through(self):
+        self.assertEqual(self.guard(self.blocker("Done", "done")), "")
+
+    def test_a_blocker_in_an_unblocked_status_lets_it_through(self):
+        blocker = self.blocker("Ready for Release", "indeterminate")
+        self.assertIn("DE-9", self.guard(blocker))
+        self.assertEqual(self.guard(blocker, unblocked=["Ready for Release"]), "")
 
 
 if __name__ == "__main__":
