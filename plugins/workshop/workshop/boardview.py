@@ -2,6 +2,7 @@
 
 import re
 import textwrap
+import time
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -733,7 +734,22 @@ def findings(report: str, name: str, width: int, lead: str = "") -> list[Line]:
     return [*lines, plain(f"{lead}└ more in {name}" if len(parts) > FINDINGS else f"{lead}└", "dim")]
 
 
-def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[str, Any]]) -> Line:
+def clock(run: Run, events: list[dict[str, Any]], now: float) -> dict[str, float]:
+    """Seconds each step took by the clock over all its rounds, waits included. The engine runs one step at a time, so the time since the last step ended is the next one's."""
+    took: dict[str, float] = {}
+    last = None
+    for e in events:
+        at = datetime.fromisoformat(e["at"]).timestamp()
+        last = at if last is None else last
+        if (e["type"] == "step" and e.get("state") == "done") or e["type"] == "passed":
+            took[e["step"]] = took.get(e["step"], 0.0) + at - last
+            last = at
+    if last is not None and run.current and not completed(run):
+        took[run.current["id"]] = took.get(run.current["id"], 0.0) + max(now - last, 0.0)
+    return took
+
+
+def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[str, Any]], took: dict[str, float]) -> Line:
     _, style, word = stage_state(run, indexes)
     ids = {run.pipeline["steps"][index]["id"] for index in indexes}
     last = {e["step"]: e.get("verdict", "") for e in events if e["type"] == "step" and e.get("state") == "done" and e.get("step") in ids}
@@ -741,7 +757,8 @@ def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[st
         style, word = "yellow", "done with findings"
     spent = [e for e in events if e["type"] == "spent" and e.get("step") in ids]
     prices = [e["usd"] for e in spent]
-    total = f"{sum(e['minutes'] for e in spent):.1f}m  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
+    seconds = [took[i] for i in ids if i in took]
+    total = "  ".join([*([ago(sum(seconds))] if seconds else []), *([("unpriced" if None in prices else f"${sum(prices):.2f}")] if spent else [])])
     return Line([Span(f" {stage} ", block(style) if style != "dim" else "bold"), Span(f"  {word}", style), Span(f"   {total}" if total else "", "dim")])
 
 
@@ -783,8 +800,9 @@ def ticket_rows(run: Run, files: list[str], staged: bool, room: int) -> list[Lin
     return [*heading, *rows, plain()] if heading or rows else []
 
 
-def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], width: int, stopped: tuple[str, str] = ("", ""), earlier: bool = False) -> list[Line]:
+def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], width: int, stopped: tuple[str, str] = ("", ""), earlier: bool = False, now: float | None = None) -> list[Line]:
     steps = run.pipeline["steps"]
+    took = clock(run, events, time.time() if now is None else now)
     staged = any(step.get("stage") for step in steps) or bool(run.pipeline.get("ticket_stage"))
     width -= len(branch(staged, True, True))
     room = max(min(28, width - 54), 3)
@@ -799,11 +817,10 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
     ends = {indexes[-1] for indexes in groups}
     for index, step in enumerate(steps):
         if step.get("stage") and index in starts:
-            lines.append(stage_heading(run, step["stage"], starts[index], events))
+            lines.append(stage_heading(run, step["stage"], starts[index], events, took))
         hang = branch(staged, bool(step.get("stage")), index in ends)
         under = f"{hang.replace('├', '│').replace('└', ' ')}  "
         seen = [e for e in events if e.get("step") == step["id"]]
-        spent = [e for e in seen if e["type"] == "spent"]
         finished = [e for e in seen if e["type"] == "step" and e.get("state") == "done"]
         rounds = len([e for e in seen if e["type"] == "step" and e.get("state") == "running"])
         current = index == run.step and not completed(run)
@@ -812,9 +829,8 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         # Solid: workshop saw the result itself. Hollow: the agent's word. Gates are yours, so unmarked.
         source = "" if verdict in ("", "SKIPPED") else "◆" if step["kind"] in ("command", "ci") else "◇" if step["kind"] == "agent" else ""
         facts = [f"{rounds}×"] if rounds > 1 else []
-        if spent:
-            prices = [e["usd"] for e in spent]
-            facts += [f"{sum(e['minutes'] for e in spent):.1f}m", "unpriced" if None in prices else f"${sum(prices):.2f}"]
+        if step["id"] in took:
+            facts.append(("waited " if step["kind"] == "gate" else "") + ago(took[step["id"]]))
         latest, older = files_of(step, reports)
         beside = alongside if index == writes_notes else []
         past = sorted([*older, *(found for _, rounds in beside for found in rounds)], key=lambda found: -found[0])
