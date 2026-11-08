@@ -398,6 +398,7 @@ class Engine:
             return self._decided(run, "do")
         self._post(run, "Approved.")
         run.status, run.reason = "running", ""
+        self.store.event(run, "step", step=step["id"], state="done", verdict="APPROVED")
         run.step, run.phase = run.step + 1, ""
         self.store.event(run, "approved")
         self.save(run)

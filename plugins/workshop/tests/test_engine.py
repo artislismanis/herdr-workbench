@@ -1863,6 +1863,8 @@ class Gates(Case):
         run = self.engine.approve(self.run_)
         self.assertEqual((run.status, run.current["id"], run.phase), ("running", "implement", "prompted"))
         self.assertEqual(run.reason, "")
+        done = [e for e in self.engine.store.events(run) if e["type"] == "step" and e.get("step") == "approve"]
+        self.assertEqual([(e["state"], e["verdict"]) for e in done], [("done", "APPROVED")])
 
     def test_rejection_goes_back_with_the_note(self):
         run = self.engine.reject(self.run_, "Use the existing client.")

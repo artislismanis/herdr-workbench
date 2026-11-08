@@ -316,14 +316,22 @@ class Drill(unittest.TestCase):
         self.assertTrue(any("round 2" in t and "← verify CHANGES_NEEDED" in t for t in lines))
         self.assertFalse(any("round 1" in t for t in lines))
 
-    def test_shows_each_steps_rounds_verdict_and_cost(self):
+    def test_shows_each_steps_rounds_verdict_and_clock_time(self):
         spent = {"minutes": 2.0, "usd": 0.5}
-        started = event("step", step="verify", state="running")
-        events = [event("step", step="plan", state="running"), event("spent", step="plan", **spent), event("step", step="plan", state="done", verdict=""), started, started, event("spent", step="verify", **spent), event("spent", step="verify", **spent), event("step", step="verify", state="done", verdict="PASS")]
+        started = event("step", step="verify", state="running", at="2026-10-31T12:02:00Z")
+        events = [event("step", step="plan", state="running", at="2026-10-31T12:00:00Z"), event("spent", step="plan", **spent, at="2026-10-31T12:02:00Z"), event("step", step="plan", state="done", verdict="", at="2026-10-31T12:02:00Z"), started, started, event("spent", step="verify", **spent), event("step", step="verify", state="done", verdict="PASS", at="2026-10-31T12:10:00Z")]
         lines = texts(drill(run(step=2), events, "Title", "", "/files", 100))
-        self.assertTrue(any("plan" in t and "×" not in t and "$0.50" in t for t in lines))
-        self.assertTrue(any("verify" in t and "2×" in t and "PASS" in t and "4.0m" in t and "$1.00" in t for t in lines))
+        self.assertTrue(any("plan" in t and "×" not in t and "2m" in t and "$" not in t for t in lines))
+        self.assertTrue(any("verify" in t and "2×" in t and "PASS" in t and "8m" in t and "$" not in t for t in lines))
         self.assertTrue(any(t.startswith("◐ pr") for t in lines))
+
+    def test_a_gate_waiting_on_you_counts_up(self):
+        gated = run(step=1, status="waiting")
+        gated.pipeline = {"name": "x", "steps": [{"id": "plan", "kind": "agent"}, {"id": "approve", "kind": "gate"}]}
+        done = [event("step", step="plan", state="running", at="2026-10-31T12:00:00Z"), event("step", step="plan", state="done", at="2026-10-31T12:05:00Z")]
+        now = datetime.fromisoformat("2026-10-31T15:05:00Z").timestamp()
+        lines = texts(timeline(gated, done, (), 100, now=now))
+        self.assertTrue(any("approve" in t and "waited 3h" in t for t in lines))
 
     def test_steps_behind_the_run_are_done_even_without_events(self):
         self.assertTrue(any(t.strip().startswith("● plan") for t in texts(drill(run(step=1), [], "", "", "/f", 80))))
@@ -358,11 +366,11 @@ class Drill(unittest.TestCase):
         steps = [{"id": "a", "kind": "agent", "stage": "Build"}, {"id": "b", "kind": "agent", "stage": "Build"}, {"id": "c", "kind": "agent", "stage": "Test"}]
         staged = run(step=2, status="parked")
         staged.pipeline = {"name": "x", "steps": steps}
-        spent = [event("spent", step="a", minutes=1.0, usd=0.1), event("spent", step="b", minutes=2.0, usd=0.2)]
+        spent = [event("claimed", at="2026-10-31T12:00:00Z"), event("step", step="a", state="done", at="2026-10-31T12:01:00Z"), event("spent", step="a", minutes=1.0, usd=0.1), event("step", step="b", state="done", at="2026-10-31T12:03:00Z"), event("spent", step="b", minutes=2.0, usd=0.2, at="2026-10-31T12:03:00Z")]
         lines = drill(staged, spent, "", "", "/f", 80)
         build = next(line for line in lines if line.text.startswith(" Build "))
         test = next(line for line in lines if line.text.startswith(" Test "))
-        self.assertEqual(build.text, " Build   done   3.0m  $0.30")
+        self.assertEqual(build.text, " Build   done   3m  $0.30")
         self.assertEqual((build.spans[0].style, test.spans[0].style), ("on-green", "on-red"))
         self.assertIn("fix", test.text)
 
