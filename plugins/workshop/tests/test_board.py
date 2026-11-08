@@ -844,6 +844,15 @@ class Screen:
         self.marked.append((y, x, size))
 
 
+class Reach(Screen):
+    """Remembers the furthest column anything was drawn to."""
+
+    reach = 0
+
+    def addnstr(self, y, x, text, size, attr):
+        self.reach = max(self.reach, x + min(columns(text), size))
+
+
 class Keys(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -891,6 +900,43 @@ class Keys(unittest.TestCase):
         self.assertEqual(self.board.tab, 0)
         self.assertLess(self.board.header().text.index("Backlog"), self.board.header().text.index("Delivery"))
         self.assertLess(self.board.header().text.index("Delivery"), self.board.header().text.index("Review"))
+
+    def test_w_draws_the_board_phone_wide_and_back(self):
+        screen = Reach(200)
+        self.board.draw(screen, collections.defaultdict(int))
+        self.assertTrue(self.board.edge)
+        self.board.press(ord("w"))
+        screen.reach = 0
+        self.board.draw(screen, collections.defaultdict(int))
+        self.assertEqual(self.board.edge, 0)
+        self.assertLessEqual(screen.reach, 56)
+        self.assertIn("w wide", joined(self.board.note(56)))
+        self.board.press(ord("w"))
+        self.board.draw(screen, collections.defaultdict(int))
+        self.assertTrue(self.board.edge)
+
+    def test_a_narrow_status_line_folds_and_keeps_every_part(self):
+        self.board.press(ord("w"))
+        screen = Reach(200)
+        self.board.draw(screen, collections.defaultdict(int))
+        self.assertLessEqual(screen.reach, 56)
+        bottom = [" ".join(text for _, text in self.board.painted[y]) for y in (28, 29)]
+        self.assertIn("RAM", bottom[0])
+        self.assertIn("not updated yet", bottom[1])
+
+    def test_a_narrow_header_names_only_the_current_tab(self):
+        self.assertIn("Backlog", self.board.header(120).text)
+        narrow = self.board.header(40).text
+        self.assertIn("Now", narrow)
+        self.assertNotIn("Backlog", narrow)
+        self.assertLessEqual(columns(narrow), 40)
+
+    def test_the_keys_fold_onto_rows_that_fit(self):
+        rows = self.board.note(30)
+        self.assertGreater(len(rows), 1)
+        self.assertTrue(all(columns(row.text) <= 30 for row in rows))
+        keys = [span.text for row in rows for span in row.spans if span.text.strip()]
+        self.assertEqual(keys, [span.text for span in self.board.footer(30).spans if span.text.strip()])
 
     def test_backlog_is_where_nothing_opens(self):
         self.board.press(ord("\t"))
@@ -1135,7 +1181,7 @@ class Keys(unittest.TestCase):
         self.assertGreater(len(self.board.note(40)), 3)
         self.assertEqual(joined(self.board.note(40)).count("word"), 40)
         self.board.press(ord("j"))
-        self.assertEqual(len(self.board.note(40)), 1)
+        self.assertNotIn("word", joined(self.board.note(40)))
 
     def test_typing_takes_backspace_and_esc_cancels(self):
         self.stopped()
