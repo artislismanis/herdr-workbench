@@ -787,7 +787,7 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
     steps = run.pipeline["steps"]
     staged = any(step.get("stage") for step in steps) or bool(run.pipeline.get("ticket_stage"))
     width -= len(branch(staged, True, True))
-    room = max(min(28, width - 52), 5)
+    room = max(min(28, width - 54), 3)
     alongside = [versions(name, reports) for name in COMPANIONS]
     every = [*(files_of(step, reports) for step in steps), *alongside]
     owned = {path for latest, older in every for path in (latest, *(p for _, p in older))}
@@ -809,7 +809,8 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         current = index == run.step and not completed(run)
         mark, style = ("◐", "red" if run.landed == "dropped" else COLOURS[run.status]) if current else ("●", "green") if index < run.step or done_all(run) or (finished and not run.until) else ("○", "dim")
         verdict = finished[-1].get("verdict", "") if finished else ""
-        checked = step["kind"] in ("command", "ci") and verdict not in ("", "SKIPPED")  # workshop saw the result, not just the agent's word
+        # Solid: workshop saw the result itself. Hollow: the agent's word. Gates are yours, so unmarked.
+        source = "" if verdict in ("", "SKIPPED") else "◆" if step["kind"] in ("command", "ci") else "◇" if step["kind"] == "agent" else ""
         facts = [f"{rounds}×"] if rounds > 1 else []
         if spent:
             prices = [e["usd"] for e in spent]
@@ -817,7 +818,7 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         latest, older = files_of(step, reports)
         beside = alongside if index == writes_notes else []
         past = sorted([*older, *(found for _, rounds in beside for found in rounds)], key=lambda found: -found[0])
-        row = [Span(hang, "dim"), Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(f"{verdict} ✓" if checked else verdict, 15), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(facts), room), "dim")]  # the report beats the numbers on a narrow panel
+        row = [Span(hang, "dim"), Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(source, 2), "dim"), Span(cell(verdict, 15), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(facts), room), "dim")]  # the report beats the numbers on a narrow panel
         if latest:
             row += [Span("▸ " if current else "  ", "yellow"), Span(latest.rsplit("/", 1)[-1], "mine")]
         if past and not earlier:
