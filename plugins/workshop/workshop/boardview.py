@@ -745,12 +745,26 @@ def stage_heading(run: Run, stage: str, indexes: list[int], events: list[dict[st
     return Line([Span(f" {stage} ", block(style) if style != "dim" else "bold"), Span(f"  {word}", style), Span(f"   {total}" if total else "", "dim")])
 
 
+def sent_back(seen: list[dict[str, Any]]) -> list[tuple[int, str]]:
+    """Each round a later step sent back, and why."""
+    found, rounds, why = [], 0, ""
+    for e in seen:
+        if e["type"] == "sent_back":
+            why = f"{e['by']} {e['verdict']}"
+        elif e["type"] == "step" and e.get("state") == "running":
+            rounds += 1
+            if why:
+                found.append((rounds, why))
+                why = ""
+    return found
+
+
 def file_row(lead: list[Span], path: str, room: int, label: str = "") -> Line:
     name = path.rsplit("/", 1)[-1]
     note = FILE_NOTES.get(re.sub(r"-\d+(\.\w+)$", r"\1", name), "")
     if label == note:
         note = ""
-    return Line([*lead, Span(cell(label, 25)), Span(cell(note, room), "dim"), Span("  "), Span(name, "mine")], path=path)
+    return Line([*lead, Span(cell(label, 27)), Span(cell(note, room), "dim"), Span("  "), Span(name, "mine")], path=path)
 
 
 def branch(staged: bool, in_stage: bool, last: bool) -> str:
@@ -773,7 +787,7 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
     steps = run.pipeline["steps"]
     staged = any(step.get("stage") for step in steps) or bool(run.pipeline.get("ticket_stage"))
     width -= len(branch(staged, True, True))
-    room = max(min(28, width - 52), 5)
+    room = max(min(28, width - 54), 3)
     alongside = [versions(name, reports) for name in COMPANIONS]
     every = [*(files_of(step, reports) for step in steps), *alongside]
     owned = {path for latest, older in every for path in (latest, *(p for _, p in older))}
@@ -795,6 +809,8 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         current = index == run.step and not completed(run)
         mark, style = ("◐", "red" if run.landed == "dropped" else COLOURS[run.status]) if current else ("●", "green") if index < run.step or done_all(run) or (finished and not run.until) else ("○", "dim")
         verdict = finished[-1].get("verdict", "") if finished else ""
+        # Solid: workshop saw the result itself. Hollow: the agent's word. Gates are yours, so unmarked.
+        source = "" if verdict in ("", "SKIPPED") else "◆" if step["kind"] in ("command", "ci") else "◇" if step["kind"] == "agent" else ""
         facts = [f"{rounds}×"] if rounds > 1 else []
         if spent:
             prices = [e["usd"] for e in spent]
@@ -802,12 +818,13 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         latest, older = files_of(step, reports)
         beside = alongside if index == writes_notes else []
         past = sorted([*older, *(found for _, rounds in beside for found in rounds)], key=lambda found: -found[0])
-        row = [Span(hang, "dim"), Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(verdict, 15), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(facts), room), "dim")]  # the report beats the numbers on a narrow panel
+        row = [Span(hang, "dim"), Span(f"{mark} ", style), Span(cell(step["id"], 10), "bold" if current else ""), Span(cell(source, 2), "dim"), Span(cell(verdict, 15), "red" if verdict in BAD_VERDICTS else "dim"), Span(cell("  ".join(facts), room), "dim")]  # the report beats the numbers on a narrow panel
         if latest:
             row += [Span("▸ " if current else "  ", "yellow"), Span(latest.rsplit("/", 1)[-1], "mine")]
         if past and not earlier:
             row += [Span("  "), Span(f" +{len({number for number, _ in past})} older ", "button", f"key:{ord('e')}")]
         lines.append(Line(row, path=latest))
+        lines += [Line([Span(under, "dim"), Span(cell(f"round {number}", 10)), Span(f"← {why}", "dim")]) for number, why in sent_back(seen)]
         lines += [file_row([Span(under, "dim")], path, room) for path, _ in beside if path]
         if earlier:
             lines += [file_row([Span(under, "dim")], path, room, f"round {number}") for number, path in past]

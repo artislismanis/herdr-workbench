@@ -299,6 +299,23 @@ class Drill(unittest.TestCase):
         lines = texts(timeline(staged, [event("step", step="qa", state="done", verdict="FAILED")], (), 100))
         self.assertTrue(any(t.startswith(" Test   done with findings") for t in lines))
 
+    def test_a_checked_verdict_is_solid_an_agents_hollow_and_yours_unmarked(self):
+        staged = run(status="done", step=4)
+        staged.pipeline = {"name": "x", "steps": [{"id": "qa", "kind": "command"}, {"id": "ai-review", "kind": "agent"}, {"id": "build", "kind": "agent"}, {"id": "approve", "kind": "gate"}]}
+        done = [event("step", step=s, state="done", verdict=v) for s, v in (("qa", "PASS"), ("ai-review", "PASS"), ("build", ""), ("approve", "APPROVED"))]
+        lines = texts(timeline(staged, done, (), 100))
+        self.assertTrue(any("qa" in t and "◆ PASS" in t for t in lines))
+        self.assertTrue(any("ai-review" in t and "◇ PASS" in t for t in lines))
+        self.assertTrue(any("build" in t and "◆" not in t and "◇" not in t for t in lines))
+        self.assertTrue(any("approve" in t and "APPROVED" in t and "◆" not in t and "◇" not in t for t in lines))
+
+    def test_a_round_sent_back_shows_who_sent_it_and_why(self):
+        started = event("step", step="plan", state="running")
+        events = [started, event("sent_back", step="plan", by="verify", verdict="CHANGES_NEEDED"), started]
+        lines = texts(timeline(run(step=0), events, (), 100))
+        self.assertTrue(any("round 2" in t and "← verify CHANGES_NEEDED" in t for t in lines))
+        self.assertFalse(any("round 1" in t for t in lines))
+
     def test_shows_each_steps_rounds_verdict_and_cost(self):
         spent = {"minutes": 2.0, "usd": 0.5}
         started = event("step", step="verify", state="running")
