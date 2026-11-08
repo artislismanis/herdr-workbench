@@ -915,6 +915,15 @@ class Keys(unittest.TestCase):
         self.board.draw(screen, collections.defaultdict(int))
         self.assertTrue(self.board.edge)
 
+    def test_a_narrow_status_line_folds_and_keeps_every_part(self):
+        self.board.press(ord("w"))
+        screen = Reach(200)
+        self.board.draw(screen, collections.defaultdict(int))
+        self.assertLessEqual(screen.reach, 56)
+        bottom = [" ".join(text for _, text in self.board.painted[y]) for y in (28, 29)]
+        self.assertIn("RAM", bottom[0])
+        self.assertIn("not updated yet", bottom[1])
+
     def test_a_narrow_header_names_only_the_current_tab(self):
         self.assertIn("Backlog", self.board.header(120).text)
         narrow = self.board.header(40).text

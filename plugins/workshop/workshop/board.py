@@ -895,8 +895,9 @@ class Board:
         self.right, self.rows = width - 1, rows
         screen.erase()
         self.put(screen, TOP, self.header(width - 1), styles, width)
-        foot = self.note(width - 1)[-(rows - TOP - 5) :]
-        height = rows - TOP - 4 - len(foot)  # the status line takes the bottom row, with a gap above it
+        status = fold(self.status(), width - 1)
+        foot = self.note(width - 1)[-(rows - TOP - 4 - len(status)) :]
+        height = rows - TOP - 3 - len(status) - len(foot)  # the status line takes the bottom rows, with a gap above it
         panelled = self.panelled(width - 1)
         edge = self.list_width(width - 1) + 1 if panelled else width
         self.edge = edge if panelled else 0
@@ -909,9 +910,10 @@ class Board:
                 screen.addnstr(y, edge, "│", 1, styles["dim"])
             for y, line in enumerate(side[self.side : self.side + height], TOP + 2):
                 self.put(screen, y, line, styles, width, left=edge + 2)
-        for y, line in enumerate(foot, rows - 2 - len(foot)):
+        for y, line in enumerate(foot, rows - 1 - len(status) - len(foot)):
             self.put(screen, y, line, styles, width)
-        self.put(screen, rows - 1, self.status(), styles, width)  # under the keys, out of the way of the page
+        for y, line in enumerate(status, rows - len(status)):
+            self.put(screen, y, line, styles, width)  # under the keys, out of the way of the page
         if self.grab and self.reach:
             for y, left, right in self.selection(self.grab, self.reach):
                 screen.chgat(y, left, max(right - left, 0), curses.A_REVERSE)
@@ -969,18 +971,27 @@ class Board:
 
 
 def fold(line: Line, width: int) -> list[Line]:
-    """The keys row onto as many rows as it needs, breaking only between keys."""
-    rows, row, used = [], [], 0
+    """A row of keys or the status line onto as many rows as it needs, breaking only between parts."""
+    parts: list[list[Span]] = [[]]
     for span in line.spans:
-        size = columns(span.text)
-        if used + size > width and not span.text.strip():
-            continue  # the gap after the last key on a row
+        parts[-1].append(span)
+        if not span.text.strip():  # a gap ends a part, so a limit keeps its number
+            parts.append([])
+    rows, row, used = [], [], 0
+    for part in filter(None, parts):
+        size = columns("".join(span.text for span in part).rstrip())
         if row and used + size > width:
-            rows.append(Line(row))
+            rows.append(row)
             row, used = [], 0
-        row.append(span)
-        used += size
-    return [*rows, Line(row)]
+        row += part
+        used += columns("".join(span.text for span in part))
+    return [Line(trim(row)) for row in [*rows, row]]
+
+
+def trim(spans: list[Span]) -> list[Span]:
+    while spans and not spans[-1].text.strip():
+        spans = spans[:-1]
+    return spans
 
 
 def show(engine: Engine, cfg: dict[str, Any]) -> None:
