@@ -43,6 +43,8 @@ JITTER = 2  # a press that moves less than this along a row is still a click
 PAGE = 10
 PANEL_WIDTH = 130  # below this a window can't hold a list and a detail side by side
 LIST_SHARE = 55  # percent of the window for the list
+PHONE_WIDTH = 56  # a phone mirrors the pane at its desktop size, so the board draws this narrow by hand
+PHONE = ord("w")
 ESCAPE = 27
 TAB_KEY = ord("\t")
 AI_REVIEW = ord("a")  # with nothing stopped under it, where the same key answers
@@ -108,6 +110,7 @@ class Board:
         self.drafts: dict[tuple[str, str], str] = {}  # what esc left, for when you come back
         self.regions: list[tuple[int, int, int, Action]] = []
         self.finding, self.filter = False, ""  # typing a filter, and what the list is narrowed to
+        self.phone = False
         self.reload()
         self.looked = self.piles()  # what each tab held when you last looked, so what's arrived since gets a dot
 
@@ -367,6 +370,8 @@ class Board:
             self.back()
         elif key == ord("e"):
             self.earlier = not self.earlier
+        elif key == PHONE:
+            self.phone, self.offset, self.side = not self.phone, 0, 0
         elif key in (curses.KEY_NPAGE, curses.KEY_PPAGE):
             self.scroll(PAGE if key == curses.KEY_NPAGE else -PAGE, width)
         elif key in (TAB_KEY, curses.KEY_BTAB) and not self.open:
@@ -685,15 +690,18 @@ class Board:
     def refresh(self) -> None:
         self.send("refresh")
 
-    def header(self) -> Line:
-        """Each tab's count is what waits on you there, and turns yellow when something new has arrived since you last looked."""
+    def header(self, width: int = 120) -> Line:
+        """Each tab's count is what waits on you there, and turns yellow when something new has arrived since you last looked. Too narrow for every name, only the current tab keeps its own."""
         piles = self.piles()
         self.looked[self.tab] = piles[self.tab]
-        parts = []
-        for i, tab in enumerate(TABS):
-            style = "tab-on" if i == self.tab and not self.open else "tab"
-            count = f"{len(piles[i])} " if piles[i] else ""
-            parts += [Span(f" {SIGNS[tab]} {tab} ", style, f"tab:{i}"), Span(count, "row-yellow" if piles[i] - self.looked[i] else style, f"tab:{i}"), Span(" ")]
+        for named in (set(range(len(TABS))), {self.tab}):
+            parts = []
+            for i, tab in enumerate(TABS):
+                style = "tab-on" if i == self.tab and not self.open else "tab"
+                count = f"{len(piles[i])} " if piles[i] else ""
+                parts += [Span(f" {SIGNS[tab]} {tab} " if i in named else f" {SIGNS[tab]} ", style, f"tab:{i}"), Span(count, "row-yellow" if piles[i] - self.looked[i] else style, f"tab:{i}"), Span(" ")]
+            if columns(Line(parts).text) <= width:
+                break
         return Line(parts)
 
     def status(self) -> Line:
@@ -731,7 +739,7 @@ class Board:
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG)
         offers += [(f"esc clear /{self.filter}", ESCAPE)] if self.filter and not self.open else [("/ filter", FIND)] * (self.tab != USAGE and not self.open)
-        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run and run.pane) + [("o link", ord("o"))] * bool(self.link(lines)) + [("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run and run.pane) + [("o link", ord("o"))] * bool(self.link(lines)) + [("w wide" if self.phone else "w phone", PHONE), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def note(self, width: int) -> list[Line]:
@@ -739,7 +747,7 @@ class Board:
         if self.failed and self.message:
             return [*wrapped(self.message, width, "yellow"), plain(" any key clears this", "dim")]
         if self.asking is None:
-            return [self.footer(width)]
+            return fold(self.footer(width), width)
         asking, room = self.asking, max(width - 4, 20)
         typing = self.choice == len(asking.options)
         context = [part.text for line in asking.context for part in wrapped(line, room)[:BRIEF_ROWS]]
@@ -875,14 +883,18 @@ class Board:
         if line.ref:
             self.regions.append((y, left, width, line.ref))
 
-    def draw(self, screen: curses.window, styles: dict[str, int]) -> None:
+    def size(self, screen: curses.window) -> tuple[int, int]:
         rows, width = screen.getmaxyx()
+        return rows, min(width, PHONE_WIDTH + 1) if self.phone else width
+
+    def draw(self, screen: curses.window, styles: dict[str, int]) -> None:
+        rows, width = self.size(screen)
         lines = self.lines(width - 1)
         chosen = self.selected(lines)
         self.regions, self.painted = [], {}
         self.right, self.rows = width - 1, rows
         screen.erase()
-        self.put(screen, TOP, self.header(), styles, width)
+        self.put(screen, TOP, self.header(width - 1), styles, width)
         foot = self.note(width - 1)[-(rows - TOP - 5) :]
         height = rows - TOP - 4 - len(foot)  # the status line takes the bottom row, with a gap above it
         panelled = self.panelled(width - 1)
@@ -941,7 +953,7 @@ class Board:
             self.carry_on()
             screen.timeout(100 if self.follow else 1000)  # the next question shouldn't wait for the redraw
             self.draw(screen, styles)
-            key, width = screen.getch(), screen.getmaxyx()[1]
+            key, width = screen.getch(), self.size(screen)[1]
             if key == ESCAPE:
                 key = self.paste(screen)
             if key == curses.KEY_MOUSE:
@@ -954,6 +966,21 @@ class Board:
                 self.drain(screen, width - 1)
             elif not self.press(key, width - 1):
                 return
+
+
+def fold(line: Line, width: int) -> list[Line]:
+    """The keys row onto as many rows as it needs, breaking only between keys."""
+    rows, row, used = [], [], 0
+    for span in line.spans:
+        size = columns(span.text)
+        if used + size > width and not span.text.strip():
+            continue  # the gap after the last key on a row
+        if row and used + size > width:
+            rows.append(Line(row))
+            row, used = [], 0
+        row.append(span)
+        used += size
+    return [*rows, Line(row)]
 
 
 def show(engine: Engine, cfg: dict[str, Any]) -> None:
