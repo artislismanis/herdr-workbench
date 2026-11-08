@@ -764,7 +764,7 @@ def file_row(lead: list[Span], path: str, room: int, label: str = "") -> Line:
     note = FILE_NOTES.get(re.sub(r"-\d+(\.\w+)$", r"\1", name), "")
     if label == note:
         note = ""
-    return Line([*lead, Span(cell(label, 25)), Span(cell(note, room), "dim"), Span("  "), Span(name, "mine")], path=path)
+    return Line([*lead, Span(cell(label, 27)), Span(cell(note, room), "dim"), Span("  "), Span(name, "mine")], path=path)
 
 
 def branch(staged: bool, in_stage: bool, last: bool) -> str:
