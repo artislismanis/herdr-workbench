@@ -1,7 +1,8 @@
 name: skill-evals
 # The workshop-config skill's eval cases, with a real Claude, when the skill or
-# what it writes changes. Each run costs API credit, so it needs an
-# ANTHROPIC_API_KEY repo secret and skips without one.
+# what it writes changes. It needs a CLAUDE_CODE_OAUTH_TOKEN repo secret (from
+# `claude setup-token`, runs count against that subscription's limits) or an
+# ANTHROPIC_API_KEY (runs cost API credit), and skips without either.
 on:
   pull_request:
     paths:
@@ -19,19 +20,21 @@ jobs:
     timeout-minutes: 60
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      HAS_CREDENTIAL: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
       CLAUDE_CODE_VERSION: 2.1.319
     steps:
-      - name: Skip without an API key
-        if: env.ANTHROPIC_API_KEY == ''
-        run: echo "::notice::No ANTHROPIC_API_KEY secret, so the skill evals didn't run."
+      - name: Skip without a credential
+        if: env.HAS_CREDENTIAL != 'true'
+        run: echo "::notice::No CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY secret, so the skill evals didn't run."
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.HAS_CREDENTIAL == 'true'
 
       # The eval refuses to grant Bash without a sandbox. Ubuntu 24.04's AppArmor
       # blocks the unprivileged user namespaces bubblewrap needs.
       - name: Install Claude Code and its sandbox
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.HAS_CREDENTIAL == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap socat
@@ -42,7 +45,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run the evals
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.HAS_CREDENTIAL == 'true'
         run: |
           claude plugin eval claude/skills/workshop-config \
             --runs 1 --ablation none --scaffold --trust-plugin \
@@ -51,7 +54,7 @@ jobs:
             --no-publish --report eval-report.html
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && env.ANTHROPIC_API_KEY != ''
+        if: always() && env.HAS_CREDENTIAL == 'true'
         with:
           name: skill-eval-report
           path: eval-report.html
