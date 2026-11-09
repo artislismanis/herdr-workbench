@@ -4,4 +4,4 @@ focus: trace
 weight: 1
 ---
 
-[jira.moves] maps working, blocked and review to the real statuses
+[jira.moves] has working = "In Progress", blocked = "Blocked" and review = "In Review"
