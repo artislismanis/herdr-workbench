@@ -14,4 +14,5 @@ Facts the user knows:
 - Jira tickets for this repo carry the labels "ai" and "billing-svc". Skip tickets in "Backlog".
 - Jira statuses: Backlog, To Do, In Progress, Blocked, In Review, Done. Any move is allowed.
 - Review asks are posted in the Slack channel #eng-reviews. Slack is connected to Claude. They want an eyes reaction when they take a review.
+- The eval has no Slack server, so this stands in for the session's tool list. The claude.ai Slack connector's tools are `mcp__claude_ai_Slack__slack_search_public`, `mcp__claude_ai_Slack__slack_search_channels`, `mcp__claude_ai_Slack__slack_read_channel`, `mcp__claude_ai_Slack__slack_read_thread`, `mcp__claude_ai_Slack__slack_add_reaction` and `mcp__claude_ai_Slack__slack_send_message`.
 - The GitHub org is "acme". They trust the repo; tests run with npm test.
