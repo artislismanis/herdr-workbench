@@ -8,6 +8,17 @@ worktree-path = "~/.herdr/worktrees/{{ repo }}/{{ branch | sanitize }}"
 # New branches start from the local default branch; bring it up to date first.
 pre-switch.sync-default-branch = "~/.config/worktrunk/hooks/sync-default-branch {{ primary_worktree_path }} {{ default_branch }} {{ remote }}"
 
+# A name like PR1572 or #1572 would make a new branch off main, not check out the
+# PR, and gh can't then find the PR. An existing local branch of that name still opens.
+pre-switch.pr-name = """
+b={{ branch | default('') }}
+printf '%s' "$b" | grep -Eq '^(#|[Pp][Rr][-_]?)?[0-9]+$' || exit 0
+git show-ref --verify --quiet "refs/heads/$b" && exit 0
+n=$(printf '%s' "$b" | tr -dc 0-9)
+echo "'$b' would be a new branch, not PR #$n. Type pr:$n to open the PR's own branch." >&2
+exit 1
+"""
+
 # Blocking, so the worktree opens with dependencies already installed.
 pre-start.worktree-setup = "~/.config/worktrunk/hooks/worktree-setup {{ primary_worktree_path }}"
 

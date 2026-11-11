@@ -5,6 +5,7 @@
 ## Worktrees
 
 - One task, one worktree: `wt switch -c <branch>` from the main checkout. It opens at `~/.herdr/worktrees/<repo>/<branch>` with dependencies installed and `.env` copied, so don't set it up by hand.
+- To work on or review an existing PR, open its own branch: `wt switch pr:<N>`. Never `-c` a branch for a PR: it starts from the default branch, and `gh` can't find the PR from it.
 - Leave the main checkout on the default branch and never commit there.
 - When the branch is merged, run `wt rm` from its worktree.
 
@@ -17,7 +18,7 @@
 
 Only when `HERDR_ENV=1`. Every code review reaches me through hunk, whichever skill does the analysis. The `hunk-review` skill has the session commands; always pass `--repo`.
 
-- Open the review yourself with `~/.config/herdr/bin/hunk-review-open`. It shows uncommitted changes, or the branch if there are none, plus the PR's GitHub threads. Your own pane must be in the worktree under review; if it isn't, ask me to open one and start you there.
+- Open the review yourself with `~/.config/herdr/bin/hunk-review-open`. It shows uncommitted changes, or the branch if there are none, plus the PR's GitHub threads. Your own pane must be in the worktree under review; if it isn't, ask me to open it with `prefix+shift+g`, typing `pr:<N>` for a PR, and start you there. For a PR, `gh pr view` must find it from the branch; if it can't, the worktree is on the wrong branch, so stop and say so.
 - Review before `gh pr create`, and again for PR feedback. Commit first when you want the whole branch.
 - Post findings as hunk notes, not in chat, in one batch, then tell me it's ready. Flag only what I'd want to see: bugs, security, data loss, and the why behind odd changes. No nits, and no note on every hunk.
 - My comments arrive as your next message and are cleared from hunk, so answer in chat.
