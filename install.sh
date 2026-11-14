@@ -137,7 +137,11 @@ _ensure_plugin() {
     check)   DRIFT=$((DRIFT + 1)); warn "$id plugin isn't at ${commit:0:12}" ;;
     dry-run) log "${C_DIM}  would install $repo at ${commit:0:12}${C_RST}" ;;
     install)
-      herdr plugin install "$repo" --ref "$commit" -y >/dev/null
+      # herdr prints a long install preview to stderr; the pin is the review, so
+      # show it only when the install fails.
+      local out
+      out="$(herdr plugin install "$repo" --ref "$commit" -y 2>&1 >/dev/null)" ||
+        { printf '%s\n' "$out" >&2; die "couldn't install $repo at ${commit:0:12}"; }
       ok "installed $repo at ${commit:0:12}"
       ;;
   esac

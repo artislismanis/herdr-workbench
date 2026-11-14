@@ -24,6 +24,8 @@ case "$1 ${2:-}" in
   "integration uninstall") rm -f "$HOME/.claude-integration" ;;
   "plugin list") cat "$HOME/.plugin" 2>/dev/null || echo "No plugins installed." ;;
   "plugin install")
+    echo "Plugin install preview:" >&2
+    [ -f "$HOME/.install-fails" ] && { echo "build failed" >&2; exit 1; }
     echo "- enabled [github:$3@$5]" >>"$HOME/.plugin"
     echo "$3 $5" >>"$HOME/.plugin-installs"
     case "$3" in */herdr-annotate)
@@ -101,6 +103,18 @@ install() { run --separate-stderr "$REPO_ROOT/install.sh" "$@"; }
   installs="$(wc -l <"$HOME/.plugin-installs")"
   install
   [ "$(wc -l <"$HOME/.plugin-installs")" -eq "$installs" ]
+}
+
+@test "the plugin install preview shows only when the install fails" {
+  install
+  [ "$status" -eq 0 ]
+  ! grep -q "install preview" <<<"$stderr"
+  rm "$HOME/.plugin"
+  touch "$HOME/.install-fails"
+  install
+  [ "$status" -ne 0 ]
+  grep -q "install preview" <<<"$stderr"
+  grep -q "build failed" <<<"$stderr"
 }
 
 @test "the review plugins install at their pins" {
