@@ -52,7 +52,7 @@ If any repo is `jira`, `[jira]` needs:
 
 These change what other people see. Settle `[jira.moves]` and `[review] claim` with the user; the rest go in the proposal with their defaults unless something the user said points elsewhere.
 
-- **`[jira.moves]`**: the Jira status for each move: `working`, `blocked`, `review`, `approved`, `merged`, plus `preprod` and `dropped`. A move left out never changes the ticket. Offer to read the project's real statuses through the Atlassian MCP (a recent ticket's transitions) and map them. GitHub uses `ai-<move>` labels instead, nothing to set.
+- **`[jira.moves]`**: the Jira status for each move: `working`, `blocked`, `review`, `approved`, `merged`, plus `preprod` and `dropped`. A move left out never changes the ticket. Offer to read the project's real statuses through the Atlassian MCP (a recent ticket's transitions) and map them. Read them with `expand=transitions.fields`: where the transition into a move's status requires `resolution`, offer the table form, such as `dropped = { status = "Done", resolution = "Dropped" }`, with a resolution from the project's list, or Jira refuses the move. GitHub uses `ai-<move>` labels instead, nothing to set.
 - **`[jira] route`**: only if the board allows moving to the next column only. The columns in order.
 - **`[jira] unblocked`**: statuses where a blocking ticket no longer holds work back, though Jira doesn't count them as Done, such as `Ready for Release`. Only if the user's board has them.
 - **`[prs] search`**: narrows the PRs tab, in GitHub search terms. Suggest `org:<org>` from the repos' `origin` remotes.

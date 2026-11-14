@@ -91,3 +91,10 @@ class Source(unittest.TestCase):
             found = source_check("etl", {"path": "/r", "source": "jira"}, {**self.JIRA, "token": "t"})
         self.assertTrue(found.ok)
         self.assertEqual(found.note, "1 ready, as Sam")
+
+    def test_a_resolution_jira_doesnt_have_fails(self):
+        moves = {"merged": {"status": "Done", "resolution": "Done"}, "dropped": {"status": "Done", "resolution": "Won't do"}}
+        with mock.patch("workshop.sources.JiraSource.login", return_value="Sam"), mock.patch("workshop.sources.JiraSource._call", return_value=[{"name": "Done"}, {"name": "Won't Do"}]):
+            found = source_check("etl", {"path": "/r", "source": "jira"}, {**self.JIRA, "token": "t", "moves": moves})
+        self.assertFalse(found.ok)
+        self.assertIn("Won't do", found.detail)

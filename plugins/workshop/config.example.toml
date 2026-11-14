@@ -84,6 +84,9 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 # preprod = "In Preprod"            # merged to a preprod branch (see environments, section 3)
 # merged = "Ready for Release"      # merged to prod. Later statuses, like Done, belong to your release process
 # dropped = "Won't Do"              # you dropped the run, or a sweep closed the ticket. Sweeps can't close Jira tickets without it
+# When the transition into a status requires a Resolution, name it with a table instead:
+# merged = { status = "Done", resolution = "Done" }
+# dropped = { status = "Done", resolution = "Dropped" }
 
 # ── PRs tab ──────────────────────────────────────────────────────────────────────────────────────
 # The board's PRs tab covers everything GitHub shows you. Narrow it at work.
