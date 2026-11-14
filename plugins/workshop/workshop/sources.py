@@ -222,12 +222,25 @@ class GitHubSource:
         return check(changes, me, overrides)
 
 
+def jira_moves(moves: dict[str, Any]) -> dict[str, tuple[str, str | None]]:
+    """Each move as (status, resolution). A table names the resolution for workflows that require one on the way into the status."""
+    found: dict[str, tuple[str, str | None]] = {}
+    for name, value in moves.items():
+        if isinstance(value, str):
+            found[name] = (value, None)
+        elif isinstance(value, dict) and set(value) <= {"status", "resolution"} and isinstance(value.get("status"), str) and isinstance(value.get("resolution", ""), str):
+            found[name] = (value["status"], value.get("resolution"))
+        else:
+            raise ValueError(f'[jira.moves] {name} must be a status, or {{ status = "...", resolution = "..." }}')
+    return found
+
+
 class JiraSource:
     """Tickets assigned to you, carrying both the label and the repo's name."""
 
     def __init__(self, repo_name: str, label: str, skip_statuses: list[str], cfg: dict[str, Any]) -> None:
         self.repo_name, self.label, self.skip = repo_name, label, skip_statuses
-        self.moves, self.route, self.project = cfg.get("moves", {}), cfg.get("route", []), cfg.get("project", "")
+        self.moves, self.route, self.project = jira_moves(cfg.get("moves", {})), cfg.get("route", []), cfg.get("project", "")
         self.unblocked = cfg.get("unblocked", [])
         self.base = cfg["base_url"].rstrip("/")
         self.email, self.token = cfg["email"], os.environ.get("JIRA_TOKEN") or cfg["token"]
@@ -266,6 +279,11 @@ class JiraSource:
             if refused.code in (401, 403):
                 raise ValueError(f"Jira refused the token for {self.email}") from refused
             raise
+
+    def unknown_resolutions(self) -> list[str]:
+        """Resolutions named in [jira.moves] that Jira doesn't have, such as "Won't do" for "Won't Do"."""
+        wanted = {r for _, r in self.moves.values() if r}
+        return sorted(wanted - {r["name"] for r in self._call("GET", "resolution")}) if wanted else []
 
     def ready(self) -> list[str]:
         query = urllib.parse.urlencode({"jql": self.jql(), "fields": "key", "maxResults": 20})
@@ -325,19 +343,24 @@ class JiraSource:
         pass
 
     def move(self, key: str, move: str) -> None:
-        target = self.moves.get(move)
+        target, resolution = self.moves.get(move, ("", None))
         if not target:
             return
         # Boards often allow only the next column, so a longer move walks the route. Only forwards
         # towards a status on it: a ticket never steps along the route to reach one that isn't.
         before = self.route[: self.route.index(target)] if target in self.route else []
         for _ in range(len(self.route) + 1):
-            options = self._call("GET", f"issue/{key}/transitions")["transitions"]
+            options = self._call("GET", f"issue/{key}/transitions?expand=transitions.fields")["transitions"]
             direct = [t for t in options if target in (t["to"]["name"], t["name"])]
             onward = sorted((t for t in options if t["to"]["name"] in before), key=lambda t: before.index(t["to"]["name"]))
             if not direct and not onward:
                 raise ValueError(f"{key} has no route to {target}")
-            self._call("POST", f"issue/{key}/transitions", {"transition": {"id": (direct or onward[::-1])[0]["id"]}})
+            step = (direct or onward[::-1])[0]
+            body: dict[str, Any] = {"transition": {"id": step["id"]}}
+            # Only a transition that lists the field takes it; Jira answers any other with a 400.
+            if direct and resolution and "resolution" in step.get("fields", {}):
+                body["fields"] = {"resolution": {"name": resolution}}
+            self._call("POST", f"issue/{key}/transitions", body)
             if direct:
                 return
         raise ValueError(f"{key} didn't reach {target}")

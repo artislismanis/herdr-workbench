@@ -178,7 +178,7 @@ The Usage tab shows how that went. It leads with charts: the 5h limit used and s
 
 ## Tickets
 
-The ticket follows the run through `working`, `blocked`, `review`, `approved` and `merged`: `ai-<move>` labels on GitHub, and the statuses in `[jira.moves]` on Jira. A draft PR stays in `working`, because it's still in self-review, and `review` starts when you mark it ready. Each `tick` follows the PR. Where a board allows only the next column, `route` lists the columns to walk. A move that fails is logged, leaves the ticket where it got to, and never stops a run. Workshop comments when it starts, when it stops and when the draft PR is ready.
+The ticket follows the run through `working`, `blocked`, `review`, `approved` and `merged`: `ai-<move>` labels on GitHub, and the statuses in `[jira.moves]` on Jira. A draft PR stays in `working`, because it's still in self-review, and `review` starts when you mark it ready. Each `tick` follows the PR. Where a board allows only the next column, `route` lists the columns to walk. Where the transition into a status requires a Resolution, a move is a table instead, such as `dropped = { status = "Done", resolution = "Dropped" }`, and the resolution is set on that last transition when it takes one. A move that fails is logged, leaves the ticket where it got to, and never stops a run. Workshop comments when it starts, when it stops and when the draft PR is ready.
 
 When a run stops on a question or a problem, the ticket moves to `blocked`. Comment on it with what's missing, and the next `tick` hands that to the agent and carries on. That needs the schedule on, or a manual `workshop tick`. A merged PR moves the ticket to `merged`, and on GitHub closes the issue.
 

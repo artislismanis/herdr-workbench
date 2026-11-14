@@ -352,12 +352,12 @@ class JiraBoard(unittest.TestCase):
         return source
 
     def test_a_move_takes_the_transition_to_the_mapped_status(self):
-        options = {"issue/DE-1/transitions": {"transitions": [{"id": "7", "name": "Finish", "to": {"name": "Done"}}, {"id": "9", "name": "Pause", "to": {"name": "Blocked"}}]}}
+        options = {"issue/DE-1/transitions?expand=transitions.fields": {"transitions": [{"id": "7", "name": "Finish", "to": {"name": "Done"}}, {"id": "9", "name": "Pause", "to": {"name": "Blocked"}}]}}
         self.source(options).move("DE-1", "blocked")
         self.assertEqual(self.calls[-1], ("POST", "issue/DE-1/transitions", {"transition": {"id": "9"}}))
 
     def test_an_unmapped_stage_does_nothing_and_a_missing_transition_says_so(self):
-        source = self.source({"issue/DE-1/transitions": {"transitions": []}})
+        source = self.source({"issue/DE-1/transitions?expand=transitions.fields": {"transitions": []}})
         source.move("DE-1", "review")
         self.assertEqual(self.calls, [])
         with self.assertRaises(ValueError):
@@ -385,6 +385,48 @@ class JiraBoard(unittest.TestCase):
         with self.assertRaises(ValueError):
             source.move("DE-1", "blocked")
         self.assertEqual(posted, [])
+
+    def resolving(self, route=(), start="In Progress"):
+        moves = {"merged": "Done", "dropped": {"status": "Done", "resolution": "Dropped"}}
+        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "moves": moves, "route": list(route)})
+        board = {"In Progress": ["Review"], "Review": ["Done"]}
+        at, self.posted = [start], []
+
+        def call(method, path, body=None):
+            if method == "GET":
+                return {"transitions": [{"id": to, "name": f"Go {to}", "to": {"name": to}, "fields": {"resolution": {"required": True}} if to == "Done" else {}} for to in board[at[0]]]}
+            at[0] = body["transition"]["id"]
+            self.posted.append(body)
+
+        source._call = call
+        return source
+
+    def test_a_status_move_sends_no_fields(self):
+        source = self.resolving(["In Progress", "Review", "Done"])
+        source.move("DE-1", "merged")
+        self.assertEqual(self.posted, [{"transition": {"id": "Review"}}, {"transition": {"id": "Done"}}])
+
+    def test_a_move_with_a_resolution_sets_it_on_the_direct_transition(self):
+        source = self.resolving(start="Review")
+        source.move("DE-1", "dropped")
+        self.assertEqual(self.posted, [{"transition": {"id": "Done"}, "fields": {"resolution": {"name": "Dropped"}}}])
+
+    def test_a_route_walk_sets_the_resolution_only_on_the_last_step(self):
+        source = self.resolving(["In Progress", "Review", "Done"])
+        source.move("DE-1", "dropped")
+        self.assertEqual(self.posted, [{"transition": {"id": "Review"}}, {"transition": {"id": "Done"}, "fields": {"resolution": {"name": "Dropped"}}}])
+
+    def test_a_resolution_isnt_sent_to_a_transition_without_the_field(self):
+        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "moves": {"dropped": {"status": "Done", "resolution": "Dropped"}}})
+        posted = []
+        source._call = lambda method, path, body=None: posted.append(body) if method == "POST" else {"transitions": [{"id": "7", "name": "Finish", "to": {"name": "Done"}, "fields": {}}]}
+        source.move("DE-1", "dropped")
+        self.assertEqual(posted, [{"transition": {"id": "7"}}])
+
+    def test_a_bad_move_is_refused_by_name(self):
+        for bad in (3, {"resolution": "Done"}, {"status": "Done", "resolution": 1}, {"status": "Done", "resoluton": "Done"}):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, r"\[jira.moves\] dropped must be a status"):
+                JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "moves": {"dropped": bad}})
 
     def test_a_comment_is_mine_only_if_nobody_else_touched_it(self):
         def comment(author, editor, body, at="2026-10-31T10:00:00.000+0000"):

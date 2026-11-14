@@ -112,6 +112,8 @@ def source_check(name: str, repo: dict[str, Any], jira: dict[str, str]) -> Resul
     try:
         source = make_source(name, repo, jira)
         who = f", as {source.login()}" if isinstance(source, JiraSource) else ""
+        if isinstance(source, JiraSource) and (unknown := source.unknown_resolutions()):
+            return Result(f"{name} source", False, f"[jira.moves] names resolutions Jira doesn't have: {', '.join(unknown)}")
         return Result(f"{name} source", True, note=f"{len(source.ready())} ready{who}")
     except (ToolError, OSError, KeyError, ValueError) as stop:
         return Result(f"{name} source", False, str(stop))
