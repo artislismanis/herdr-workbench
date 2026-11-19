@@ -111,6 +111,18 @@ An agent step's `again` names the prompt for later rounds. In `ticket` and `gate
 
 Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh` share one agent, so they must agree on the model.
 
+## Writing a qa command
+
+`qa` is worth most when it runs what CI runs, including checks against your warehouse or cloud, so a run fixes its own failures before you see them. One line is fine for a small repo. Past that, put a script in `~/.config/workshop/qa/` and point `commands.qa` at it. What a run expects of it:
+
+- **Leave the worktree as it found it.** A review only posts from a clean checkout and parks if `qa` changed tracked files, and on your own branch the change would land in the PR. Run tools that rewrite files, such as `terraform init` and its lock file, in a temporary copy.
+- **Fail fast on an expired login.** OAuth tools often hang instead of failing. Put a short `timeout` around a cheap login check first, and say which command renews it.
+- **Clean up what it builds.** Drop schemas, stop clusters, remove temp files in a `trap … EXIT`. Add `trap "exit 143" TERM INT`: a `qa` that overruns its step gets `SIGTERM` (to its whole process group), and without that line the cleanup doesn't run.
+- **Keep runs apart.** Two runs can test at once, so name anything shared by the worktree, such as a schema suffix from `basename "$PWD"`.
+- **Fit the step's time limit** (`minutes`, default 45). Build or test less than CI if needed, such as changed models and their direct children, and leave the rest to CI.
+- **Settings arrive through `.worktreeinclude`.** A gitignored `.env` reaches the worktree only if the repo's `.worktreeinclude` lists it, and nothing loads it for you: `set -a; . ./.env; set +a`.
+- **Decide how it fails.** Stopping at the first failure is quickest. Running every step and failing at the end shows every problem in one round.
+
 ## Your own pipelines and step files
 
 Workshop looks for a pipeline in `pipelines/` and a step's prompt in `prompts/`, under each of these folders in turn, and the first with the file wins:
