@@ -148,9 +148,26 @@ A step that isn't one of workshop's is an agent step whose prompt only says what
 
 ## Changing how a step works
 
-Every agent runs in the repo, so it already follows the repo's `CLAUDE.md`, skills and agents, and your own under `~/.claude`. Each step's prompt says so, and they win over workshop's general advice.
+Every agent runs in the repo, so it sees the repo's `CLAUDE.md`, skills and agents, and your own under `~/.claude`. They split like this:
 
-To change what a step is told, put a file with its prompt's name, such as `ai-review.md`, in a `prompts/` folder above. It replaces workshop's method for that step, so it can be just `/our-review`, and the skill does the rest. A first line that's a skill command is typed as one, so the skill runs. A skill can hand work to a subagent. Workshop always adds its part underneath: where the agent reads and writes, the verdict, how to ask you, and that it doesn't commit, push or post. Your file can't change those. To start from workshop's own, copy it from `workshop/prompts/`: only the part above `<!-- workshop -->` counts.
+- **The repo's conventions apply:** code style and structure, tests, its own commands, domain rules.
+- **How the work moves is workshop's:** the steps, branches, stacks, reviews, PRs, anything posted, replies to threads and ticket moves. A repo skill, plugin or hook that offers its own flow for these, such as a ticket-to-PR plugin, is declined.
+- **Where workshop says nothing,** such as prose style or commit messages, the repo's guidance applies.
+
+**Your workflow choices** change any of that, in one `workflow.md` beside the `prompts/` folders above: `~/.config/workshop/repos/<repo>/workflow.md`, `<repo>/.workshop/workflow.md` or `~/.config/workshop/workflow.md`. The first found applies, never a merge, so a repo's whole rule set reads in one file. Plain lines, one per area:
+
+```markdown
+- Stacks: use git-spice, as CLAUDE.md says.
+- Reviews: analyse with /my-pr-review. Findings still go to hunk.
+- Prose: prose-style is my user-level version, which replaces the repo's.
+- Copilot threads on my own PRs: reply and resolve, as CLAUDE.md says.
+```
+
+Workshop adds the file to every step, under its contract and above the step's own rules, so a choice can't change where the agent writes, the verdict, or that it doesn't commit, push or post. Herdr-workbench's agent rules point your own sessions at the same file, so a choice is made once for both. `workshop doctor` names the file each repo uses.
+
+**Your own skills.** Give them their own names and choose them in `workflow.md`. A user-level skill with the same name as a repo's replaces it in every repo ([Claude Code: skills that share a name](https://code.claude.com/docs/en/skills.md)). Use that only when a repo hook insists on a skill by name, and say so in `workflow.md`, since nothing else shows which one ran. Plugin skills are namespaced and can't be replaced this way. A hook can't be switched off on its own: a repo's hooks go with its `.claude/settings.json`, a plugin's with the plugin, which you can turn off for yourself in the repo's `.claude/settings.local.json`.
+
+**Replacing a step's whole method.** Put a file with its prompt's name, such as `ai-review.md`, in a `prompts/` folder above. It replaces workshop's method for that step, so it can be just `/our-review`, and the skill does the rest. A first line that's a skill command is typed as one, so the skill runs. A skill can hand work to a subagent. Workshop always adds its part underneath: where the agent reads and writes, the verdict, how to ask you, and that it doesn't commit, push or post. Your file can't change those. To start from workshop's own, copy it from `workshop/prompts/`: only the part above `<!-- workshop -->` counts. Skill choices that aren't a whole method belong in `workflow.md`.
 
 ## Terms
 

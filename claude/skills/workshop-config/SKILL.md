@@ -40,6 +40,8 @@ Per repo, repeat until the user has no more:
 
 A Jira ticket is picked up only when assigned to the user and carrying both `label` and a label equal to the repo's table name. Ask what the tickets are labelled, and name the table to match.
 
+**The repo's own flows.** For each new repo, look for guidance that competes with workshop's way of moving work: a `CLAUDE.md` naming a stack tool or rules on reviews, Copilot threads or prose; its own review, prose or requirements skills in `.claude/skills/`; a delivery plugin in `.claude/settings.json` `enabledPlugins`; hooks that insist on a skill by name. Workshop's way wins by default, and the repo's flows are declined. If you find any, list them and ask once which to keep or replace with the user's own skill, recommended option "workshop's way for all". Write the answers to `<name>/workflow.md` under `$WORKSHOP_REPOS` (default `~/.config/workshop/repos`), one plain line per area (see the README, Changing how a step works). Write nothing when the user keeps workshop's way.
+
 If any repo is `jira`, `[jira]` needs:
 
 | Key | How to settle it |
