@@ -877,7 +877,9 @@ class Engine:
                 raise Park(f"{step['id']} ran past its time limit. Look at agent {agent}.")
             return
         if status == "blocked":
-            raise Park(f"Agent {agent} is waiting for an answer in its pane.")
+            # Usually a permission prompt, such as one a repo's hook asks for: say what it asks, so you know without opening the pane.
+            shown = self.tools.screen(run.step_pane if run.step_agent else run.pane)
+            raise Park(f"Agent {agent} is waiting for an answer in its pane" + (f": {shown}" if shown else "."))
         if status == "gone":
             raise Park(f"Agent {agent} has gone, so {step['id']} didn't finish.")
         self._agent_finished(run, step)

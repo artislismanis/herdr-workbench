@@ -207,6 +207,13 @@ class Tools:
         # Best effort: a notification must never stop a run.
         subprocess.run(["herdr", "notification", "show", title, "--body", body, "--sound", "request"], capture_output=True)
 
+    def screen(self, pane: str) -> str:
+        """What a pane is showing, on one line: usually the prompt that stopped its agent."""
+        if not pane:
+            return ""
+        done = subprocess.run(["herdr", "pane", "read", pane, "--lines", "14"], capture_output=True, text=True)
+        return " | ".join(line.strip() for line in done.stdout.splitlines() if line.strip())[-300:]
+
     def agent_status(self, name: str) -> str:
         """The agent's status, or "gone" if herdr no longer knows it."""
         done = subprocess.run(["herdr", "agent", "get", name], capture_output=True, text=True)

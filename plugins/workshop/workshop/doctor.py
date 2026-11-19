@@ -47,24 +47,16 @@ def launch_test(repo: Path, name: str, base: str) -> Result:
         Tools().start_agent(agent, pane, path)
         run("herdr", "agent", "prompt", agent, "Reply with the single word ready.", "--wait", "--timeout", LAUNCH_TIMEOUT_MS)
         if Tools().agent_status(agent) == "blocked":
-            return Result(title, False, f"agent is blocked: {_screen(pane)}")
+            return Result(title, False, f"agent is blocked: {Tools().screen(pane)}")
         return Result(title, True)
     except ToolError as stop:
-        return Result(title, False, f"{stop} {_screen(pane)}".strip())
+        return Result(title, False, f"{stop} {Tools().screen(pane)}".strip())
     finally:
         if pane:
             Tools().close_pane(pane)
         if path:
             subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=repo, capture_output=True)
         subprocess.run(["git", "branch", "-D", branch], cwd=repo, capture_output=True)
-
-
-def _screen(pane: str) -> str:
-    """What the agent is showing: usually the prompt that stopped it."""
-    if not pane:
-        return ""
-    done = subprocess.run(["herdr", "pane", "read", pane, "--lines", "14"], capture_output=True, text=True)
-    return " | ".join(line.strip() for line in done.stdout.splitlines() if line.strip())[-300:]
 
 
 def prompts(name: str, path: Path, pipelines: list[dict[str, Any]] | None = None) -> Result:
