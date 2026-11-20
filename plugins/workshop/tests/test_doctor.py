@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -7,7 +8,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.doctor import launch_test, pipelines, prompts, source_check, workflow  # noqa: E402
+from workshop.doctor import launch_test, pipelines, prompts, source_check, workflow, worktree_files  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
 
@@ -40,6 +41,20 @@ class Prompts(unittest.TestCase):
             (tmp / "repos" / "r").mkdir(parents=True)
             (tmp / "repos" / "r" / "workflow.md").write_text("- Stacks: git-spice")
             self.assertEqual(workflow("r", tmp / "r").note, str(tmp / "repos" / "r" / "workflow.md"))
+
+    def test_warns_when_a_gitignored_env_wont_reach_worktrees(self):
+        tmp = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init", "-q", str(tmp)], check=True)
+        self.assertEqual(worktree_files("r", tmp).note, "")
+        (tmp / ".env").write_text("A=1\n")
+        self.assertEqual(worktree_files("r", tmp).note, "")
+        (tmp / ".gitignore").write_text(".env\n")
+        self.assertIn(".worktreeinclude is missing", worktree_files("r", tmp).note)
+        (tmp / ".worktreeinclude").write_text("**/CLAUDE.local.md\n")
+        self.assertIn("doesn't list .env", worktree_files("r", tmp).note)
+        (tmp / ".worktreeinclude").write_text("# personal\n/.env\n")
+        self.assertEqual(worktree_files("r", tmp).note, ".env copied through .worktreeinclude")
+        self.assertTrue(worktree_files("r", tmp).ok)
 
     def test_a_step_whose_prompt_is_nowhere_fails(self):
         tmp = Path(tempfile.mkdtemp())

@@ -1,5 +1,6 @@
 """Finds what would stop a run before it spends any tokens."""
 
+import fnmatch
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -76,6 +77,20 @@ def workflow(name: str, path: Path) -> Result:
     return Result(f"{name} workflow", True, note=str(file) if file else "workshop's own")
 
 
+def worktree_files(name: str, path: Path) -> Result:
+    """A gitignored .env reaches a run's worktree only through .worktreeinclude, so without one qa and tests run without it."""
+    title = f"{name} worktree files"
+    ignored = subprocess.run(["git", "check-ignore", "-q", ".env"], cwd=path).returncode == 0
+    if not (path / ".env").is_file() or not ignored:
+        return Result(title, True)
+    include = path / ".worktreeinclude"
+    patterns = [line.strip() for line in include.read_text(encoding="utf-8").splitlines()] if include.is_file() else []
+    if any(fnmatch.fnmatch(".env", p.lstrip("/")) for p in patterns if p and not p.startswith("#")):
+        return Result(title, True, note=".env copied through .worktreeinclude")
+    missing = "doesn't list .env" if include.is_file() else "is missing"
+    return Result(title, True, note=f"warning: .env is gitignored and .worktreeinclude {missing}, so worktrees and runs won't get it. List .env in .worktreeinclude (keep it out of commits with .git/info/exclude if the team doesn't want it)")
+
+
 def pipelines(name: str, path: Path, named: list[str]) -> tuple[Result, list[dict[str, Any]]]:
     """Every pipeline the repo runs, and where each one comes from, so a file in the wrong folder shows."""
     loaded, broken = [], []
@@ -99,7 +114,7 @@ def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -
     results.append(Result(f"{name} base branch", found.returncode == 0, f"no origin/{base}"))
     named = [repo.get("pipeline", "ticket"), repo.get("review_pipeline", "review"), repo.get("reply_pipeline", "reply"), repo.get("prepare_pipeline", "prepare"), repo.get("ci_pipeline", "fix-ci"), *(f"sweep-{sweep}" for sweep in repo.get("sweeps", {}))]
     found, loaded = pipelines(name, path, named)
-    results += [found, prompts(name, path, loaded), workflow(name, path)]
+    results += [found, prompts(name, path, loaded), workflow(name, path), worktree_files(name, path)]
     results.append(source_check(name, repo, jira))
     if launch:
         results.append(launch_test(path, name, base))
