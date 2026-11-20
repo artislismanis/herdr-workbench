@@ -61,6 +61,12 @@ class PrepareTickets(unittest.TestCase):
         self.inner.rewrite.assert_called_once_with("7", "## Requirements\n\nDo X\n\n## Original ticket\n\nOld")
         self.inner.tag.assert_called_once_with("7", "scoped")
 
+    def test_queueing_labels_and_takes_the_ticket(self):
+        self.inner.label = "ai"
+        self.source.enqueue("prep-AB-12")
+        self.inner.tag.assert_called_once_with("AB-12", "ai")
+        self.inner.take.assert_called_once_with("AB-12")
+
     def test_jira_keys_keep_their_shape(self):
         self.source.get("prep-AB-12")
         self.inner.get.assert_called_once_with("AB-12")
@@ -115,6 +121,18 @@ class TicketWrites(unittest.TestCase):
             self.assertEqual(source.create("T", "B"), "AB-9")
         fields = call.call_args.args[2]["fields"]
         self.assertEqual((fields["project"], fields["labels"]), ({"key": "AB"}, ["r"]))
+
+    def test_jira_takes_an_unassigned_ticket_and_leaves_someone_elses(self):
+        source = self.jira()
+        put = []
+        replies = {"issue/A-1?fields=assignee": {"fields": {"assignee": None}}, "myself": {"accountId": "me"}}
+        source._call = lambda method, path, body=None: put.append((path, body)) if method == "PUT" else replies[path]
+        source.take("A-1")
+        self.assertEqual(put, [("issue/A-1/assignee", {"accountId": "me"})])
+        replies["issue/A-1?fields=assignee"] = {"fields": {"assignee": {"accountId": "sam"}}}
+        put.clear()
+        source.take("A-1")
+        self.assertEqual(put, [])
 
     def test_jira_needs_a_project_to_create(self):
         with self.assertRaises(KeyError):
