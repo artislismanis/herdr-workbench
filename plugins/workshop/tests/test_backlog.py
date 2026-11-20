@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -8,7 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop import __main__ as cli  # noqa: E402
-from workshop.backlog import SNAPSHOT, asked_in_chat, column, poll  # noqa: E402
+from workshop.backlog import SNAPSHOT, asked_in_chat, column, poll, pr_scope  # noqa: E402
 from workshop.chat import CHAT  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import GitHubSource, Item, JiraSource  # noqa: E402
@@ -81,6 +82,17 @@ class Poll(unittest.TestCase):
         self.assertEqual(self.scope, "org:x")
         self.prs = ToolError("gh api failed")
         self.assertEqual(self.poll(200.0)["prs"], {"polled_at": 100.0, "error": "gh api failed", "items": [{"url": "u"}]})
+
+    def test_prs_default_to_the_configured_repos(self):
+        tmp = Path(tempfile.mkdtemp())
+        for name, url in (("a", "git@github.com:org/a.git"), ("b", "https://github.com/org/b")):
+            subprocess.run(["git", "init", "-q", str(tmp / name)], check=True)
+            subprocess.run(["git", "-C", str(tmp / name), "remote", "add", "origin", url], check=True)
+        (tmp / "c").mkdir()
+        self.cfg["repos"] = {"a": {"path": str(tmp / "a")}, "b": {"path": str(tmp / "b")}, "c": {"path": str(tmp / "c")}, "d": {}}
+        self.assertEqual(pr_scope(self.cfg), "repo:org/a repo:org/b")
+        self.cfg["prs"] = {"search": "org:x"}
+        self.assertEqual(pr_scope(self.cfg), "org:x")
 
     def test_a_repo_that_never_worked_shows_its_error(self):
         self.lists["a"] = OSError("no network")

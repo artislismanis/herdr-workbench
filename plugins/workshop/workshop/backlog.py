@@ -1,13 +1,16 @@
 """Open tickets by how far they've been prepared. Polling costs no tokens, and the board only reads what this saves."""
 
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from .chat import CHAT
 from .engine import STOPS
 from .prs import fetch
+from .shell import ToolError, run
 from .sources import Item, make_source
 from .store import SNAPSHOT, Store
 
@@ -33,6 +36,21 @@ def waiting_since(items: list[dict[str, Any]], before: list[dict[str, Any]], now
     return [{**pr, "since": earlier.get(pr["url"]) or stamp} if pr.get("move") == "you" else pr for pr in items]
 
 
+def github_repo(path: Path) -> str:
+    """owner/name from the checkout's origin, or nothing without one."""
+    try:
+        return "/".join(re.split("[:/]", run("git", "remote", "get-url", "origin", cwd=path).strip().removesuffix(".git"))[-2:]) if path.is_dir() else ""
+    except ToolError:
+        return ""
+
+
+def pr_scope(cfg: dict[str, Any]) -> str:
+    """Workshop only reviews PRs in repos it's set up for, so by default the PR lists hold just those. [prs] search replaces that."""
+    if search := cfg.get("prs", {}).get("search", ""):
+        return search
+    return " ".join(sorted({f"repo:{found}" for repo in cfg["repos"].values() if repo.get("path") and (found := github_repo(Path(repo["path"]).expanduser()))}))
+
+
 def poll(cfg: dict[str, Any], store: Store, clock: Callable[[], float] = time.time) -> dict[str, Any]:
     """One repo failing keeps its last good list, so the board shows it stale, not empty."""
     previous = store.read(SNAPSHOT)
@@ -46,7 +64,7 @@ def poll(cfg: dict[str, Any], store: Store, clock: Callable[[], float] = time.ti
         except STOPS as failed:
             repos[name] = {"polled_at": 0.0, "items": [], **before.get(name, {}), "error": str(failed)}
     try:
-        prs = {"polled_at": clock(), "error": "", "items": waiting_since(fetch(cfg.get("prs", {}).get("search", ""), clock(), asked_in_chat(store), cfg.get("prs", {}).get("intake") == "chat"), previous.get("prs", {}).get("items", []), clock())}
+        prs = {"polled_at": clock(), "error": "", "items": waiting_since(fetch(pr_scope(cfg), clock(), asked_in_chat(store), cfg.get("prs", {}).get("intake") == "chat"), previous.get("prs", {}).get("items", []), clock())}
     except STOPS as failed:
         prs = {"polled_at": 0.0, "items": [], **previous.get("prs", {}), "error": str(failed)}
     snapshot = {"repos": repos, "prs": prs}

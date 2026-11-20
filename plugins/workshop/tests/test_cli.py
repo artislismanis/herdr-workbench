@@ -259,7 +259,7 @@ class ReviewRepo(unittest.TestCase):
     CFG = {"repos": {"mine": {"path": "/tmp"}}}
 
     def origin(self, url):
-        patch = mock.patch("workshop.__main__.run", return_value=url + "\n")
+        patch = mock.patch("workshop.backlog.run", return_value=url + "\n")
         self.addCleanup(patch.stop)
         patch.start()
 
