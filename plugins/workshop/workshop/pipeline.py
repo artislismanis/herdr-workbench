@@ -42,6 +42,19 @@ def prompt_dirs(path: Path | None = None, repo: str = "") -> list[tuple[str, Pat
     return folders("prompts", path, repo)
 
 
+def workflow_source(path: Path | None = None, repo: str = "") -> Path | None:
+    """Your workflow choices: the first workflow.md beside the prompt folders. One file, never merged, so the whole set reads in one place."""
+    return next((file for _, folder in prompt_dirs(path, repo) if (file := folder.parent / "workflow.md").is_file()), None)
+
+
+def contract(path: Path | None = None, repo: str = "") -> str:
+    """Workshop's contract, then your workflow choices, which win over the repo's guidance but not over the step's rules after them."""
+    text = contract_text("contract.md").strip()
+    if file := workflow_source(path, repo):
+        text += f"\n\nThe person's workflow choices for this repo, from `{file}`. Where one applies to this step, follow it over the repo's guidance and the general advice above. It can't change the rules for this step that follow:\n\n{file.read_text(encoding='utf-8').strip()}"
+    return text
+
+
 def prompt_source(name: str, path: Path | None = None, repo: str = "") -> str:
     """Where a step's method comes from: one of prompt_dirs, or workshop."""
     return next((where for where, folder in prompt_dirs(path, repo) if (folder / name).is_file()), "workshop")
@@ -49,12 +62,12 @@ def prompt_source(name: str, path: Path | None = None, repo: str = "") -> str:
 
 def prompt_text(name: str, path: Path | None = None, repo: str = "") -> str:
     """A step's method, from the first folder that has it, then workshop's contract, which nothing replaces."""
-    method, _, contract = (contract_text(name) if shipped(name) else "").partition(MARK)
+    method, _, rules = (contract_text(name) if shipped(name) else "").partition(MARK)
     if (where := prompt_source(name, path, repo)) != "workshop":
         method = (dict(prompt_dirs(path, repo))[where] / name).read_text(encoding="utf-8").partition(MARK)[0]
     elif not shipped(name):
         raise PipelineError(f"no prompt called {name}: put one in {' or '.join(str(folder) for _, folder in prompt_dirs(path, repo))}")
-    return "\n\n".join(part for part in (method.strip(), contract and contract_text("contract.md").strip(), contract.strip()) if part)
+    return "\n\n".join(part for part in (method.strip(), rules and contract(path, repo), rules.strip()) if part)
 
 
 def shipped(name: str) -> bool:

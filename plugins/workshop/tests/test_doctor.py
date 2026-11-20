@@ -8,7 +8,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.doctor import launch_test, pipelines, prompts, source_check, worktree_files  # noqa: E402
+from workshop.doctor import launch_test, pipelines, prompts, source_check, workflow, worktree_files  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
 
@@ -33,6 +33,14 @@ class Prompts(unittest.TestCase):
             (tmp / "mine" / "fix.md").write_text("Mine.")
             (tmp / "r" / ".workshop" / "prompts" / "ai-review.md").write_text("Theirs.")
             self.assertEqual(prompts("r", tmp / "r").note, "ai-review.md from repo, fix.md from yours")
+
+    def test_names_the_workflow_file_in_use(self):
+        tmp = Path(tempfile.mkdtemp())
+        with mock.patch.dict(os.environ, {"WORKSHOP_PROMPTS": str(tmp / "mine" / "prompts"), "WORKSHOP_REPOS": str(tmp / "repos")}):
+            self.assertEqual(workflow("r", tmp / "r").note, "workshop's own")
+            (tmp / "repos" / "r").mkdir(parents=True)
+            (tmp / "repos" / "r" / "workflow.md").write_text("- Stacks: git-spice")
+            self.assertEqual(workflow("r", tmp / "r").note, str(tmp / "repos" / "r" / "workflow.md"))
 
     def test_warns_when_a_gitignored_env_wont_reach_worktrees(self):
         tmp = Path(tempfile.mkdtemp())

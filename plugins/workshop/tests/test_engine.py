@@ -1338,6 +1338,7 @@ class FakeTools:
         self.root, self.work = root, root / "wt"
         self.identity = True
         self.statuses = {}
+        self.screens = {}
         self.models = {}
         self.notes = []
         self.reviews, self.review_notes, self.open_already = [], None, False
@@ -1470,6 +1471,9 @@ class FakeTools:
 
     def agent_status(self, name):
         return self.statuses.get(name, "gone")
+
+    def screen(self, pane):
+        return self.screens.get(pane, "")
 
     def start_agent(self, name, pane, files, model=""):
         self.started.append(name)
@@ -1751,6 +1755,12 @@ class Parking(Case):
         self.assertEqual(run.status, "parked")
         self.engine.advance(run)
         self.assertEqual(len([r for r in self.source.reports if "Started" not in r]), 1)
+
+    def test_a_blocked_agent_says_what_its_pane_is_asking(self):
+        run = self.start()
+        self.tools.statuses["ws-de-1"] = "blocked"
+        self.tools.screens[run.pane] = "Hook asks: edit an existing test? | 1. Yes 2. No"
+        self.assertEqual(self.engine.advance(run).reason, "Agent ws-de-1 is waiting for an answer in its pane: Hook asks: edit an existing test? | 1. Yes 2. No")
 
     def test_going_quiet_without_a_report_parks(self):
         run = self.start()

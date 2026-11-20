@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .pipeline import PipelineError, load, pipeline_source, prompt_dirs, prompts_of, shipped
+from .pipeline import PipelineError, load, pipeline_source, prompt_dirs, prompts_of, shipped, workflow_source
 from .shell import ToolError, run
 from .sources import JiraSource, make_source
 from .tools import Tools, slug
@@ -48,24 +48,16 @@ def launch_test(repo: Path, name: str, base: str) -> Result:
         Tools().start_agent(agent, pane, path)
         run("herdr", "agent", "prompt", agent, "Reply with the single word ready.", "--wait", "--timeout", LAUNCH_TIMEOUT_MS)
         if Tools().agent_status(agent) == "blocked":
-            return Result(title, False, f"agent is blocked: {_screen(pane)}")
+            return Result(title, False, f"agent is blocked: {Tools().screen(pane)}")
         return Result(title, True)
     except ToolError as stop:
-        return Result(title, False, f"{stop} {_screen(pane)}".strip())
+        return Result(title, False, f"{stop} {Tools().screen(pane)}".strip())
     finally:
         if pane:
             Tools().close_pane(pane)
         if path:
             subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=repo, capture_output=True)
         subprocess.run(["git", "branch", "-D", branch], cwd=repo, capture_output=True)
-
-
-def _screen(pane: str) -> str:
-    """What the agent is showing: usually the prompt that stopped it."""
-    if not pane:
-        return ""
-    done = subprocess.run(["herdr", "pane", "read", pane, "--lines", "14"], capture_output=True, text=True)
-    return " | ".join(line.strip() for line in done.stdout.splitlines() if line.strip())[-300:]
 
 
 def prompts(name: str, path: Path, pipelines: list[dict[str, Any]] | None = None) -> Result:
@@ -77,6 +69,12 @@ def prompts(name: str, path: Path, pipelines: list[dict[str, Any]] | None = None
     missing = [n for pipeline in pipelines or [] for n in prompts_of(pipeline) if not shipped(n) and n not in found]
     detail = f"no {', '.join(dict.fromkeys(missing))} in {' or '.join(str(folder) for _, folder in prompt_dirs(path, name))}"
     return Result(f"{name} prompts", not missing, detail, ", ".join(f"{n} from {where}" for n, where in found.items()) or "workshop's own")
+
+
+def workflow(name: str, path: Path) -> Result:
+    """Which workflow.md the repo's agents get, so a file in the wrong folder shows by its absence."""
+    file = workflow_source(path, name)
+    return Result(f"{name} workflow", True, note=str(file) if file else "workshop's own")
 
 
 def worktree_files(name: str, path: Path) -> Result:
@@ -116,7 +114,7 @@ def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -
     results.append(Result(f"{name} base branch", found.returncode == 0, f"no origin/{base}"))
     named = [repo.get("pipeline", "ticket"), repo.get("review_pipeline", "review"), repo.get("reply_pipeline", "reply"), repo.get("prepare_pipeline", "prepare"), repo.get("ci_pipeline", "fix-ci"), *(f"sweep-{sweep}" for sweep in repo.get("sweeps", {}))]
     found, loaded = pipelines(name, path, named)
-    results += [found, prompts(name, path, loaded), worktree_files(name, path)]
+    results += [found, prompts(name, path, loaded), workflow(name, path), worktree_files(name, path)]
     results.append(source_check(name, repo, jira))
     if launch:
         results.append(launch_test(path, name, base))

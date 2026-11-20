@@ -103,3 +103,14 @@ On a `fix` or an agent's question, a plain comment of your own on the ticket cou
 | `d` | `workshop drop <key> [reason]` | `/ai drop`, or close the ticket |
 
 Gates are the exception: they're answered only from the board or the terminal, never from the ticket.
+
+## Whose rules apply
+
+Agents work inside the team's repos, so they meet the repo's own guidance too: its `CLAUDE.md`, skills, plugins and hooks. The split is fixed, and you choose the exceptions:
+
+- **The repo decides its conventions:** code style, tests, its commands, domain rules.
+- **Workshop decides how work moves:** steps, branches, stacks, reviews, PRs, what gets posted, replies to threads, ticket moves. A repo flow that would do these on its own, such as a ticket-to-PR plugin, is declined, so one ticket never runs through two pipelines.
+- **Where workshop has no rule,** such as prose style or commit messages, the repo's guidance applies.
+- **Your exceptions** go in one `workflow.md` per repo, or one for all repos: keep a repo's stack tool, use your own review or prose skill. Workshop runs and your own sessions both follow it, and `workshop doctor` names the file in use.
+
+The workshop README's [Changing how a step works](../plugins/workshop/README.md#changing-how-a-step-works) has the file's locations, an example, and how your own skills relate to a repo's.
