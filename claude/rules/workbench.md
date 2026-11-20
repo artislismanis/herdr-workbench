@@ -2,6 +2,13 @@
 
 # Workbench: worktrees, commands, reviews, documents, PR size, stacks
 
+## Whose rules apply
+
+- A repo's CLAUDE.md, skills and agents set its conventions: code style and structure, tests, its own commands, domain rules. Follow them.
+- How work moves is mine, set here: worktrees, stacks, reviews, PRs, anything posted, replies to threads, ticket moves. These rules win over a repo's guidance on them, and over any skill, plugin or hook that offers its own flow for them. Decline such an offer unless my workflow choices name it.
+- Where these rules say nothing, such as prose style or commit messages, the repo's guidance applies.
+- My workflow choices for a repo are in one `workflow.md`, the first found of `~/.config/workshop/repos/<repo>/`, `<repo>/.workshop/` and `~/.config/workshop/`, with `<repo>` the repo's folder name. Read it before a decision on how work moves, and follow it over both these rules and the repo's.
+
 ## Worktrees
 
 - One task, one worktree: `wt switch -c <branch>` from the main checkout. It opens at `~/.herdr/worktrees/<repo>/<branch>` with dependencies installed and `.env` copied, so don't set it up by hand.
@@ -16,7 +23,7 @@
 
 ## Reviews
 
-Only when `HERDR_ENV=1`. Every code review reaches me through hunk, whichever skill does the analysis. The `hunk-review` skill has the session commands; always pass `--repo`.
+Only when `HERDR_ENV=1`. Every code review reaches me through hunk, whichever skill does the analysis, my workflow choices included. The `hunk-review` skill has the session commands; always pass `--repo`.
 
 - Open the review yourself with `~/.config/herdr/bin/hunk-review-open`. It shows uncommitted changes, or the branch if there are none, plus the PR's GitHub threads. Your own pane must be in the worktree under review; if it isn't, ask me to open it with `prefix+shift+g`, typing `pr:<N>` for a PR, and start you there. For a PR, `gh pr view` must find it from the branch; if it can't, the worktree is on the wrong branch, so stop and say so.
 - Review before `gh pr create`, and again for PR feedback. Commit first when you want the whole branch.
@@ -50,7 +57,7 @@ Strong guidelines, not hard limits. When you go over, say so and why.
 
 ## Stacks (gh stack)
 
-GitHub's native stacked PRs, through `gh stack`. Its `gh-stack` skill has the commands and the non-interactive flags; follow it. On top of it:
+GitHub's native stacked PRs, through `gh stack`, unless my workflow choices name another stack tool; then follow that tool's own guidance instead of this section. Its `gh-stack` skill has the commands and the non-interactive flags; follow it. On top of it:
 
 - A stack is dependent PRs, each on the one below. Aim for 3, never deeper than 5. Needing more means the work needs re-planning, not another layer.
 - Plan the layers before writing code, and start the stack at the beginning: `wt switch -c <first-branch>`, then `gh stack init <first-branch>` to adopt it. Add each next layer with `gh stack add <branch>`.

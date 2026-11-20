@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .cost import summary
-from .pipeline import PipelineError, contract_text, prompt_text, prompts_of, shipped
+from .pipeline import PipelineError, contract, contract_text, prompt_text, prompts_of, shipped
 from .review import decisions, load_notes, load_replies, place, section
 from .shell import ToolError
 from .sources import Source
@@ -985,7 +985,7 @@ class Engine:
         except PipelineError as missing:
             raise Park(str(missing)) from missing
         if not shipped(prompt):  # a step of your own: its rules come from its settings
-            method += f"\n\n{contract_text('contract.md').strip()}\n\n{self._rules(run, step)}"
+            method += f"\n\n{contract(Path(run.repo_path) if run.repo_path else None, run.repo)}\n\n{self._rules(run, step)}"
         sender = run.pipeline["steps"][run.index_of(run.sent_back)] if run.sent_back else {}
         fills = {"{run}": str(self.store.files(run)), "{base}": run.base, "{since}": run.reviewed, "{now}": run.checking, "{pr}": run.pr, "{queued}": self._queue_list(run) if step.get("queues") else "", "{sender}": run.sent_back, "{report}": str(self._report(run, sender)) if sender else "", "{out}": str(self._report(run, step))}
         text = method + (contract_text(extra) if extra and not revising and not run.on_a_pr else "")

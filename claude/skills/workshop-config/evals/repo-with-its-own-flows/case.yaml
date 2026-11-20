@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: repo-with-its-own-flows
+context:
+  scaffold_script: place-files.sh
+expected_outcome: |
+  The skill spots the repo's own flows (git-spice in CLAUDE.md, its pr-review skill, the ticket-to-pr plugin) and asks about them once. config/repos/ledger/workflow.md keeps git-spice for stacks and says nothing that brings back the repo's pr-review or ticket-to-pr, which workshop declines by default. config.toml is valid and has the repo with qa set.

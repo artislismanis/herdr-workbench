@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .pipeline import PipelineError, load, pipeline_source, prompt_dirs, prompts_of, shipped
+from .pipeline import PipelineError, load, pipeline_source, prompt_dirs, prompts_of, shipped, workflow_source
 from .shell import ToolError, run
 from .sources import JiraSource, make_source
 from .tools import Tools, slug
@@ -78,6 +78,12 @@ def prompts(name: str, path: Path, pipelines: list[dict[str, Any]] | None = None
     return Result(f"{name} prompts", not missing, detail, ", ".join(f"{n} from {where}" for n, where in found.items()) or "workshop's own")
 
 
+def workflow(name: str, path: Path) -> Result:
+    """Which workflow.md the repo's agents get, so a file in the wrong folder shows by its absence."""
+    file = workflow_source(path, name)
+    return Result(f"{name} workflow", True, note=str(file) if file else "workshop's own")
+
+
 def pipelines(name: str, path: Path, named: list[str]) -> tuple[Result, list[dict[str, Any]]]:
     """Every pipeline the repo runs, and where each one comes from, so a file in the wrong folder shows."""
     loaded, broken = [], []
@@ -101,7 +107,7 @@ def _repo(name: str, repo: dict[str, Any], jira: dict[str, str], launch: bool) -
     results.append(Result(f"{name} base branch", found.returncode == 0, f"no origin/{base}"))
     named = [repo.get("pipeline", "ticket"), repo.get("review_pipeline", "review"), repo.get("reply_pipeline", "reply"), repo.get("prepare_pipeline", "prepare"), repo.get("ci_pipeline", "fix-ci"), *(f"sweep-{sweep}" for sweep in repo.get("sweeps", {}))]
     found, loaded = pipelines(name, path, named)
-    results += [found, prompts(name, path, loaded)]
+    results += [found, prompts(name, path, loaded), workflow(name, path)]
     results.append(source_check(name, repo, jira))
     if launch:
         results.append(launch_test(path, name, base))
