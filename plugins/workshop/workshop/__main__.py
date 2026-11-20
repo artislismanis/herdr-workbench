@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .backlog import SNAPSHOT, poll
+from .backlog import SNAPSHOT, github_repo, poll
 from .board import show
 from .boardview import full_pile, waiting
 from .chat import CHAT, Chat
@@ -102,7 +102,7 @@ def repo_of(cfg: dict[str, Any], url: str) -> tuple[str, str]:
         raise KeyError(f"not a PR link: {url}")
     for name, repo in cfg["repos"].items():
         path = Path(repo["path"]).expanduser()
-        if path.is_dir() and re.split("[:/]", run("git", "remote", "get-url", "origin", cwd=path).strip().removesuffix(".git"))[-2:] == [found[1], found[2]]:
+        if github_repo(path) == f"{found[1]}/{found[2]}":
             return name, found[3]
     raise KeyError(f"{found[1]}/{found[2]} needs a [repos] table with its path before workshop can review its PRs")
 

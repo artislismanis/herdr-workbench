@@ -280,7 +280,7 @@ Nothing reaches the ticket before your yes. Each go puts its section at the top 
 
 ## PRs
 
-The same poll saves your open PRs, PRs you're asked to review or have reviewed, and those merged in the last week, in one GitHub call. Each gets whose move it is. `[prs] search` narrows them, in GitHub search terms.
+The same poll saves your open PRs, PRs you're asked to review or have reviewed, and those merged in the last week, in one GitHub call. Each gets whose move it is. They come only from the repos set up in `[repos]`, matched on each checkout's `origin`, since those are the only PRs workshop can review, so a repo you add shows with nothing else to change. `[prs] search` replaces that, in GitHub search terms.
 
 | Status | Needs you | With people |
 |---|---|---|
