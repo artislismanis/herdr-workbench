@@ -320,6 +320,11 @@ class JiraSource:
     def tag(self, key: str, label: str) -> None:
         self._call("PUT", f"issue/{key}", {"update": {"labels": [{"add": label}]}})
 
+    def take(self, key: str) -> None:
+        """Delivery only picks up tickets assigned to you. Someone else's stays theirs."""
+        if not self._call("GET", f"issue/{key}?fields=assignee")["fields"]["assignee"]:
+            self._call("PUT", f"issue/{key}/assignee", {"accountId": self._call("GET", "myself")["accountId"]})
+
     def untag(self, key: str, label: str) -> None:
         self._call("PUT", f"issue/{key}", {"update": {"labels": [{"remove": label}]}})
 
@@ -676,6 +681,8 @@ class PrepareSource:
     def enqueue(self, key: str) -> None:
         if label := getattr(self.ticket, "label", ""):  # a folder of intent files has no queue to join
             self.ticket.tag(self._key(key), label)
+        if take := getattr(self.ticket, "take", None):
+            take(self._key(key))
 
     def dequeue(self, key: str) -> None:
         if label := getattr(self.ticket, "label", ""):
