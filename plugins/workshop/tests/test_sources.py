@@ -9,11 +9,39 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.sources import GitHubSource, Item, JiraSource, MarkdownSource, PrepareSource, PullRequestSource, ReplySource, SweepSource, prepared  # noqa: E402
+from workshop.sources import GitHubSource, Item, JiraSource, MarkdownSource, PrepareSource, PullRequestSource, ReplySource, SweepSource, prepared, wiki  # noqa: E402
 from workshop.tools import slug  # noqa: E402
 
 
+class Wiki(unittest.TestCase):
+    def test_headings_become_headings_not_numbered_lists(self):
+        self.assertEqual(wiki("## Design\n\n### Why"), "h2. Design\n\nh3. Why")
+
+    def test_code_bold_and_links(self):
+        self.assertEqual(wiki("Run `uv sync` **now**, see [docs](https://x.test/a)."), "Run {{uv sync}} *now*, see [docs|https://x.test/a].")
+
+    def test_a_brace_outside_code_is_escaped(self):
+        self.assertEqual(wiki("Write to {run}, not `{run}`"), "Write to \\{run\\}, not {{{run}}}")
+
+    def test_lists_keep_their_depth(self):
+        self.assertEqual(wiki("- a\n  - b\n1. c\n2. d"), "* a\n** b\n# c\n# d")
+
+    def test_a_table_gets_a_header_row_and_loses_its_rule(self):
+        self.assertEqual(wiki("| A | B |\n| --- | --- |\n| `x` | y |"), "|| A || B ||\n| {{x}} | y |")
+
+    def test_code_blocks_are_left_alone(self):
+        self.assertEqual(wiki("```bash\necho {x} **y**\n```"), "{code}\necho {x} **y**\n{code}")
+
+
 class Prepared(unittest.TestCase):
+    def test_jira_gets_wiki_headings_and_converts_what_was_markdown(self):
+        old = "## Requirements\n\nDo `x`\n\n## Original ticket\n\nh1. Mine"
+        self.assertEqual(prepared(old, "Design", "Like **so**", "h2. ", wiki), "h2. Requirements\n\nDo {{x}}\n\nh2. Design\n\nLike *so*\n\nh2. Original ticket\n\nh1. Mine")
+
+    def test_jira_leaves_a_wiki_section_as_it_is(self):
+        once = prepared("Mine", "Requirements", "Do `x`", "h2. ", wiki)
+        self.assertEqual(prepared(once, "Design", "Y", "h2. ", wiki), "h2. Requirements\n\nDo {{x}}\n\nh2. Design\n\nY\n\nh2. Original ticket\n\nMine")
+
     def test_the_first_section_goes_above_the_original(self):
         self.assertEqual(prepared("Please add it", "Requirements", "Do X"), "## Requirements\n\nDo X\n\n## Original ticket\n\nPlease add it")
 

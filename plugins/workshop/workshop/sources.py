@@ -8,6 +8,7 @@ import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -47,9 +48,11 @@ class Item:
 
 # Where a ticket has got to. Each source shows these its own way.
 TICKET_MOVES = ("working", "blocked", "review", "approved", "preprod", "merged", "dropped")
-ORIGINAL = "## Original ticket"
-ORIGINAL_LINE = re.compile(rf"^{ORIGINAL}[ \t]*$", re.MULTILINE)
-PREPARED = re.compile(rf"^## ({'|'.join(SECTIONS)})$", re.MULTILINE)
+ORIGINAL = "Original ticket"
+HEADING = r"(?:## |h2\. )"  # Markdown, or Jira's wiki markup
+ORIGINAL_LINE = re.compile(rf"^{HEADING}{ORIGINAL}[ \t]*$", re.MULTILINE)
+PREPARED = re.compile(rf"^({HEADING})({'|'.join(SECTIONS)})[ \t]*$", re.MULTILINE)
+TABLE_RULE = re.compile(r"\s*\|?(\s*:?-{3,}:?\s*\|)+(\s*:?-{3,}:?\s*)?")
 
 
 class Source(Protocol):
@@ -75,15 +78,50 @@ class EditableSource(Source, Protocol):
     def close(self, key: str, why: str) -> None: ...
 
 
-def prepared(body: str, section: str, text: str) -> str:
-    """A ticket with one section written. What's prepared sits on top, so a rerun replaces it and the original stays once."""
+def inline(text: str) -> str:
+    """Code spans, bold and links. A brace outside code would start a Jira macro, so it's escaped."""
+    parts = re.split(r"(`[^`]+`)", text)
+    plain = (re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r"[\1|\2]", re.sub(r"\*\*(.+?)\*\*", r"*\1*", re.sub(r"([{}])", r"\\\1", part))) for part in parts[::2])
+    return "".join(piece for pair in zip(plain, [f"{{{{{code[1:-1]}}}}}" for code in parts[1::2]] + [""], strict=True) for piece in pair)
+
+
+def wiki(text: str) -> str:
+    """Markdown as Jira's wiki markup, which is what Jira's v2 API reads: there `## ` starts a numbered list, not a heading."""
+    lines, out, fenced = text.splitlines(), [], False
+    for n, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            out.append("{code}")
+        elif fenced:
+            out.append(line)
+        elif TABLE_RULE.fullmatch(line):
+            continue
+        elif line.lstrip().startswith("|"):
+            sep = "||" if n + 1 < len(lines) and TABLE_RULE.fullmatch(lines[n + 1]) else "|"
+            out.append(sep + sep.join(f" {inline(cell.strip())} " for cell in line.strip().strip("|").split("|")) + sep)
+        elif found := re.match(r"(#{1,6}) (.*)", line):
+            out.append(f"h{len(found[1])}. {inline(found[2])}")
+        elif found := re.match(r"( *)[-*+] (.*)", line):
+            out.append("*" * (len(found[1]) // 2 + 1) + " " + inline(found[2]))
+        elif found := re.match(r"( *)\d+[.)] (.*)", line):
+            out.append("#" * (len(found[1]) // 3 + 1) + " " + inline(found[2]))
+        elif re.fullmatch(r"\s*(-{3,}|\*{3,})\s*", line):
+            out.append("----")
+        else:
+            out.append(inline(line))
+    return "\n".join(out)
+
+
+def prepared(body: str, section: str, text: str, heading: str = "## ", markup: Callable[[str], str] = str) -> str:
+    """A ticket with one section written. What's prepared sits on top, so a rerun replaces it and the original stays once.
+    markup turns Markdown into the ticket's own format: for the new section, and for a section written under the other heading."""
     # GitHub hands back a web edit with CRLF, which would hide the headings and nest the sections.
     parts = ORIGINAL_LINE.split(body.replace("\r\n", "\n"), maxsplit=1)
     top, original = parts if len(parts) == 2 else ("", parts[0])
     parts = PREPARED.split(top)
-    sections = dict(zip(parts[1::2], (part.strip() for part in parts[2::2]), strict=True)) | {section: text.strip()}
-    written = [f"## {name}\n\n{sections[name]}" for name in SECTIONS if name in sections]
-    return "\n\n".join([*written, f"{ORIGINAL}\n\n{original.strip()}"]).strip() + ("\n" if not original.strip() else "")
+    sections = {name: (part if mark == heading else markup(part)).strip() for mark, name, part in zip(parts[1::3], parts[2::3], parts[3::3], strict=True)} | {section: markup(text).strip()}
+    written = [f"{heading}{name}\n\n{sections[name]}" for name in SECTIONS if name in sections]
+    return "\n\n".join([*written, f"{heading}{ORIGINAL}\n\n{original.strip()}"]).strip() + ("\n" if not original.strip() else "")
 
 
 GITHUB_HISTORY = """
@@ -303,12 +341,13 @@ class JiraSource:
         return self._call("GET", f"issue/{key}?fields=description")["fields"].get("description") or ""
 
     def rewrite(self, key: str, text: str) -> None:
+        """Already in wiki markup: publish writes the new section that way, and the rest came from Jira."""
         self._call("PUT", f"issue/{key}", {"fields": {"description": text}})
 
     def create(self, title: str, body: str) -> str:
         if not self.project:
             raise KeyError("[jira] needs project to create tickets")
-        fields = {"project": {"key": self.project}, "summary": title, "description": body, "issuetype": {"name": "Task"}, "labels": [self.repo_name]}
+        fields = {"project": {"key": self.project}, "summary": title, "description": wiki(body), "issuetype": {"name": "Task"}, "labels": [self.repo_name]}
         return self._call("POST", "issue", {"fields": fields})["key"]
 
     def close(self, key: str, why: str) -> None:
@@ -342,7 +381,7 @@ class JiraSource:
         self._call("PUT", f"issue/{key}", labels)
 
     def report(self, key: str, text: str) -> None:
-        self._call("POST", f"issue/{key}/comment", {"body": text})
+        self._call("POST", f"issue/{key}/comment", {"body": wiki(text)})
 
     def finish(self, key: str) -> None:
         pass
@@ -669,7 +708,10 @@ class PrepareSource:
 
     def publish(self, key: str, section: str, text: str, stage: str) -> None:
         ticket = self._key(key)
-        self.ticket.rewrite(ticket, prepared(self.ticket.body(ticket), section, text))
+        if isinstance(self.ticket, JiraSource):
+            self.ticket.rewrite(ticket, prepared(self.ticket.body(ticket), section, text, "h2. ", wiki))
+        else:
+            self.ticket.rewrite(ticket, prepared(self.ticket.body(ticket), section, text))
         self.ticket.tag(ticket, self._label(stage))
 
     def signed(self, key: str, text: str) -> None:
