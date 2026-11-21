@@ -25,6 +25,7 @@ WIN_BRIDGE="$HOME/.local/bin/win-bridge"
 HERDR_PLUGINS="$HOME/.config/herdr/plugins"
 HUNKDIFF_CONFIG="$HERDR_PLUGINS/config/jhochenbaum.hunkdiff/config.toml"
 HUNK_CONFIG="$HOME/.config/hunk/config.toml"
+PLANNOTATOR_CONFIG="$HOME/.config/plannotator-tui/config.toml"
 HUNK_SKILL="$CLAUDE_DIR/skills/hunk-review/SKILL.md"
 WORKSHOP_CLI="$HOME/.local/bin/workshop"
 SYSTEMD_USER="$HOME/.config/systemd/user"
@@ -71,6 +72,7 @@ rm -f "$HUNKDIFF_CONFIG"
 rm -rf "$(dirname "$HUNK_SKILL")"
 # Strips only our block; your own hunk settings below it stay.
 sed -i '/^# >>> herdr-workbench:hunk >>>$/,/^# <<< herdr-workbench:hunk <<<$/d' "$HUNK_CONFIG"
+sed -i '/^# >>> herdr-workbench:plannotator >>>$/,/^# <<< herdr-workbench:plannotator <<<$/d' "$PLANNOTATOR_CONFIG"
 RECIPE
 }
 
@@ -132,6 +134,8 @@ _trust_run_folder() {
 }
 _trust_run_folder
 ensure_top_block herdr-workbench:hunk "$REPO_ROOT/hunk/config.toml" "$HUNK_CONFIG"
+_toml_ok() { python3 -c 'import sys, tomllib; tomllib.load(open(sys.argv[1], "rb"))' "$1" 2>/dev/null; }
+ensure_bottom_block herdr-workbench:plannotator "$REPO_ROOT/plannotator/config.toml" "$PLANNOTATOR_CONFIG" _toml_ok
 
 if command -v hunk >/dev/null 2>&1; then
   # The skill bundled with the binary, so it always matches the pinned hunk.

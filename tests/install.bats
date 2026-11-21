@@ -121,3 +121,27 @@ assert set(c["projects"]["github.com/acme/app"]) == {"merge"}, c
   ! grep -q herdr-workbench "$CONFIG"
   grep -qx 'squash = false' "$CONFIG"
 }
+
+@test "the annotate pane gets S to send, below settings of yours" {
+  cfg="$HOME/.config/plannotator-tui/config.toml"
+  mkdir -p "$(dirname "$cfg")"
+  printf '[ui]\ncopy_on_select = false\n' >"$cfg"
+  install
+  [ "$status" -eq 0 ]
+  python3 -c '
+import sys, tomllib
+c = tomllib.load(open(sys.argv[1], "rb"))
+assert c["ui"] == {"copy_on_select": False}, c
+assert c["keys"] == {"send": ["E", "S"], "send-and-close": ["Z"]}, c
+' "$cfg"
+}
+
+@test "a keys table of yours in the annotate config stops the install" {
+  cfg="$HOME/.config/plannotator-tui/config.toml"
+  mkdir -p "$(dirname "$cfg")"
+  printf '[keys]\nreload = ["R"]\n' >"$cfg"
+  install
+  [ "$status" -ne 0 ]
+  grep -qx 'reload = \["R"\]' "$cfg"
+  ! grep -q herdr-workbench "$cfg"
+}
