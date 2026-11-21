@@ -162,7 +162,7 @@ A step that isn't one of workshop's is an agent step whose prompt only says what
 
 ## Changing how a step works
 
-Every agent runs in the repo, so it sees the repo's `CLAUDE.md`, skills and agents, and your own under `~/.claude`. They split like this:
+Every agent runs in the repo, so it sees the repo's `CLAUDE.md`, skills and agents, and your own under `~/.claude`. It starts in your permission mode, `permissions.defaultMode` in `~/.claude/settings.json`, or Claude Code's default without one, even where the repo sets its own, such as plan. They split like this:
 
 - **The repo's conventions apply:** code style and structure, tests, its own commands, domain rules.
 - **How the work moves is workshop's:** the steps, branches, stacks, reviews, PRs, anything posted, replies to threads and ticket moves. A repo skill, plugin or hook that offers its own flow for these, such as a ticket-to-PR plugin, is declined.

@@ -29,6 +29,15 @@ def slug(key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", key.lower()).strip("-")
 
 
+def permission_mode() -> str:
+    """Yours, from your own Claude settings. A repo's own default, such as plan, would stop an agent nobody is watching."""
+    path = Path(os.environ.get("CLAUDE_CONFIG_DIR", "~/.claude")).expanduser() / "settings.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("permissions", {}).get("defaultMode") or "default"
+    except (OSError, ValueError):
+        return "default"
+
+
 class Tools:
     def identity_ok(self, repo: Path) -> bool:
         settings = ("user.name", "user.email")
@@ -224,7 +233,7 @@ class Tools:
 
     def start_agent(self, name: str, pane: str, files: Path, model: str = "") -> None:
         # Run files stay out of the repo, so agents need leave to reach them.
-        run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane, "--", "--add-dir", str(files), *(["--model", model] if model else []))
+        run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane, "--", "--add-dir", str(files), "--permission-mode", permission_mode(), *(["--model", model] if model else []))
 
     def talk(self, pane: str, files: Path, text: str) -> None:
         """A plain Claude session for you to talk to, not a step agent, so the run never waits on it."""
