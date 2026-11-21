@@ -474,12 +474,13 @@ def offer_reply(run: Run, source: Any, chat: Chat | None, started: float) -> Non
         emoji = []
     marks = f" and add {', '.join(emoji)}" if emoji else ""
     try:
-        answer = input(f'\nReply in the chat thread: "{text}"{marks}\n[enter] send it, [n] skip, or type your own: ').strip()
+        only = ", [r] reactions only" if emoji else ""
+        answer = input(f'\nReply in the chat thread: "{text}"{marks}\n[enter] send it{only}, [n] skip, or type your own: ').strip()
     except EOFError:
         return
     if answer.lower() == "n":
         return
-    steps = [lambda: chat.reply(run.pr, answer or text)]
+    steps = [] if emoji and answer.lower() == "r" else [lambda: chat.reply(run.pr, answer or text)]
     if emoji:
         steps.insert(0, lambda: chat.settle(run.pr, emoji))
     while steps:

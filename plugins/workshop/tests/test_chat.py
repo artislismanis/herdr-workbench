@@ -220,6 +220,18 @@ class Replying(Case):
         self.offer(["Approved, but fix the docs"])
         self.assertIn("fix the docs", self.asked[0][0])
 
+    def test_r_sends_the_reactions_without_a_reply(self):
+        self.chat = Chat(SETTINGS | {"reactions": MARKS}, self.store, self.ask)
+        self.offer(["r"])
+        self.assertEqual(len(self.asked), 1)
+        self.assertIn("tick", self.asked[0][0])
+        self.assertNotIn("Approved", self.asked[0][0])
+
+    def test_r_is_your_own_words_where_no_reactions_are_set(self):
+        self.offer(["r"])
+        self.assertEqual(len(self.asked), 1)
+        self.assertTrue(self.asked[0][0].endswith("\n\nr"))
+
     def test_no_new_review_means_no_offer(self):
         self.offer([], "").assert_not_called()
 
