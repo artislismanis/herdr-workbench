@@ -44,21 +44,15 @@ height = 30
 
 [[keys.command]]
 key = "prefix+shift+s"
-type = "plugin_action"
-command = "jhochenbaum.hunkdiff.send-review"
-description = "Review: send hunk comments to the agent"
+type = "shell"
+command = "\"$HOME/.config/herdr/bin/send-to-agent\""
+description = "Send to the agent: hunk comments in hunk, saved annotations anywhere else"
 
 [[keys.command]]
 key = "prefix+a"
 type = "plugin_action"
 command = "annotate.capture"
 description = "Annotate: comment on the selection"
-
-[[keys.command]]
-key = "prefix+ctrl+s"
-type = "plugin_action"
-command = "annotate.send-archive"
-description = "Annotate: send to the agent"
 
 [[keys.command]]
 key = "prefix+ctrl+v"

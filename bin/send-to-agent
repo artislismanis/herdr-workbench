@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# One key sends your comments to the agent. In hunk it sends your review comments;
+# anywhere else it sends the annotations you saved. Run from a key, which gets the
+# focused pane as HERDR_ACTIVE_PANE_ID; the plugin action then acts on that pane.
+set -euo pipefail
+herdr="${HERDR_BIN_PATH:-herdr}"
+export HERDR_PANE_ID="${HERDR_ACTIVE_PANE_ID:-${HERDR_PANE_ID:-}}"
+name="$("$herdr" pane process-info --pane "$HERDR_PANE_ID" | jq -r '.result.process_info.foreground_processes[0].name // ""')"
+if [ "$name" = hunk ]; then
+  exec "$herdr" plugin action invoke send-review --plugin jhochenbaum.hunkdiff
+fi
+exec "$herdr" plugin action invoke send-archive --plugin annotate
