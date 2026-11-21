@@ -44,7 +44,9 @@ herdr plugin pane open --plugin annotate --entrypoint doc --placement split \
   --env PLANNOTATOR_TUI_FILE="$FILE" --env PLANNOTATOR_TUI_DELIVER_TO="$HERDR_PANE_ID"
 ```
 
-`$FILE` is the absolute path. Don't wait, poll or read the pane: my notes arrive as your next message. Address each one, revise the file and reopen it until I approve in chat.
+`$FILE` is the absolute path. Keep the `pane_id` it prints. Don't wait, poll or read the pane: my notes arrive as your next message. Address each one and revise the file, until I approve in chat.
+
+For each revision, run `herdr pane get <pane_id>` first. If the pane is still open, don't open another: run `herdr plugin pane focus <pane_id>` and tell me to press `r` to reload. Open a new pane only when the old one is gone.
 
 ## PR size
 
