@@ -32,7 +32,7 @@ Only when `HERDR_ENV=1`. Every code review reaches me through hunk, whichever sk
 - Hunk notes can't be edited: remove a note and add a new one to change it.
 - When the review is of a PR, your notes are the draft review: a confidence prefix (high, medium, low), about two sentences, a `suggestion` block where it helps. Anything that doesn't fit a changed line goes in one note with `--author pr-level` and a `PR-level:` prefix, anchored to the first hunk.
 - Post only when I name the outcome: `~/.config/herdr/bin/hunk-pr-push --as comment|approve|request-changes|draft`. It speaks for me on GitHub.
-- Ask before replying to or resolving GitHub threads.
+- Ask before replying to or resolving a person's GitHub thread. On a PR of mine, reply to each bot thread you fix, such as Copilot's, then resolve it.
 
 ## Documents
 
