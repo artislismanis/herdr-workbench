@@ -359,7 +359,7 @@ def show_refresh(cfg: dict[str, Any], store: Store) -> None:
 
 
 def show_doctor(cfg: dict[str, Any], launch: bool) -> int:
-    results = doctor(cfg, launch)
+    results = doctor(cfg, launch, state_root() / "runs")
     for r in results:
         said = r.note if r.ok else r.detail
         print(f"{'ok  ' if r.ok else 'FAIL'} {r.name}{': ' + said if said else ''}")

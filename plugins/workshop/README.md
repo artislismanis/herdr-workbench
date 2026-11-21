@@ -11,6 +11,8 @@ cd <repo> && claude     # accept folder trust once per clone; its worktrees inhe
 workshop doctor         # checks tools, logins and repos, and launches a real agent
 ```
 
+Each run gives its agent a folder of its own under `~/.local/state/workshop/runs`. Claude Code asks before it trusts a folder added that way, and the question stops a run nobody is watching. The install trusts that parent folder once, and `workshop doctor` checks it.
+
 ## Commands
 
 | Command | Does |
