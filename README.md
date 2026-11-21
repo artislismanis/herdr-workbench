@@ -22,6 +22,7 @@ How work moves through it, and what you do at each point: [docs/workflow.md](doc
 | herdr's workshop plugin | `plugins/workshop`, linked with `herdr plugin link`, so it moves with this checkout | Linked if missing or linked to another checkout |
 | `~/.local/bin/workshop` | Symlink to the plugin's command: `workshop doctor`, `workshop start` and so on. See [its README](plugins/workshop/README.md) | Repointed if it drifts |
 | `~/.config/systemd/user/workshop-tick.{service,timer}` | `workshop tick`, every 5 minutes unless `workshop schedule` changes it. Installed but off, because turning it on starts tickets unattended | Refreshed if it drifts; never enabled |
+| `~/.config/plannotator-tui/config.toml` | A marked block at the bottom: `S` sends from the annotate pane, as `E` does, so it matches `prefix+shift+s`. Send and close moves from `S` to `Z`, because the pane refuses one key for two actions | Block rewritten; everything above it is yours and stays |
 
 | Key, after herdr's prefix | Does |
 |---|---|

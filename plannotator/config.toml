@@ -1,0 +1,7 @@
+# Managed by herdr-workbench's install.sh, which rewrites this block on every
+# run. Your own settings go above the opening marker.
+# S sends, like prefix+shift+s in hunk and chat. plannotator-tui gives S to
+# send-and-close by default and refuses a key bound twice, so that moves to Z.
+[keys]
+send = ["E", "S"]
+send-and-close = ["Z"]
