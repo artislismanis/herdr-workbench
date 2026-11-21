@@ -58,7 +58,7 @@ These change what other people see. Settle `[jira.moves]` and `[review] claim` w
 - **`[jira] route`**: only if the board allows moving to the next column only. The columns in order.
 - **`[jira] unblocked`**: statuses where a blocking ticket no longer holds work back, though Jira doesn't count them as Done, such as `Ready for Release`. Only if the user's board has them.
 - **`[prs] search`**: narrows the PRs tab, in GitHub search terms. Suggest `org:<org>` from the repos' `origin` remotes.
-- **`[review] claim`**: how a review shows as yours: `none` (default, for teams that assign reviewers), `github-reviewer`, `github-assignee`, `chat-reaction` (needs `[chat]`). **`mode`**: `silent` (default, nobody sees anything until you post) or `claimed`. Only worth raising when `claim` isn't `none`.
+- **`[review] claim`**: how a review shows as yours: `none` (default, for teams that assign reviewers), `github-reviewer`, `github-assignee`, `chat-reaction` (needs `[chat]`). **`mode`**: `silent` (default, nobody sees anything until you post) or `claimed`. Only worth raising when `claim` isn't `none`. Say how it shows on the board: in silent mode `a` reacts only when you post, and `A` or `m` reacts at once.
 - **`comment_prefix`**: default `[ai]`, starts everything workshop posts. Only change it if the team wants another marker. It can't be empty.
 
 ## Tier 3: enhancements
@@ -77,10 +77,10 @@ Offer as one multi-select question: "Anything else to set up? Each is off or at 
 | `commands.logs` | `logs` sweep proposes nothing | Using the logs sweep |
 | `[backlog]` labels | `planned`, `designed` | Team already uses other names |
 | `done_hours` | 24 | Finished work should linger longer or shorter |
-| `[review] after_post`, `block_failing_ci`, `[chat.reactions]` | Off, off, standard emoji | Fine-tuning chat reviews |
+| `[review] after_post`, `block_failing_ci`, `[chat.reactions]` | Off, off, `eyes` for the claim and no other reaction | Fine-tuning chat reviews |
 | `pipeline` and friends per repo | `ticket`, `review`, `reply`, `fix-ci`, `prepare` | e.g. `gated` for an approval after planning. Custom pipelines: README, Your own pipelines |
 
-**Chat specifics.** Tool names depend on the user's MCP server. List the real ones (`claude mcp list`, or the tools visible in this session) and don't copy the example's: a claude.ai Slack connector's are `mcp__claude_ai_Slack__*`. `read_tools` gets read tools only (search, read channel, read thread), because message text steers that call. `react_tool` and `reply_tool` only if `claim = "chat-reaction"` or `after_post = "chat-reply"`. Channels may need IDs; `slack_search_channels` can find them. Suggest a lower `check_minutes` (default 30) where chat is the review intake.
+**Chat specifics.** Tool names depend on the user's MCP server. List the real ones (`claude mcp list`, or the tools visible in this session) and don't copy the example's: a claude.ai Slack connector's are `mcp__claude_ai_Slack__*`. `read_tools` gets read tools only (search, read channel, read thread), because message text steers that call. `react_tool` if `claim = "chat-reaction"` or `after_post = "chat-reply"`, and `reply_tool` only for `chat-reply`. With `chat-reply`, also propose `[chat.reactions]` with `approved` and `comments`: only reactions named there go out after a review, and nothing warns when none are. Take the names from the emoji the team already puts on recent asks, read with a read tool. Channels may need IDs; `slack_search_channels` can find them. Suggest a lower `check_minutes` (default 30) where chat is the review intake.
 
 ## Write it
 
