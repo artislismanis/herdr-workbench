@@ -139,9 +139,9 @@ def classify(pr: dict[str, Any], me: str, requested: bool = False, merged: bool 
 
 
 def ask_stands(pr: dict[str, Any], me: str, asked_at: float) -> bool:
-    """An ask in chat is answered by your review, and a newer ask starts it again."""
-    mine = latest_reviews(pr).get(me)
-    return not mine or datetime.fromisoformat(mine["createdAt"]).timestamp() < asked_at
+    """An ask in chat is answered by your review, or by anyone's approval since, as "could someone review" needs only one. A newer ask starts it again."""
+    since = {who: r for who, r in latest_reviews(pr).items() if datetime.fromisoformat(r["createdAt"]).timestamp() >= asked_at}
+    return me not in since and not any(r["state"] == "APPROVED" for r in since.values())
 
 
 def fetch(scope: str, now: float, asked: dict[str, float] | None = None, chat_only: bool = False) -> list[dict[str, Any]]:

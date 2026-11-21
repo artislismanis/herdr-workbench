@@ -148,6 +148,22 @@ class Fetch(unittest.TestCase):
     def test_a_newer_ask_in_chat_comes_back_to_you(self):
         self.assertEqual(self.chat_after(datetime(2026, 11, 1, tzinfo=UTC).timestamp()), [("you", "re-review")])
 
+    def chat_reviewed_by_them(self, state, asked_at):
+        asked = pr("them", reviews=[review("other", state)]) | {"state": "OPEN"}
+        reply = self.data()
+        reply["data"]["asked0"] = asked
+        with mock.patch("workshop.prs.run_json", return_value=reply):
+            return [(p["move"], p["state"], p["beaten"]) for p in fetch("", 0.0, {asked["url"]: asked_at})]
+
+    def test_someone_elses_approval_answers_the_ask_in_chat(self):
+        self.assertEqual(self.chat_reviewed_by_them("APPROVED", datetime(2026, 10, 30, tzinfo=UTC).timestamp()), [("others", "open", [])])
+
+    def test_someone_elses_comment_leaves_the_ask_with_you(self):
+        self.assertEqual(self.chat_reviewed_by_them("COMMENTED", datetime(2026, 10, 30, tzinfo=UTC).timestamp()), [("you", "needs review", ["other"])])
+
+    def test_an_approval_before_the_ask_leaves_it_with_you(self):
+        self.assertEqual(self.chat_reviewed_by_them("APPROVED", datetime(2026, 11, 1, tzinfo=UTC).timestamp()), [("you", "needs review", ["other"])])
+
     def test_a_chat_pr_thats_closed_or_gone_doesnt_show(self):
         reply = self.data()
         reply["data"]["asked0"], reply["data"]["asked1"] = pr("them") | {"state": "MERGED"}, None
