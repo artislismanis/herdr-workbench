@@ -23,6 +23,24 @@ class Launch(unittest.TestCase):
         tools.close_pane.assert_called_once_with("p1")
 
 
+class PermissionMode(unittest.TestCase):
+    def start(self, settings):
+        tmp = Path(tempfile.mkdtemp())
+        if settings is not None:
+            (tmp / "settings.json").write_text(settings)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(tmp)}), mock.patch("workshop.tools.run") as called:
+            Tools().start_agent("a", "p1", Path("/runs/x"))
+        argv = called.call_args.args
+        return argv[argv.index("--permission-mode") + 1]
+
+    def test_an_agent_starts_in_your_mode_not_the_repos(self):
+        self.assertEqual(self.start(json.dumps({"permissions": {"defaultMode": "auto"}})), "auto")
+
+    def test_without_a_mode_of_yours_it_starts_in_the_default_one(self):
+        self.assertEqual(self.start(None), "default")
+        self.assertEqual(self.start("{}"), "default")
+
+
 class RunFolder(unittest.TestCase):
     def check(self, projects):
         tmp = Path(tempfile.mkdtemp())
