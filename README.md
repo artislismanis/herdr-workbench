@@ -27,6 +27,7 @@ How work moves through it, and what you do at each point: [docs/workflow.md](doc
 |---|---|
 | `shift+g` | Pick or create a worktree, with worktrunk's hooks. Replaces herdr's built-in `new_worktree`. Type `pr:1572`, or paste the PR's URL, to open a PR's own branch; a new branch named like `PR1572` or `#1572` is refused |
 | `shift+e` | Remove the focused worktree. `wt` refuses a dirty one and keeps an unmerged branch |
+| `shift+s` or `ctrl+s` | Send your comments to the agent. In hunk it sends your review comments, and anywhere else the annotations you saved. Both keys do the same, so either habit works |
 
 A running herdr picks up new keys after `herdr server reload-config`.
 
