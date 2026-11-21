@@ -970,12 +970,12 @@ class Engine:
             suffix = f"-{step['id']}-{attempt}"
             run.step_agent = run.agent[: AGENT_NAME - len(suffix)] + suffix
             run.step_pane = "" if run.solo else self.tools.split(run.pane, work)
-            self.tools.start_agent(run.step_agent, run.step_pane or run.pane, self.store.files(run), step.get("model", ""))
+            self.tools.start_agent(run.step_agent, run.step_pane or run.pane, self.store.files(run), step.get("model", ""), step.get("advisor", ""))
             agent = run.step_agent
         else:
             agent = run.agent
             if self.tools.agent_status(agent) == "gone":
-                self.tools.start_agent(agent, run.pane, self.store.files(run), step.get("model", ""))
+                self.tools.start_agent(agent, run.pane, self.store.files(run), step.get("model", ""), step.get("advisor", ""))
         if step.get("again") and not run.on_a_pr:
             run.checking = self.tools.snapshot(work)
         revising = step.get("proposes") and run.revised

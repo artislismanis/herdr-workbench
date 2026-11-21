@@ -1340,6 +1340,7 @@ class FakeTools:
         self.statuses = {}
         self.screens = {}
         self.models = {}
+        self.advisors = {}
         self.notes = []
         self.reviews, self.review_notes, self.open_already = [], None, False
         self.prompts, self.lines, self.started, self.closed = [], [], [], []
@@ -1475,10 +1476,11 @@ class FakeTools:
     def screen(self, pane):
         return self.screens.get(pane, "")
 
-    def start_agent(self, name, pane, files, model=""):
+    def start_agent(self, name, pane, files, model="", advisor=""):
         self.started.append(name)
         self.files = files
         self.models[name] = model
+        self.advisors[name] = advisor
         self.statuses[name] = "idle"
 
     def prompt(self, name, text):
@@ -2074,6 +2076,10 @@ class Steps(Case):
     def test_a_step_starts_its_agent_on_its_model(self):
         self.start_with(self.pipeline(model="haiku"))
         self.assertEqual(self.tools.models["ws-de-1"], "haiku")
+
+    def test_a_step_starts_its_agent_with_its_advisor(self):
+        self.start_with(self.pipeline(model="sonnet", advisor="opus"))
+        self.assertEqual((self.tools.models["ws-de-1"], self.tools.advisors["ws-de-1"]), ("sonnet", "opus"))
 
     def test_a_fresh_step_gets_its_own_model(self):
         self.start_with(self.pipeline(model="opus", fresh=True))
