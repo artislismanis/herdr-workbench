@@ -92,6 +92,9 @@ class Validate(unittest.TestCase):
         steps = [agent(id="a", model="opus"), agent(id="b", model="haiku")]
         self.rejects({"name": "x", "steps": steps}, "same model")
 
+    def test_steps_sharing_an_agent_must_agree_on_the_advisor(self):
+        self.rejects({"name": "x", "steps": [agent(id="a", advisor="opus"), agent(id="b", advisor="fable")]}, "same advisor")
+
     def test_a_model_on_only_one_shared_step_is_rejected(self):
         self.rejects({"name": "x", "steps": [agent(id="a", model="opus"), agent(id="b")]}, "same model")
 

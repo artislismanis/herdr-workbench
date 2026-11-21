@@ -11,7 +11,7 @@ KINDS = ("agent", "gate", "command", "draft_pr", "ci")
 PUBLISH = ("pr", "ticket")
 SECTIONS = ("Requirements", "Design")  # what a gate can write to a ticket, in the order they read
 STAGES = ("planned", "designed")
-STEP_KEYS = {"id", "stage", "queues", "kind", "prompt", "again", "read_only", "fresh", "verdict", "then", "model", "minutes", "output", "publish", "report", "interactive", "section", "label", "proposes", "proposals", "ask", "go", "change"}
+STEP_KEYS = {"id", "stage", "queues", "kind", "prompt", "again", "read_only", "fresh", "verdict", "then", "model", "advisor", "minutes", "output", "publish", "report", "interactive", "section", "label", "proposes", "proposals", "ask", "go", "change"}
 GATE_KEYS = {"id", "stage", "kind", "report", "section", "label", "proposals", "ask", "go", "change", "then"}
 COMMAND_KEYS = {"id", "stage", "kind", "minutes", "verdict", "then"}
 COMMAND_VERDICTS = ["PASS", "FAILED"]
@@ -162,10 +162,10 @@ def validate(raw: Any) -> dict[str, Any]:
             if verdict not in {"gate": ["REJECTED"], "ci": ["FAILED"]}.get(step["kind"], step.get("verdict", [])):
                 raise PipelineError(f"{where}: then names {verdict}, which isn't in verdict")
             _check_rule(f"{where}.then.{verdict}", rule, set(ids))
-    # They share the main agent, which has one model.
-    shared = {s.get("model") for s in steps if s["kind"] == "agent" and not s.get("fresh")}
-    if len(shared) > 1:
-        raise PipelineError(f"{raw['name']}: steps that aren't fresh share an agent, so they need the same model")
+    # They share the main agent, which has one model and one advisor.
+    for key in ("model", "advisor"):
+        if len({s.get(key) for s in steps if s["kind"] == "agent" and not s.get("fresh")}) > 1:
+            raise PipelineError(f"{raw['name']}: steps that aren't fresh share an agent, so they need the same {key}")
     return raw
 
 

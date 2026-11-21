@@ -111,7 +111,7 @@ A `command` step runs what the repo sets for that step id under `[repos.<name>.c
 
 An agent step's `again` names the prompt for later rounds. In `ticket` and `gated`, a later `ai-review` looks only at what changed since the last one: are the flagged issues fixed, and do the changes add new bugs. That stops reviewers and agents changing code back and forth.
 
-Agent steps can set `model` and `minutes` (default 45). Steps that aren't `fresh` share one agent, so they must agree on the model.
+Agent steps can set `model`, `advisor` and `minutes` (default 45). `advisor` sets the model behind Claude Code's advisor for that agent, and wins over the repo's `advisorModel`. Steps that aren't `fresh` share one agent, so they must agree on the model and the advisor.
 
 ## Writing a qa command
 

@@ -231,9 +231,10 @@ class Tools:
         return json.loads(done.stdout)["result"]["agent"]["agent_status"]
         return json.loads(done.stdout)["result"]["agent"]["agent_status"]
 
-    def start_agent(self, name: str, pane: str, files: Path, model: str = "") -> None:
-        # Run files stay out of the repo, so agents need leave to reach them.
-        run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane, "--", "--add-dir", str(files), "--permission-mode", permission_mode(), *(["--model", model] if model else []))
+    def start_agent(self, name: str, pane: str, files: Path, model: str = "", advisor: str = "") -> None:
+        # Run files stay out of the repo, so agents need leave to reach them. Settings given here win over the repo's.
+        settings = ["--settings", json.dumps({"advisorModel": advisor})] if advisor else []
+        run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane, "--", "--add-dir", str(files), "--permission-mode", permission_mode(), *(["--model", model] if model else []), *settings)
 
     def talk(self, pane: str, files: Path, text: str) -> None:
         """A plain Claude session for you to talk to, not a step agent, so the run never waits on it."""
