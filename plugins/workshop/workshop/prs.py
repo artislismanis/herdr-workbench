@@ -15,10 +15,11 @@ fragment pr on PullRequest {
   author { login }
   repository { name }
   commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
-  reviews(last: 20) { nodes { state body createdAt author { login __typename } commit { oid } } }
+  # bodyText is the comment as GitHub shows it, without the markdown and HTML that bots write.
+  reviews(last: 20) { nodes { state body: bodyText createdAt author { login __typename } commit { oid } } }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
-  reviewThreads(first: 30) { nodes { isResolved path line comments(first: 3) { nodes { body author { login } } } } }
-  comments(last: 10) { nodes { body createdAt author { login } } }
+  reviewThreads(first: 30) { nodes { isResolved path line comments(first: 3) { nodes { body: bodyText author { login } } } } }
+  comments(last: 10) { nodes { body: bodyText createdAt author { login } } }
 }
 """
 
