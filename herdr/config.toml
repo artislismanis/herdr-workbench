@@ -55,12 +55,6 @@ command = "annotate.capture"
 description = "Annotate: comment on the selection"
 
 [[keys.command]]
-key = "prefix+ctrl+s"
-type = "shell"
-command = "\"$HOME/.config/herdr/bin/send-to-agent\""
-description = "Send to the agent: hunk comments in hunk, saved annotations anywhere else"
-
-[[keys.command]]
 key = "prefix+ctrl+v"
 type = "plugin_action"
 command = "annotate.paste-archive"
