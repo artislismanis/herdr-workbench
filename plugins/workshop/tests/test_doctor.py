@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -8,7 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.doctor import launch_test, pipelines, prompts, source_check, workflow, worktree_files  # noqa: E402
+from workshop.doctor import launch_test, pipelines, prompts, run_folder, source_check, workflow, worktree_files  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
 
@@ -20,6 +21,23 @@ class Launch(unittest.TestCase):
         with mock.patch("workshop.doctor.Tools", return_value=tools), mock.patch("workshop.doctor.run"), mock.patch("workshop.doctor.subprocess.run"):
             self.assertTrue(launch_test(Path("/r"), "r", "main").ok)
         tools.close_pane.assert_called_once_with("p1")
+
+
+class RunFolder(unittest.TestCase):
+    def check(self, projects):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / ".claude.json").write_text(json.dumps({"projects": projects}))
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(tmp)}):
+            return run_folder(Path("/s/workshop/runs")).ok
+
+    def test_a_trusted_run_folder_passes(self):
+        self.assertTrue(self.check({"/s/workshop/runs": {"hasTrustDialogAccepted": True}}))
+
+    def test_trust_on_a_folder_above_covers_it(self):
+        self.assertTrue(self.check({"/s": {"hasTrustDialogAccepted": True}}))
+
+    def test_an_untrusted_run_folder_fails(self):
+        self.assertFalse(self.check({"/s/workshop/runs/x": {"hasTrustDialogAccepted": True}, "/s/workshop": {}}))
 
 
 class Prompts(unittest.TestCase):

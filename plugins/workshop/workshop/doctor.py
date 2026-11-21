@@ -1,6 +1,8 @@
 """Finds what would stop a run before it spends any tokens."""
 
 import fnmatch
+import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -132,8 +134,21 @@ def source_check(name: str, repo: dict[str, Any], jira: dict[str, str]) -> Resul
         return Result(f"{name} source", False, str(stop))
 
 
-def doctor(cfg: dict[str, Any], launch: bool = True) -> list[Result]:
+def run_folder(runs: Path) -> Result:
+    """Each run's agent gets a folder under runs with --add-dir. An untrusted one stops it at Claude Code's trust question."""
+    found = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home())) / ".claude.json"
+    try:
+        projects = json.loads(found.read_text(encoding="utf-8")).get("projects", {})
+    except (OSError, ValueError):
+        projects = {}
+    trusted = any(projects.get(str(folder), {}).get("hasTrustDialogAccepted") for folder in (runs, *runs.parents))
+    return Result("run folder trusted", trusted, f"Claude Code will ask before each run's agent may use {runs}, which stops the run. Run the install again, or cd {runs} && claude, accept, then /exit")
+
+
+def doctor(cfg: dict[str, Any], launch: bool = True, runs: Path | None = None) -> list[Result]:
     results = _tools()
+    if runs:
+        results.append(run_folder(runs))
     if all(r.ok for r in results):
         results.append(_try("gh login", "gh", "auth", "status"))
         results.append(_try("herdr server", "herdr", "workspace", "list"))

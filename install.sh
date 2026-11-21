@@ -110,6 +110,27 @@ _diff_panel_off() {
   esac
 }
 _diff_panel_off
+
+# Each workshop run gives its agent a folder of its own here, with --add-dir. Claude Code asks
+# before it trusts an added folder, which stops an unattended run, so the parent is trusted once.
+_trust_run_folder() {
+  local dst="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" runs="${XDG_STATE_HOME:-$HOME/.local/state}/workshop/runs" tmp
+  if python3 -c 'import json, sys; sys.exit(not json.load(open(sys.argv[1])).get("projects", {}).get(sys.argv[2], {}).get("hasTrustDialogAccepted"))' "$dst" "$runs" 2>/dev/null; then
+    skip "$runs trusted"
+    return 0
+  fi
+  case "$MODE" in
+    check)   DRIFT=$((DRIFT + 1)); warn "$runs isn't trusted by Claude Code" ;;
+    dry-run) log "${C_DIM}  would trust $runs in $dst${C_RST}" ;;
+    install)
+      mkdir -p "$runs"
+      tmp="$(mktemp "${TMPDIR:-/tmp}/herdr-workbench.XXXXXX")"
+      python3 -c 'import json, pathlib, sys; p = pathlib.Path(sys.argv[1]); d = json.loads(p.read_text()) if p.exists() else {}; d.setdefault("projects", {}).setdefault(sys.argv[2], {})["hasTrustDialogAccepted"] = True; print(json.dumps(d, indent=2))' "$dst" "$runs" >"$tmp"
+      _apply "$tmp" "$dst" "$(stat -c %a "$dst" 2>/dev/null || echo 600)"
+      ;;
+  esac
+}
+_trust_run_folder
 ensure_top_block herdr-workbench:hunk "$REPO_ROOT/hunk/config.toml" "$HUNK_CONFIG"
 
 if command -v hunk >/dev/null 2>&1; then
