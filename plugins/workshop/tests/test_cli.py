@@ -295,6 +295,14 @@ class Lock(unittest.TestCase):
         self.assertFalse(locked(self.root, lambda: done.append(1)))
         self.assertEqual(done, [])
 
+    def test_an_agent_event_waits_for_a_busy_tick(self):
+        lock = (self.root / "lock").open("w")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        threading.Timer(0.3, lock.close).start()
+        done = []
+        self.assertTrue(locked(self.root, lambda: done.append(1), 2))
+        self.assertEqual(done, [1])
+
     def test_a_persons_command_says_when_it_couldnt_run(self):
         self.held()
         with mock.patch("workshop.__main__.PATIENCE", 0.3), self.assertRaisesRegex(ToolError, "busy"):

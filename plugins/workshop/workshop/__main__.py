@@ -384,6 +384,9 @@ def show_doctor(cfg: dict[str, Any], launch: bool) -> int:
     return 0 if all(r.ok for r in results) else 1
 
 
+ADVANCE_WAIT = 180  # seconds, longer than a tick takes, the lead agent's look included
+
+
 def locked(root: Path, work: Callable[[], None], patience: float = 0) -> bool:
     deadline = time.monotonic() + patience
     with (root / "lock").open("w") as lock:
@@ -628,7 +631,7 @@ def main(argv: list[str]) -> int:
             case "tick":
                 locked(root, lambda: tick(engine, cfg))
             case "advance":
-                locked(root, lambda: advance_all(engine))
+                locked(root, lambda: advance_all(engine), ADVANCE_WAIT)  # an agent's event comes once, so a busy tick mustn't drop it
             case "start":
                 waited(root, lambda: print(engine.explain(begin(engine, cfg, argv[1], argv[2], "--override" in argv, "--restart" in argv))))
             case "status":
