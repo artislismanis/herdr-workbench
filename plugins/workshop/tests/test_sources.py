@@ -131,6 +131,24 @@ class LongSections(unittest.TestCase):
         self.assertEqual(read.call_args[0][0].full_url, "https://x.test/new")
         self.assertEqual(read.call_count, 1)
 
+    def test_jira_shows_the_summary_and_attaches_the_whole_report(self):
+        jira = mock.Mock(spec=JiraSource)
+        jira.body.return_value = "Old"
+        report = "### Summary\n\nBuild **it**.\n\n### Approach\n\nLong detail."
+        PrepareSource(jira, {}).publish("prep-AB-1", "Design", report, "designed")
+        jira.attach.assert_called_once_with("AB-1", "design.md", report)
+        written = jira.rewrite.call_args[0][1]
+        self.assertTrue(written.startswith("h2. Design\n\nBuild *it*.\n\nThe full design is in the attachment design.md."))
+        self.assertNotIn("Long detail", written)
+
+    def test_github_shows_the_summary_and_folds_the_whole_report(self):
+        inner = mock.Mock()
+        inner.body.return_value = "Old"
+        PrepareSource(inner, {}).publish("prep-7", "Design", "### Summary\n\nBuild it.\n\n### Approach\n\nDetail.", "designed")
+        written = inner.rewrite.call_args[0][1]
+        self.assertTrue(written.startswith("## Design\n\nBuild it.\n\n<details>"))
+        self.assertIn("Detail.", written)
+
     def test_jira_doesnt_attach_what_fits(self):
         jira = mock.Mock(spec=JiraSource)
         jira.body.return_value = "Old"
