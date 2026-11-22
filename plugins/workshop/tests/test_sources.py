@@ -94,6 +94,20 @@ class LongSections(unittest.TestCase):
         self.assertIn("attachment design.md", written)
         self.assertTrue(written.startswith("h2. Design"))
 
+    def test_jira_reads_the_newest_attached_section_in_full(self):
+        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t"})
+        fields = {"summary": "S", "description": "Short", "comment": {"comments": []}, "attachment": [
+            {"filename": "design.md", "created": "1", "content": "https://x.test/old"},
+            {"filename": "design.md", "created": "2", "content": "https://x.test/new"},
+            {"filename": "screenshot.png", "created": "3", "content": "https://x.test/png"}]}
+        read = mock.MagicMock()
+        read.return_value.__enter__.return_value.read.return_value = b"The whole design"
+        with mock.patch.object(source, "_call", return_value={"fields": fields}), mock.patch("workshop.sources.urllib.request.urlopen", read):
+            body = source.get("AB-1").body
+        self.assertIn("The whole design", body)
+        self.assertEqual(read.call_args[0][0].full_url, "https://x.test/new")
+        self.assertEqual(read.call_count, 1)
+
     def test_jira_doesnt_attach_what_fits(self):
         jira = mock.Mock(spec=JiraSource)
         jira.body.return_value = "Old"
