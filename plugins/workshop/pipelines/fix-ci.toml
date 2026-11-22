@@ -4,3 +4,7 @@ steps = ["fix-ci", "qa", "ci"]
 [step.qa]
 stage = "Fix"
 then.FAILED = { goto = "fix-ci", max = 2, prompt = "fix-ci.md" }
+
+[step.ci]
+stage = "Fix"
+then.FAILED = { goto = "fix-ci", max = 2, prompt = "fix-ci.md" }

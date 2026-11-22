@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.engine import CI_SETTLE, PREFIX, STEP_TIMEOUT, Engine, Park, ci_state  # noqa: E402
+from workshop.engine import CI_NONE, CI_SETTLE, PREFIX, STEP_TIMEOUT, Engine, Park, ci_state  # noqa: E402
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, Item, PrepareSource, PullRequestSource, SweepSource, Ticket  # noqa: E402
@@ -122,7 +122,7 @@ class TicketRecord(unittest.TestCase):
         root = Path(tempfile.mkdtemp())
         tools, source = FakeTools(root), FakeSource()
         engine = Engine(tools, Store(root / "state"), lambda run: source, FakeThrottle(), clock=lambda: 1000.0)
-        run = engine.start("r", "7", root, "main", load("ticket"), source)
+        run = engine.start("r", "7", root, "main", to_draft(), source)
         (engine.store.files(run) / "ask.md").write_text("Overview: Two calls\nWhat: The name\nWhy: It shows\nAsk: Call it whisper?\nWhat: Short form\nAsk: Add -w?\n")
         tools.statuses[run.agent] = "idle"
         engine.advance(run)
@@ -357,7 +357,7 @@ class Deploy(unittest.TestCase):
         self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: 1000.0)
 
     def delivered(self, **fields):
-        run = Run(repo="r", key="7", repo_path=str(self.root), base="dev", pipeline=load("ticket"), status="done", step=5, pr=self.URL, opened=True, worktree=str(self.tools.work), **fields)
+        run = Run(repo="r", key="7", repo_path=str(self.root), base="dev", pipeline=to_draft(), status="done", step=5, pr=self.URL, opened=True, worktree=str(self.tools.work), **fields)
         self.tools.work.mkdir(exist_ok=True)
         self.engine.store.save(run)
         return run
@@ -1242,7 +1242,7 @@ class FixingCi(unittest.TestCase):
         self.assertIn("someone else has pushed", run.reason)
 
     def test_a_pr_workshop_delivered_is_fixed_in_its_checkout_which_stays(self):
-        delivery = Run(repo="r", key="7", repo_path=str(self.root), base="main", pipeline=load("ticket"), worktree=str(self.root / "delivered"), branch="workshop/7", pr=self.URL, status="done")
+        delivery = Run(repo="r", key="7", repo_path=str(self.root), base="main", pipeline=to_draft(), worktree=str(self.root / "delivered"), branch="workshop/7", pr=self.URL, status="done")
         self.engine.store.save(delivery)
         run = self.agent_says(self.start(), "FIXED")
         self.assertEqual((run.worktree, run.branch, run.pane, self.tools.worktrees), (str(self.root / "delivered"), "workshop/7", "p2", 0))
@@ -1363,6 +1363,12 @@ class FakeThrottle:
         return {"5h": 10, "7d": 20}
 
 
+def to_draft():
+    """The ticket pipeline up to its draft PR. TicketCi covers the CI watch after it."""
+    pipeline = load("ticket")
+    return pipeline | {"steps": [s for s in pipeline["steps"] if s["id"] != "ci"]}
+
+
 class FakeTools:
     """Agents are scripted: status says what each one is doing, write_on_prompt what it leaves."""
 
@@ -1392,9 +1398,13 @@ class FakeTools:
         self.ci, self.ci_head = [], ""
         self.marked = {}
         self.talks, self.focused = [], ""
+        self.behind, self.ci_started = 0, []
 
     def mark(self, pane, label):
         self.marked[pane] = label
+
+    def start_ci(self, command, work, branch):
+        self.ci_started.append((command, branch))
 
     def start_command(self, command, work, output, finished, then=""):
         self.commands.append(command)
@@ -1485,7 +1495,7 @@ class FakeTools:
         self.notes.append(title)
 
     def pr_state(self, url):
-        return self.pr
+        return self.pr if isinstance(self.pr, dict) else {"isDraft": True}
 
     def checks(self, url):
         return self.ci_head or self.heads[0], list(self.ci)
@@ -1572,7 +1582,7 @@ class Case(unittest.TestCase):
         return path
 
     def start(self):
-        return self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source)
+        return self.engine.start("repo", "DE-1", self.root, "main", to_draft(), self.source)
 
     def finish_agent(self, run, agent, step, text="done"):
         (self.kept() / f"{step}.md").write_text(f"## Decision\n\nWhat: A\nAsk: B?\n\n{text}", encoding="utf-8")
@@ -1583,6 +1593,66 @@ class Case(unittest.TestCase):
         run = self.start()
         run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
         return self.finish_agent(run, "ws-de-1", "implement")
+
+
+class TicketCi(Case):
+    """A delivered draft waits for green CI before it reaches you."""
+
+    RED = [{"name": "test", "state": "FAILURE", "link": "https://ci.test/1"}]
+    GREEN = [{"name": "test", "state": "SUCCESS", "link": "https://ci.test/2"}]
+
+    def start(self, commands=None):
+        return self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source, commands=commands)
+
+    def at_ci(self, commands=None):
+        run = self.start(commands)
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        run = self.finish_agent(run, "ws-de-1", "implement")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual((run.status, run.current["id"], run.phase), ("running", "ci", "pushed"))
+        return run
+
+    def later(self, run, seconds=CI_SETTLE + 1):
+        self.now += seconds
+        return self.engine.advance(run)
+
+    def test_the_draft_is_yours_once_ci_is_green(self):
+        run = self.at_ci()
+        self.tools.ci = self.GREEN
+        run = self.later(run)
+        self.assertEqual(run.status, "done")
+        self.assertEqual(self.tools.ci_started, [])
+        self.assertIn("Draft PR ready", self.source.reports[-1])
+
+    def test_a_repo_whose_ci_skips_drafts_starts_it_with_its_command(self):
+        self.at_ci({"ci": "az pipelines run --branch $BRANCH"})
+        self.assertEqual(self.tools.ci_started, [("az pipelines run --branch $BRANCH", "workshop/de-1")])
+
+    def test_a_ready_pr_needs_no_command_as_its_own_ci_runs(self):
+        self.tools.pr = {"isDraft": False}
+        self.at_ci({"ci": "az pipelines run"})
+        self.assertEqual(self.tools.ci_started, [])
+
+    def test_a_repo_with_no_checks_at_all_goes_on_after_a_wait(self):
+        run = self.at_ci()
+        self.assertEqual(self.later(run).current["id"], "ci")
+        run = self.later(run, CI_NONE)
+        self.assertEqual(run.status, "done")
+        self.assertIn("no CI to wait for", (self.kept() / "ci.md").read_text(encoding="utf-8"))
+
+    def test_red_goes_back_to_the_builder_then_stops_naming_the_checks(self):
+        run = self.at_ci()
+        self.tools.ci = self.RED
+        for attempt in (2, 3):
+            run = self.later(run)
+            self.assertEqual(run.current["id"], "implement")
+            self.assertIn("CI is failing on", self.tools.prompts[-1][1])
+            run = self.finish_agent(run, "ws-de-1", "implement")
+            run = self.finish_agent(run, f"ws-de-1-ai-review-{attempt}", "ai-review", "VERDICT: PASS\n")
+        run = self.later(run)
+        self.assertEqual(run.status, "parked")
+        self.assertIn("ci still says FAILED after 2 rounds", run.reason)
+        self.assertIn("- test: FAILURE https://ci.test/1", (self.kept() / "ci.md").read_text(encoding="utf-8"))
 
 
 class HappyPath(Case):
@@ -1709,7 +1779,7 @@ class Restart(Case):
 
     def test_restart_starts_over_in_the_same_workspace(self):
         first = self.to_verify()
-        run = self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source, restart=True)
+        run = self.engine.start("repo", "DE-1", self.root, "main", to_draft(), self.source, restart=True)
         self.assertEqual((run.step, run.pane, run.worktree), (0, first.pane, first.worktree))
         self.assertEqual(self.tools.worktrees, 1)
 
@@ -1846,7 +1916,7 @@ class Guard(Case):
 
     def test_an_explicit_override_runs_it_and_is_logged(self):
         self.source.guard_reason = "last changed by bob"
-        self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source, override=True)
+        self.engine.start("repo", "DE-1", self.root, "main", to_draft(), self.source, override=True)
         self.assertEqual(self.source.claimed, ["DE-1"])
         run = self.engine.store.find("DE-1")
         self.assertTrue(self.engine.store.events(run)[0]["override"])

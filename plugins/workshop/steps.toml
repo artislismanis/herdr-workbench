@@ -114,8 +114,10 @@ verdict = ["FIXED", "RERUN", "NEEDS_YOU"]
 then.RERUN = { goto = "ci", max = 2 }
 then.NEEDS_YOU = { park = "CI needs something only a person can do." }
 
+# Pushes what's left and watches the PR's checks. A repo whose CI skips drafts starts it with its ci command.
+# Red goes back to the builder with the failing checks.
 [step.ci]
-stage = "Fix"
+stage = "Deploy"
 kind = "ci"
 minutes = 60
-then.FAILED = { goto = "fix-ci", max = 2, prompt = "fix-ci.md" }
+then.FAILED = { goto = "implement", max = 2, prompt = "fix-ci.md" }

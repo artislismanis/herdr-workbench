@@ -44,6 +44,7 @@ label = "ai"
 # [repos.my-app.commands]
 # qa = "npm test"             # strongly recommended. Without it the qa step is skipped and the AI reviewer runs checks itself
 # logs = "kubectl logs ..."   # only for the logs sweep (section 3). Without it that sweep proposes nothing
+# ci = "az pipelines run --id 12 --branch \"$BRANCH\""   # only where CI skips drafts: starts it, so a draft reaches you with green checks
 
 [repos.my-service]
 path = "~/src/my-service"
