@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .backlog import SNAPSHOT, github_repo, poll
+from . import lead
 from .board import show
 from .boardview import full_pile, waiting
 from .chat import CHAT, Chat
@@ -293,10 +294,24 @@ def no_room(engine: Engine, cfg: dict[str, Any]) -> bool:
     return len(active) >= cfg.get("max_active", 2) or bool(engine.throttle.hold_new(len(active)) or your_pile(engine, cfg))
 
 
+def learnt(engine: Engine, run: Run, text: str) -> Run:
+    """Your answer to a question the lead agent couldn't settle joins the repo's standing decisions."""
+    if text.strip() and lead.question(run) and lead.left(engine, run):
+        lead.remember(run, run.reason, text)
+        engine.store.event(run, "decision_kept")
+    return run
+
+
+def ask_lead(engine: Engine, cfg: dict[str, Any]) -> None:
+    for run in engine.store.all():
+        lead.look(engine, run, cfg.get("lead", {}))
+
+
 def tick(engine: Engine, cfg: dict[str, Any]) -> None:
-    """Move every run on, then start ready tickets while there's room. Polling costs no tokens."""
+    """Move every run on, then start ready tickets while there's room. Polling costs no tokens, except the lead agent's look at a new question."""
     read_limits(engine)
     advance_all(engine)
+    ask_lead(engine, cfg)
     check_tickets(engine)
     check_chat(engine, cfg)
     poll(cfg, engine.store)  # before the limits below, or a full workshop stops the board updating
@@ -657,9 +672,9 @@ def main(argv: list[str]) -> int:
             case "reject":
                 waited(root, lambda: print(engine.explain(engine.reject(engine.store.find(argv[1]), argv[2]))))
             case "answer":
-                waited(root, lambda: print(engine.explain(engine.answer(engine.store.find(argv[1]), argv[2]))))
+                waited(root, lambda: print(engine.explain(engine.answer(learnt(engine, engine.store.find(argv[1]), argv[2]), argv[2]))))
             case "retry":
-                waited(root, lambda: print(engine.explain(engine.retry(engine.store.find(argv[1]), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.retry(learnt(engine, engine.store.find(argv[1]), " ".join(argv[2:])), " ".join(argv[2:])))))
             case "pass":
                 waited(root, lambda: print(engine.explain(engine.accept(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "drop":

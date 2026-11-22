@@ -711,13 +711,14 @@ def body(text: str) -> list[str]:
     return [line for line in text.splitlines() if line.strip() and not line.startswith(("#", "VERDICT:"))]
 
 
-def needs_you(run: Run, report: str, width: int) -> list[Line]:
-    """What a person has to settle, in the report's words where it has any."""
+def needs_you(run: Run, report: str, width: int, suggest: str = "") -> list[Line]:
+    """What a person has to settle, in the report's words where it has any, and what the lead agent would answer."""
     items = [item for item in section(report, "needs you") if item.strip(" -*.").lower() not in ("nothing", "none")] or [run.reason]
     lines = [Line([Span("▌ Needs you", "red" if run.status == "parked" else "yellow")])]
     if run.current and run.current["kind"] == "gate":  # the decision needs all of it, here, not a trip to the workspace
         items = [run.reason, "", *(line for line in report.splitlines() if not line.startswith("VERDICT:"))]
-    return lines + [plain("  " + part.text) for item in items for part in (wrapped(item, width - 2) or [plain()])]
+    lines += [plain("  " + part.text) for item in items for part in (wrapped(item, width - 2) or [plain()])]
+    return lines + ([plain(), Line([Span("▌ The lead agent suggests", "dim")]), *(plain("  " + part.text) for part in wrapped(suggest, width - 2))] if suggest else [])
 
 
 def ticket_context(brief: str, width: int) -> list[Line]:
@@ -903,7 +904,7 @@ def briefing(handover: str, width: int) -> list[Line]:
     return [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))] if handover else []
 
 
-def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), earlier: bool = False, handover: str = "", brief: str = "", alive: list[Line] | None = None) -> list[Line]:
+def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), earlier: bool = False, handover: str = "", brief: str = "", alive: list[Line] | None = None, suggest: str = "") -> list[Line]:
     spent = [e for e in events if e["type"] == "spent"]
     prices = [e["usd"] for e in spent]
     total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
@@ -912,7 +913,7 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     lines += [Line([Span(f" {doing(run)} ", run_style(run)), Span(f"  at {step_id(run)}" if run.current else ""), Span(f"   {total}", "dim")])]
     if run.status in ("parked", "waiting"):
         context = ticket_context(brief, width) if not run.sweeping else []
-        head, *rest = needs_you(run, stopped[1], width)
+        head, *rest = needs_you(run, stopped[1], width, suggest)
         lines += [plain(), head, *context, *rest]
     elif run.reason:
         lines += wrapped(run.reason, width, "dim")

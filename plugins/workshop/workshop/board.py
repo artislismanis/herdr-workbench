@@ -16,6 +16,7 @@ from typing import Any, NamedTuple, Protocol
 from .backlog import SNAPSHOT
 from .boardview import ASK_AGAIN, DONE_HOURS, OPERATE_HOURS, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, pulse, now_view, only, operations, plain, pr_rows, pull, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
 from .cost import transcripts
+from .lead import suggestion
 from .engine import CI_LIVE, STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .prs import FAILING
 from .review import decisions
@@ -193,7 +194,7 @@ class Board:
         if run is None:
             return []
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
-        return drill(run, events, self.title(run), "", str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run), self.alive(run, width))
+        return drill(run, events, self.title(run), "", str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run), self.alive(run, width), suggestion(self.engine, run))
 
     def alive(self, run: Run, width: int) -> list[Line]:
         """What the running step last did, read from files only, so a redraw costs nothing."""

@@ -147,6 +147,13 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 # weekly_pace_margin = 5      # no new tickets this many points ahead of an even 7d pace
 # weekly_pace_stop = 15       # no new agent steps this far ahead
 
+# ── Lead agent ───────────────────────────────────────────────────────────────────────────────────
+# Answers a run's question from the Standing decisions in workflow.md before it reaches you.
+# [lead]
+# enabled = true
+# model = "claude-opus-5-5"
+# daily_usd = 5.0             # no more looks today once its spend reaches this
+
 # ── Backlog labels ───────────────────────────────────────────────────────────────────────────────
 # The labels for how far `workshop prepare` has got a ticket. No label is New; the delivery label is Queued.
 # [backlog]
