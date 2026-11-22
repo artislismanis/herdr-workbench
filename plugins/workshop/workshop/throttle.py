@@ -83,7 +83,7 @@ class Throttle:
 
     def update(self, text: str) -> None:
         if windows := live_windows(text, self.clock()):
-            fresh = self.path.with_suffix(".tmp")
+            fresh = self.path.with_suffix(f".{os.getpid()}.tmp")  # the tick and the board both write it, at times together
             fresh.write_text(json.dumps(self._read() | windows | {"at": self.clock()}), encoding="utf-8")
             fresh.replace(self.path)
 
