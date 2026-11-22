@@ -1,6 +1,7 @@
 """The board: what's with agents, what's with you and what's coming. It reads local files only, so opening it costs no tokens or API calls."""
 
 import curses
+import json
 import locale
 import re
 import sys
@@ -13,8 +14,9 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from .backlog import SNAPSHOT
-from .boardview import ASK_AGAIN, DONE_HOURS, OPERATE_HOURS, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, now_view, only, operations, plain, pr_rows, pull, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
-from .engine import STOPS, SWEEP_EVERY, SWEEPS, Engine
+from .boardview import ASK_AGAIN, DONE_HOURS, OPERATE_HOURS, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, pulse, now_view, only, operations, plain, pr_rows, pull, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
+from .cost import transcripts
+from .engine import CI_LIVE, STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .prs import FAILING
 from .review import decisions
 from .store import Run
@@ -191,7 +193,29 @@ class Board:
         if run is None:
             return []
         events = [e for e in self.events if (e["repo"], e["key"]) == ref]
-        return drill(run, events, self.title(run), "", str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run))
+        return drill(run, events, self.title(run), "", str(self.store.files(run)), width, self.reports(run), self.stop_report(run), self.earlier, self.engine.handover(run) if run.status == "done" else "", self.brief(run), self.alive(run, width))
+
+    def alive(self, run: Run, width: int) -> list[Line]:
+        """What the running step last did, read from files only, so a redraw costs nothing."""
+        step = run.current
+        if run.status != "running" or step is None or not run.phase:
+            return []
+        now, files = time.time(), self.store.files(run)
+        try:
+            if step["kind"] == "command":
+                report = files / files_name(step)
+                lines = [line for line in report.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+                return pulse("command", now, report.stat().st_mtime, tuple(clean(line) for line in lines[-3:]), width=width - 8)
+            if step["kind"] == "ci":
+                return pulse("ci", now, checks=tuple(json.loads((files / CI_LIVE).read_text(encoding="utf-8"))["checks"]))
+            if step["kind"] == "copilot":
+                return pulse("copilot", now, run.started_at)
+            if step["kind"] == "agent" and run.worktree:
+                seen = [path.stat().st_mtime for path in transcripts(Path(run.worktree)).glob("*.jsonl")]
+                return pulse("agent", now, max(seen, default=0.0))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return []
 
     def work(self) -> Work:
         limits = DEFAULTS | self.cfg.get("throttle", {})
