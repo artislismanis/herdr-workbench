@@ -792,6 +792,9 @@ class Board:
             return True
         return self.press(int(value), width)
 
+    def tab_at(self, x: int, y: int) -> bool:
+        return any(y == top and left <= x < right and isinstance(action, str) and action.startswith("tab:") for top, left, right, action in self.regions)
+
     def mouse(self, x: int, y: int, state: int, width: int) -> bool:
         if state & (curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED):
             by = -WHEEL if state & curses.BUTTON4_PRESSED else WHEEL
@@ -800,6 +803,8 @@ class Board:
             else:
                 self.wheel(by, width)
         elif state & curses.BUTTON1_PRESSED:
+            if self.tab_at(x, y):  # a tab switches on the press, so a hand that moves before the release still lands
+                return self.click(x, y, width)
             self.grab, self.reach = (x, y), None
         elif state & curses.REPORT_MOUSE_POSITION and self.grab:
             self.reach = (x, y)

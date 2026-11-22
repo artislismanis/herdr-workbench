@@ -1969,6 +1969,15 @@ class Mouse(Keys):
         self.tap(x + 1, y, 119)
         self.assertEqual((self.board.tab, self.board.open), (2, None))
 
+    def test_a_tab_switches_on_the_press_even_if_the_release_lands_elsewhere(self):
+        self.drawn()
+        x, y = self.spot("tab:3")
+        self.board.mouse(x + 1, y, curses.BUTTON1_PRESSED, 119)
+        self.assertEqual(self.board.tab, 3)
+        self.board.mouse(x + 6, y + 1, curses.BUTTON1_RELEASED, 119)
+        self.assertEqual(self.board.tab, 3)
+        self.tools.copy.assert_not_called()
+
     def test_clicking_a_row_opens_it(self):
         self.drawn()
         x, y = self.spot(("r", "2"))
