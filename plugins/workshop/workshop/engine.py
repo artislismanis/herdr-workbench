@@ -843,7 +843,7 @@ class Engine:
             raise Park(f"The PR's head is {head[:7]}, not the fix workshop pushed, so someone else has pushed. Look before going on.")
         state = ci_state(checks)
         if state == "none" and not run.fixing and self.clock() - run.started_at > CI_NONE:
-            self._report(run, step).write_text("No checks ran on the PR, so this repo has no CI to wait for.\n\nVERDICT: PASS\n", encoding="utf-8")
+            self._report(run, step).write_text("No checks ran on the draft. Either this repo has no CI, or its CI skips drafts and needs a ci command to start it.\n\nVERDICT: PASS\n", encoding="utf-8")
             self.store.event(run, "step", step=step["id"], state="done", verdict="SKIPPED")
             run.step, run.phase = run.step + 1, ""
             return

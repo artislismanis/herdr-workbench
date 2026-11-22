@@ -1638,7 +1638,7 @@ class TicketCi(Case):
         self.assertEqual(self.later(run).current["id"], "ci")
         run = self.later(run, CI_NONE)
         self.assertEqual(run.status, "done")
-        self.assertIn("no CI to wait for", (self.kept() / "ci.md").read_text(encoding="utf-8"))
+        self.assertIn("No checks ran on the draft", (self.kept() / "ci.md").read_text(encoding="utf-8"))
 
     def test_red_goes_back_to_the_builder_then_stops_naming_the_checks(self):
         run = self.at_ci()
