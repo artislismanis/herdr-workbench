@@ -280,6 +280,25 @@ class TicketWrites(unittest.TestCase):
         source.take("A-1")
         self.assertEqual(put, [])
 
+    def test_jira_files_a_part_like_its_original_and_blocked_by_the_one_before(self):
+        source, calls = self.jira(), []
+        original = {"fields": {"labels": ["r", "ai", "ai-claimed", "designed"], "parent": {"key": "AB-1"}, "assignee": {"accountId": "me"}, "priority": {"id": "3"}, "issuetype": {"id": "10007"}, "attachment": []}}
+        source._call = lambda method, path, body=None: calls.append((method, path, body)) or (original if method == "GET" else {"key": "AB-12"})
+        with mock.patch.object(source, "_attached", return_value={"design.md": "The design"}), mock.patch.object(source, "attach") as attach:
+            self.assertEqual(source.add_part("AB-10", "AB-11", "Pin it", "### Summary\n\nPart 3"), "AB-12")
+        fields = calls[1][2]["fields"]
+        self.assertEqual((fields["project"], fields["labels"], fields["parent"], fields["assignee"], fields["issuetype"]), ({"key": "AB"}, ["r", "designed"], {"key": "AB-1"}, {"accountId": "me"}, {"id": "10007"}))
+        self.assertTrue(fields["description"].startswith("h3. Summary"))
+        attach.assert_called_once_with("AB-12", "design.md", "The design")
+        self.assertEqual(calls[-1], ("POST", "issueLink", {"type": {"name": "Blocks"}, "inwardIssue": {"key": "AB-11"}, "outwardIssue": {"key": "AB-12"}}))
+
+    def test_github_files_a_part_blocked_by_the_one_before(self):
+        source = GitHubSource(Path("/repo"), "ai")
+        with mock.patch.object(source, "labels", return_value=["ai", "designed"]), mock.patch("workshop.sources.run", return_value="https://github.com/o/r/issues/13\n") as run, mock.patch("workshop.sources.run_json", return_value={"id": 555}):
+            self.assertEqual(source.add_part("11", "12", "Pin it", "B"), "13")
+        self.assertEqual(run.call_args_list[0].args, ("gh", "issue", "create", "--title", "Pin it", "--body", "B", "--label", "designed"))
+        self.assertEqual(run.call_args_list[1].args, ("gh", "api", "-X", "POST", "repos/{owner}/{repo}/issues/13/dependencies/blocked_by", "-F", "issue_id=555"))
+
     def test_jira_needs_a_project_to_create(self):
         with self.assertRaises(KeyError):
             self.jira().create("T", "B")
