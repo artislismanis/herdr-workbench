@@ -394,10 +394,22 @@ class JiraSource:
         return self._call("GET", f"issue/{key}?fields=labels")["fields"]["labels"]
 
     def get(self, key: str) -> Ticket:
-        f = self._call("GET", f"issue/{key}?fields=summary,description,comment")["fields"]
+        f = self._call("GET", f"issue/{key}?fields=summary,description,comment,attachment")["fields"]
         comments = [f"{c['author']['displayName']}: {c['body']}" for c in f["comment"]["comments"]]
-        body = "\n\n".join([f.get("description") or "", *comments])
+        body = "\n\n".join([f.get("description") or "", *self._sections(f.get("attachment") or []), *comments])
         return Ticket(key, f["summary"], body, f"{self.base}/browse/{key}")
+
+    def _sections(self, attached: list[dict[str, Any]]) -> list[str]:
+        """A section too long for the description is attached in full, and the agent needs all of it. The newest copy of each wins."""
+        names = {f"{name.lower()}.md": name for name in SECTIONS}
+        newest = {a["filename"]: a for a in sorted(attached, key=lambda a: a.get("created", "")) if a["filename"] in names}
+        found = []
+        for name, item in newest.items():
+            req = urllib.request.Request(item["content"])
+            req.add_header("Authorization", self.auth)
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                found.append(f"## {names[name]} in full, from {name}\n\n{resp.read().decode('utf-8', 'replace')}")
+        return found
 
     def claim(self, key: str) -> None:
         labels = {"update": {"labels": [{"add": f"{self.label}-claimed"}]}}
