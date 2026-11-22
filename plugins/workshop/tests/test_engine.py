@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, Item, PrepareSource, PullRequestSource, SweepSource, Ticket  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
+from workshop.tools import Tools  # noqa: E402
 from workshop.tools import CommitRefused, Tools, last_pane  # noqa: E402
 
 
@@ -1569,6 +1571,12 @@ class FakeTools:
     def close_pane(self, pane):
         self.closed.append(pane)
 
+    def title(self, pane, label):
+        self.titles = {**getattr(self, "titles", {}), pane: label}
+
+    def point_review(self, work, pane):
+        self.pointed = [*getattr(self, "pointed", []), pane]
+
     def agent_status(self, name):
         return self.statuses.get(name, "gone")
 
@@ -1936,7 +1944,7 @@ class Resume(Case):
         self.tools.commit_fails = False
         run = self.engine.resume(run)
         self.assertEqual(run.status, "done")
-        self.assertEqual(len(self.tools.prompts), prompts)
+        self.assertEqual(len([p for p in self.tools.prompts if "self-review" not in p[1]]), prompts)
 
     def test_a_resume_moves_the_ticket_back_from_blocked(self):
         self.tools.commit_fails = True
@@ -2462,6 +2470,88 @@ class Rework(Case):
         run = self.finish_agent(run, "ws-de-1-ai-review-3", "ai-review", "VERDICT: CHANGES_NEEDED\n")
         self.assertEqual(run.status, "parked")
         self.assertIn("after 2 rounds", run.reason)
+
+
+class SelfReview(Case):
+    def to_draft(self):
+        run = self.to_verify()
+        return self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
+
+    def test_the_run_agent_is_briefed_to_answer_your_self_review(self):
+        run = self.to_draft()
+        self.assertEqual(self.tools.prompts[-1][0], "ws-de-1")
+        self.assertIn("rework.md", self.tools.prompts[-1][1])
+        self.assertEqual(self.tools.pointed[-1], run.pane)
+        self.assertEqual(self.tools.titles[run.pane], "self-review: talk here")
+
+    def test_a_gone_agent_comes_back_on_the_model_of_the_first_step(self):
+        pipeline = to_draft()
+        pipeline["steps"][0]["model"] = "opus"
+        run = self.engine.start("repo", "DE-1", self.root, "main", pipeline, self.source)
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        run = self.finish_agent(run, "ws-de-1", "implement")
+        self.tools.statuses["ws-de-1"] = "gone"
+        self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual(self.tools.models["ws-de-1"], "opus")
+
+    def test_the_agreed_plan_is_built_checked_and_reviewed_again(self):
+        run = self.to_draft()
+        (self.kept() / "rework.md").write_text("Rename x to y.", encoding="utf-8")
+        run = self.engine.rework(run)
+        self.assertEqual((run.status, run.current["id"]), ("running", "implement"))
+        self.assertIn("rework-plan.md", self.tools.prompts[-1][1])
+        self.assertFalse((self.kept() / "rework.md").exists())
+        run = self.finish_agent(run, "ws-de-1", "implement")
+        run = self.finish_agent(run, "ws-de-1-ai-review-2", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual(run.status, "done")
+        self.assertTrue(self.tools.reloads[-1])
+
+    def test_no_plan_leaves_the_draft_with_you(self):
+        run = self.to_draft()
+        self.assertEqual(self.engine.rework(run).status, "done")
+
+
+class Hunk(Case):
+    def test_a_closed_step_pane_hands_hunk_back_to_the_run_agent(self):
+        self.tools.split = lambda pane, work: "w1:p9"
+        run = self.to_verify()
+        self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: CHANGES_NEEDED\n")
+        self.assertIn("w1:p9", self.tools.closed)
+        self.assertEqual(self.tools.pointed[0], run.pane)
+
+    def test_a_stopped_run_says_where_to_answer(self):
+        run = self.start()
+        (self.kept() / "ask.md").write_text("Which profile?", encoding="utf-8")
+        self.tools.statuses["ws-de-1"] = "idle"
+        run = self.engine.advance(run)
+        self.assertEqual(run.status, "waiting")
+        self.assertEqual(self.tools.titles[run.pane], "answer on the board: a on Now")
+
+
+class PointReview(unittest.TestCase):
+    def test_it_sets_the_pane_and_keeps_what_was_sent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "herdr/plugins/jhochenbaum.hunkdiff"
+            state.mkdir(parents=True)
+            work = os.path.realpath(tmp)
+            (state / "review-index.json").write_text(json.dumps({work: {"worktree": work, "agentPaneId": "w1:p4", "sent": ["n1"]}}))
+            with mock.patch.dict(os.environ, {"XDG_STATE_HOME": tmp}):
+                Tools().point_review(Path(tmp), "w1:p1")
+            entry = json.loads((state / "review-index.json").read_text())[work]
+            self.assertEqual((entry["agentPaneId"], entry["sent"]), ("w1:p1", ["n1"]))
+            self.assertFalse((state / "review-index.json.lock").exists())
+
+
+class FreshBuilder(Case):
+    def test_a_fresh_builder_starts_from_the_last_round(self):
+        pipeline = to_draft()
+        next(s for s in pipeline["steps"] if s["id"] == "implement")["fresh"] = True
+        run = self.engine.start("repo", "DE-1", self.root, "main", pipeline, self.source)
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        run = self.finish_agent(run, "ws-de-1-implement-1", "implement")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: CHANGES_NEEDED\n")
+        self.assertEqual(self.tools.prompts[-1][0], "ws-de-1-implement-2")
+        self.assertIn("implement-1.md", self.tools.prompts[-1][1])
 
 
 class Generated(unittest.TestCase):

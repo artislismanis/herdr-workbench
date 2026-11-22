@@ -228,6 +228,32 @@ class Tools:
         token = ["--token", f"workshop={label}"] if label else ["--clear-token", "workshop"]
         subprocess.run(["herdr", "workspace", "report-metadata", pane.split(":")[0], "--source", "workshop", *token], capture_output=True)
 
+    def title(self, pane: str, label: str) -> None:
+        subprocess.run(["herdr", "pane", "rename", pane, *([label] if label else ["--clear"])], capture_output=True)
+
+    def point_review(self, work: Path, pane: str) -> None:
+        """Sets the pane hunk sends review comments to. hunkdiff keeps the last agent it saw in a worktree, which can be a pane workshop has closed."""
+        state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "herdr/plugins/jhochenbaum.hunkdiff"
+        index, lock = state / "review-index.json", state / "review-index.json.lock"
+        if not state.is_dir():
+            return
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)  # the lock hunkdiff takes itself
+        except OSError:
+            return  # best effort: hunkdiff is writing, and its own next event wins
+        try:
+            os.close(fd)
+            entries = json.loads(index.read_text(encoding="utf-8")) if index.exists() else {}
+            key = os.path.realpath(work)
+            entries[key] = {**entries.get(key, {"worktree": key, "agentName": "claude", "sent": []}), "agentPaneId": pane}
+            tmp = index.with_name(f"{index.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+            tmp.rename(index)
+        except (OSError, ValueError):
+            pass
+        finally:
+            lock.unlink(missing_ok=True)
+
     def notify(self, title: str, body: str) -> None:
         # Best effort: a notification must never stop a run.
         subprocess.run(["herdr", "notification", "show", title, "--body", body, "--sound", "request"], capture_output=True)
