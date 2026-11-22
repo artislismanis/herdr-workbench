@@ -210,6 +210,14 @@ class Live(unittest.TestCase):
         saved = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual((saved["five_hour"]["used_percentage"], saved["seven_day"]["used_percentage"], saved["extra"], saved["at"]), (20, 9, 1, self.NOW))
 
+    def test_an_update_keeps_off_the_temp_file_of_another_writer(self):
+        path = self.path()
+        other = path.with_suffix(".tmp")
+        other.write_text("half written", encoding="utf-8")
+        Throttle(path, {}, clock=lambda: self.NOW).update("Current session: 20% used · resets 8pm (UTC)\n")
+        self.assertEqual(other.read_text(encoding="utf-8"), "half written")
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["five_hour"]["used_percentage"], 20)
+
     def test_text_it_cant_read_leaves_the_file_alone(self):
         path = self.path()
         path.write_text('{"at": 1}', encoding="utf-8")
