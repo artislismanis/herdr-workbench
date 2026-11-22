@@ -7,7 +7,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-KINDS = ("agent", "gate", "command", "draft_pr", "ci")
+KINDS = ("agent", "gate", "command", "draft_pr", "ci", "copilot")
 PUBLISH = ("pr", "ticket")
 SECTIONS = ("Requirements", "Design")  # what a gate can write to a ticket, in the order they read
 STAGES = ("planned", "designed")
@@ -151,15 +151,15 @@ def validate(raw: Any) -> dict[str, Any]:
                 raise PipelineError(f"{where}: a command's verdict is {COMMAND_VERDICTS}")
             if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
                 raise PipelineError(f"{where}: minutes must be 1 or more")
-        elif step["kind"] == "ci":
+        elif step["kind"] in ("ci", "copilot"):
             if set(step) - CI_KEYS:
-                raise PipelineError(f"{where}: a ci step takes only {sorted(CI_KEYS)}")
+                raise PipelineError(f"{where}: a {step['kind']} step takes only {sorted(CI_KEYS)}")
             if "minutes" in step and (not isinstance(step["minutes"], int) or step["minutes"] < 1):
                 raise PipelineError(f"{where}: minutes must be 1 or more")
         elif set(step) - {"id", "stage", "kind"}:
             raise PipelineError(f"{where}: {step['kind']} takes no options")
         for verdict, rule in step.get("then", {}).items():
-            if verdict not in {"gate": ["REJECTED"], "ci": ["FAILED"]}.get(step["kind"], step.get("verdict", [])):
+            if verdict not in {"gate": ["REJECTED"], "ci": ["FAILED"], "copilot": ["COMMENTS"]}.get(step["kind"], step.get("verdict", [])):
                 raise PipelineError(f"{where}: then names {verdict}, which isn't in verdict")
             _check_rule(f"{where}.then.{verdict}", rule, set(ids))
     # They share the main agent, which has one model and one advisor.

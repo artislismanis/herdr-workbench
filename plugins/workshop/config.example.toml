@@ -107,6 +107,7 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 #                             # or chat-reaction (needs [chat]): a reaction on the message that asked
 # after_post = "none"         # or "chat-reply": offers a thread reply once posted, and waits for your go. Needs [chat]
 # block_failing_ci = false    # true takes approving off the table while the PR's CI fails
+# copilot = false             # true asks Copilot to review each draft workshop delivers, and answers its threads before you see it
 
 
 # ══ 3. Enhancements ══════════════════════════════════════════════════════════════════════════════

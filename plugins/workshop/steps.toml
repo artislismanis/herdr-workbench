@@ -121,3 +121,11 @@ stage = "Deploy"
 kind = "ci"
 minutes = 60
 then.FAILED = { goto = "implement", max = 2, prompt = "fix-ci.md" }
+
+# Asks Copilot to review the draft, as a ready PR gets. Its open threads go to the builder once, then workshop
+# pushes the fixes, replies to each thread and resolves it. [review] copilot = false leaves it out.
+[step.copilot]
+stage = "Deploy"
+kind = "copilot"
+minutes = 20
+then.COMMENTS = { goto = "implement", max = 1, prompt = "fix-copilot.md" }

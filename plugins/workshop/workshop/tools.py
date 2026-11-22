@@ -1,5 +1,6 @@
 """The outside world: wt, herdr, git and gh. Tests swap this class for a fake."""
 
+import calendar
 import contextlib
 import json
 import os
@@ -22,6 +23,9 @@ REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
 USAGE_TIMEOUT = 30
 CHAT_TIMEOUT = 120
+COPILOT = """query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) {
+  reviews(last: 50) { nodes { author { login } submittedAt } }
+  reviewThreads(first: 100) { nodes { id isResolved path line comments(first: 1) { nodes { databaseId author { login } body } } } } } } }"""
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
 
 
@@ -321,6 +325,26 @@ class Tools:
     def find_pr(self, work: Path, branch: str) -> str:
         found = run_json("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url", cwd=work)
         return found[0]["url"] if found else ""
+
+    def ask_copilot(self, work: Path, pr: str) -> bool:
+        """Whether GitHub took the request. A repo without Copilot accepts the edit and requests nobody."""
+        run("gh", "pr", "edit", pr, "--add-reviewer", "@copilot", cwd=work)
+        events = run_json("gh", "api", f"repos/{{owner}}/{{repo}}/issues/{pr.rstrip('/').rsplit('/', 1)[-1]}/timeline", "--paginate", "--slurp", cwd=work)
+        return any(e.get("event") == "review_requested" and (e.get("requested_reviewer") or {}).get("login", "").lower().startswith("copilot") for page in events for e in page)
+
+    def copilot(self, work: Path, pr: str, since: float) -> tuple[bool, list[dict[str, Any]]]:
+        """Whether Copilot has reviewed since then, and its open threads: id, comment, path, line and body."""
+        found = run_json("gh", "api", "graphql", "-F", "owner={owner}", "-F", "repo={repo}", "-F", f"number={pr.rstrip('/').rsplit('/', 1)[-1]}", "-f", f"query={COPILOT}", cwd=work)
+        pull = found["data"]["repository"]["pullRequest"]
+        bot = lambda node: (node.get("author") or {}).get("login", "").startswith("copilot")  # noqa: E731
+        reviewed = any(bot(r) and r["submittedAt"] and calendar.timegm(time.strptime(r["submittedAt"], "%Y-%m-%dT%H:%M:%SZ")) >= since for r in pull["reviews"]["nodes"])
+        threads = [{"id": t["id"], "comment": first["databaseId"], "path": t["path"], "line": t["line"], "body": first["body"]} for t in pull["reviewThreads"]["nodes"] if not t["isResolved"] and (first := t["comments"]["nodes"][0]) and bot(first)]
+        return reviewed, threads
+
+    def answer_thread(self, work: Path, pr: str, comment: int, thread: str, body: str) -> None:
+        """Replies on the thread, then resolves it. Only ever used on a bot's thread."""
+        run("gh", "api", f"repos/{{owner}}/{{repo}}/pulls/{pr.rstrip('/').rsplit('/', 1)[-1]}/comments/{comment}/replies", "-f", f"body={body}", cwd=work)
+        run("gh", "api", "graphql", "-f", "query=mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }", "-F", f"id={thread}", cwd=work)
 
     def start_ci(self, command: str, work: Path, branch: str) -> None:
         run("sh", "-c", command, cwd=work, env=os.environ | {"BRANCH": branch})

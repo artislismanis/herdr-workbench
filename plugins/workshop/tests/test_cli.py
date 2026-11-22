@@ -323,15 +323,27 @@ class FinishWaits(unittest.TestCase):
 
 class ReviewSettings(unittest.TestCase):
     def test_the_defaults_assume_no_team(self):
-        self.assertEqual(review_settings({}, {}), {"mode": "silent", "claim": "none", "after_post": "none", "block_failing_ci": False})
+        self.assertEqual(review_settings({}, {}), {"mode": "silent", "claim": "none", "after_post": "none", "block_failing_ci": False, "copilot": False})
 
     def test_a_repo_can_differ_from_you(self):
         found = review_settings({"review": {"mode": "claimed", "claim": "github-reviewer"}}, {"review": {"claim": "none"}})
-        self.assertEqual(found, {"mode": "claimed", "claim": "none", "after_post": "none", "block_failing_ci": False})
+        self.assertEqual(found, {"mode": "claimed", "claim": "none", "after_post": "none", "block_failing_ci": False, "copilot": False})
 
     def test_a_typo_is_an_error(self):
         with self.assertRaisesRegex(KeyError, "review"):
             review_settings({"review": {"claim": "slack"}}, {})
+
+
+class Delivering(unittest.TestCase):
+    def steps(self, cfg):
+        engine = mock.Mock()
+        with mock.patch.object(cli, "make_source"):
+            cli.begin(engine, {"repos": {"r": {"path": "/x"}}} | cfg, "r", "7")
+        return [step["id"] for step in engine.start.call_args.args[4]["steps"]]
+
+    def test_copilot_reviews_the_draft_only_when_you_turn_it_on(self):
+        self.assertNotIn("copilot", self.steps({}))
+        self.assertEqual(self.steps({"review": {"copilot": True}})[-2:], ["ci", "copilot"])
 
 
 class Status(unittest.TestCase):
