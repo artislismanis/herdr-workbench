@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -52,6 +53,7 @@ ORIGINAL = "Original ticket"
 HEADING = r"(?:## |h2\. )"  # Markdown, or Jira's wiki markup
 ORIGINAL_LINE = re.compile(rf"^{HEADING}{ORIGINAL}[ \t]*$", re.MULTILINE)
 PREPARED = re.compile(rf"^({HEADING})({'|'.join(SECTIONS)})[ \t]*$", re.MULTILINE)
+JIRA_ROOM = 32000  # Jira refuses a description over 32,767 characters
 TABLE_RULE = re.compile(r"\s*\|?(\s*:?-{3,}:?\s*\|)+(\s*:?-{3,}:?\s*)?")
 
 
@@ -110,6 +112,16 @@ def wiki(text: str) -> str:
         else:
             out.append(inline(line))
     return "\n".join(out)
+
+
+def shortened(text: str, room: int, name: str) -> str:
+    """As much as fits, cut at a heading so no part ends halfway, then where the rest is."""
+    note = f"\n\n_This part is too long for a Jira description. The whole of it is in the attachment {name}._"
+    if len(text) + len(note) <= room:
+        return text + note
+    cut = text[: max(room - len(note), 0)]
+    heading = max(cut.rfind("\nh2. "), cut.rfind("\nh3. "), cut.rfind("\nh4. "))
+    return (cut[:heading] if heading > 0 else cut).rstrip() + note
 
 
 def prepared(body: str, section: str, text: str, heading: str = "## ", markup: Callable[[str], str] = str) -> str:
@@ -343,6 +355,17 @@ class JiraSource:
     def rewrite(self, key: str, text: str) -> None:
         """Already in wiki markup: publish writes the new section that way, and the rest came from Jira."""
         self._call("PUT", f"issue/{key}", {"fields": {"description": text}})
+
+    def attach(self, key: str, name: str, text: str) -> None:
+        boundary = uuid.uuid4().hex
+        head = f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\nContent-Type: text/markdown\r\n\r\n'
+        data = head.encode() + text.encode() + f"\r\n--{boundary}--\r\n".encode()
+        req = urllib.request.Request(f"{self.base}/rest/api/2/issue/{key}/attachments", data=data, method="POST")
+        req.add_header("Authorization", self.auth)
+        req.add_header("X-Atlassian-Token", "no-check")
+        req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+        with urllib.request.urlopen(req, timeout=60):
+            pass
 
     def create(self, title: str, body: str) -> str:
         if not self.project:
@@ -709,7 +732,13 @@ class PrepareSource:
     def publish(self, key: str, section: str, text: str, stage: str) -> None:
         ticket = self._key(key)
         if isinstance(self.ticket, JiraSource):
-            self.ticket.rewrite(ticket, prepared(self.ticket.body(ticket), section, text, "h2. ", wiki))
+            body = self.ticket.body(ticket)
+            written = prepared(body, section, text, "h2. ", wiki)
+            if len(written) > JIRA_ROOM:
+                name = f"{section.lower()}.md"
+                self.ticket.attach(ticket, name, text)
+                written = prepared(body, section, shortened(wiki(text), JIRA_ROOM - len(prepared(body, section, "", "h2. ", wiki)), name), "h2. ")
+            self.ticket.rewrite(ticket, written)
         else:
             self.ticket.rewrite(ticket, prepared(self.ticket.body(ticket), section, text))
         self.ticket.tag(ticket, self._label(stage))

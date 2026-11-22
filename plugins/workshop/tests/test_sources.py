@@ -9,7 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.sources import GitHubSource, Item, JiraSource, MarkdownSource, PrepareSource, PullRequestSource, ReplySource, SweepSource, prepared, wiki  # noqa: E402
+from workshop.sources import GitHubSource, Item, JiraSource, MarkdownSource, PrepareSource, PullRequestSource, ReplySource, SweepSource, prepared, shortened, wiki  # noqa: E402
 from workshop.tools import slug  # noqa: E402
 
 
@@ -69,6 +69,36 @@ class Prepared(unittest.TestCase):
 
     def test_an_empty_ticket_still_has_its_shape(self):
         self.assertEqual(prepared("", "Requirements", "Do X"), "## Requirements\n\nDo X\n\n## Original ticket\n")
+
+
+class LongSections(unittest.TestCase):
+    def test_what_fits_goes_whole_with_a_note(self):
+        self.assertEqual(shortened("h3. A\n\nshort", 500, "design.md"), "h3. A\n\nshort\n\n_This part is too long for a Jira description. The whole of it is in the attachment design.md._")
+
+    def test_too_much_is_cut_at_a_heading(self):
+        text = "h3. One\n\n" + "a" * 300 + "\nh3. Two\n\n" + "b" * 300
+        cut = shortened(text, 450, "design.md")
+        self.assertTrue(cut.startswith("h3. One"))
+        self.assertNotIn("Two", cut)
+        self.assertLessEqual(len(cut), 450)
+
+    def test_jira_attaches_a_section_too_long_for_the_description(self):
+        jira = mock.Mock(spec=JiraSource)
+        jira.body.return_value = "Old"
+        source = PrepareSource(jira, {})
+        source.publish("prep-AB-1", "Design", "### Part\n\n" + "x" * 40000, "designed")
+        jira.attach.assert_called_once()
+        self.assertEqual(jira.attach.call_args[0][:2], ("AB-1", "design.md"))
+        written = jira.rewrite.call_args[0][1]
+        self.assertLessEqual(len(written), 32000)
+        self.assertIn("attachment design.md", written)
+        self.assertTrue(written.startswith("h2. Design"))
+
+    def test_jira_doesnt_attach_what_fits(self):
+        jira = mock.Mock(spec=JiraSource)
+        jira.body.return_value = "Old"
+        PrepareSource(jira, {}).publish("prep-AB-1", "Design", "Short", "designed")
+        jira.attach.assert_not_called()
 
 
 class PrepareTickets(unittest.TestCase):
