@@ -19,7 +19,7 @@ from .chat import Chat
 from .prs import FAILING
 from .guard import Change, check
 from .pipeline import SECTIONS, STAGES
-from .shell import run, run_json
+from .shell import ToolError, run, run_json
 
 
 @dataclass
@@ -112,6 +112,20 @@ def wiki(text: str) -> str:
         else:
             out.append(inline(line))
     return "\n".join(out)
+
+
+def jira_open(req: urllib.request.Request, timeout: int) -> bytes:
+    """Jira says why it refused, such as a field a move requires, so that goes into the error, not just the status."""
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as refused:
+        try:
+            said = json.loads(refused.read() or b"{}")
+        except ValueError:
+            said = {}
+        reasons = [*said.get("errorMessages", []), *(f"{field}: {why}" for field, why in said.get("errors", {}).items())]
+        raise ToolError(f"Jira refused it ({refused.code}): {' '.join(reasons) or refused.reason}") from refused
 
 
 def shortened(text: str, room: int, name: str) -> str:
@@ -302,8 +316,7 @@ class JiraSource:
         req = urllib.request.Request(f"{self.base}/rest/api/2/{path}", data=data, method=method)
         req.add_header("Authorization", self.auth)
         req.add_header("Content-Type", "application/json")
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            raw = resp.read()
+        raw = jira_open(req, 30)
         return json.loads(raw) if raw else None
 
     def jql(self) -> str:
@@ -364,8 +377,7 @@ class JiraSource:
         req.add_header("Authorization", self.auth)
         req.add_header("X-Atlassian-Token", "no-check")
         req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
-        with urllib.request.urlopen(req, timeout=60):
-            pass
+        jira_open(req, 60)
 
     def create(self, title: str, body: str) -> str:
         if not self.project:
@@ -407,8 +419,7 @@ class JiraSource:
         for name, item in newest.items():
             req = urllib.request.Request(item["content"])
             req.add_header("Authorization", self.auth)
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                found.append(f"## {names[name]} in full, from {name}\n\n{resp.read().decode('utf-8', 'replace')}")
+            found.append(f"## {names[name]} in full, from {name}\n\n{jira_open(req, 60).decode('utf-8', 'replace')}")
         return found
 
     def claim(self, key: str) -> None:
@@ -433,7 +444,8 @@ class JiraSource:
             direct = [t for t in options if target in (t["to"]["name"], t["name"])]
             onward = sorted((t for t in options if t["to"]["name"] in before), key=lambda t: before.index(t["to"]["name"]))
             if not direct and not onward:
-                raise ValueError(f"{key} has no route to {target}")
+                offered = ", ".join(t["to"]["name"] for t in options) or "nothing"
+                raise ValueError(f"{key} has no route to {target}: Jira offers {offered}. [jira] route lists the columns to walk.")
             step = (direct or onward[::-1])[0]
             body: dict[str, Any] = {"transition": {"id": step["id"]}}
             # Only a transition that lists the field takes it; Jira answers any other with a 400.
