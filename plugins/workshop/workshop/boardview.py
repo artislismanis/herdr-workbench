@@ -30,7 +30,7 @@ MOVES = {"you": "Needs you", "others": "With people", "done": "Done lately"}
 REVIEW_GROUPS = ("Needs you", "With agents", "With people", "Done lately")
 RESPOND = ("changes requested", "comments to address")
 ASK_AGAIN = "re-review"  # on your own PR, where it's yours to ask for
-WORDS = ("fix", "decide", "check", "merge", "respond", "review", "working", "waiting", "merged", "closed", "dropped", "done")  # every word a row can say. Waiting on you, what you do; otherwise working, waiting or how it ended
+WORDS = ("fix", "decide", "check", "merge", "respond", "review", "working", "waiting", "preprod", "merged", "closed", "dropped", "done")  # every word a row can say. Waiting on you, what you do; otherwise working, waiting or how it ended
 REASONS = {"needs review": "asked of you", "open": "not asked of you", "checks failing": ""}  # the facts beside it say CI failing
 OWNER = {True: "", False: "theirs"}  # the colour of a row's tab symbol: yours plain like the titles, others' grey, and darker than the selection when selected
 SIGNS = {"Now": "✱", "Backlog": "☰", "Delivery": "▸", "Review": "⌕", "Operate": "⟳", "Usage": "⧖"}  # on each tab, and on Now rows to say which tab they belong to. One column wide, so rows line up
@@ -337,6 +337,8 @@ def doing(run: Run) -> str:
         return "done"
     if heading(run) == "Needs you":
         return "fix" if run.status == "parked" else "decide" if run.status == "waiting" or run.your_turn else "check"
+    if run.deployed == "preprod":  # merged to the branch before prod, so it waits on a promotion, not on reviewers
+        return "preprod"
     return "working" if run.status == "running" else "waiting"
 
 

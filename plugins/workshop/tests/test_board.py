@@ -573,6 +573,7 @@ class PRs(unittest.TestCase):
         for found in (run(status="running"), run(status="parked"), run(status="waiting"), run(status="done", pr="u"), run(status="done", pr="u", landed="merged"), run(status="done", pr="u", landed="merged", deployed="prod"), run(status="done", landed="dropped"), run(status="done", pr="u", reviewing=True, reviewed="a", posted="a")):
             self.assertIn(doing(found), WORDS)
         self.assertEqual(doing(run(status="done", pr="u", landed="merged", deployed="prod")), "done")
+        self.assertEqual(doing(run(status="done", pr="u", deployed="preprod")), "preprod")
         self.assertEqual(doing(run(status="done", pr="u", opened=True)), "waiting")
 
     def test_waiting_on_you_says_what_you_do_next(self):
