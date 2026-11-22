@@ -379,8 +379,11 @@ class Engine:
             raise KeyError(f"{run.key} isn't parked")
         # A live agent may already have finished its step, so check it before prompting again.
         alive = run.phase == "prompted" and self.tools.agent_status(run.step_agent or run.agent) != "gone"
+        blocked = bool(run.blocked_at)
         run.status, run.reason, run.phase, run.blocked_at = "running", "", run.phase if alive or run.phase == "finished" else "", 0.0
         self.store.event(run, "resumed")
+        if blocked:  # parking moved the ticket to blocked, so it goes back as the work does
+            self._move(run, "working")
         self.save(run)
         return self.advance(run)
 

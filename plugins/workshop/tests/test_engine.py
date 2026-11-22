@@ -1735,6 +1735,16 @@ class Resume(Case):
         self.assertEqual(run.status, "done")
         self.assertEqual(len(self.tools.prompts), prompts)
 
+    def test_a_resume_moves_the_ticket_back_from_blocked(self):
+        self.tools.commit_fails = True
+        run = self.to_verify()
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual(self.source.moves[-1], "blocked")
+        self.tools.commit_fails = False
+        moves = len(self.source.moves)
+        self.engine.resume(run)
+        self.assertEqual(self.source.moves[moves], "working")
+
     def test_resume_doesnt_open_a_second_pr(self):
         self.tools.pr = "https://example.test/pr/9"
         run = self.to_verify()
