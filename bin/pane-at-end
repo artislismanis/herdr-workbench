@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# A new pane to the right goes after every pane already in its row, not
+# between the pane it came from and the rest.
+#   pane-at-end <pane>         moves <pane> to the right end of its row
+#   pane-at-end --last <pane>  prints the last pane in <pane>'s row, to split
+set -euo pipefail
+
+last=0
+[ "${1:-}" != --last ] || { last=1; shift; }
+pane="${1:?usage: pane-at-end [--last] <pane>}"
+
+layout="$(herdr pane layout --pane "$pane")"
+end="$(jq -r --arg p "$pane" '
+  .result.layout.panes as $all | ($all[] | select(.pane_id == $p).rect) as $r
+  | [$all[] | select(.rect.y < $r.y + $r.height and $r.y < .rect.y + .rect.height)]
+  | max_by(.rect.x + .rect.width).pane_id' <<<"$layout")"
+
+if [ "$last" = 1 ]; then
+  echo "$end"
+  exit 0
+fi
+[ "$end" != "$pane" ] || exit 0
+tab="$(jq -r .result.layout.tab_id <<<"$layout")"
+focus=--no-focus
+[ "$(jq -r .result.layout.focused_pane_id <<<"$layout")" != "$pane" ] || focus=--focus
+# herdr won't move a pane within its own tab, so out to a tab of its own and
+# back. The emptied tab closes itself.
+herdr pane move "$pane" --new-tab --no-focus >/dev/null
+herdr pane move "$pane" --tab "$tab" --split right --target-pane "$end" "$focus" >/dev/null

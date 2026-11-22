@@ -11,10 +11,16 @@ pane="${HERDR_PANE_ID:-${HERDR_ACTIVE_PANE_ID:-}}"
 cwd="$(herdr pane get "$pane" | jq -r .result.pane.cwd)"
 repo="$(git -C "$cwd" rev-parse --show-toplevel)"
 
+panes() { herdr pane layout --pane "$pane" | jq -r '.result.layout.panes[]?.pane_id' | sort; }
+before="$(panes)"
 herdr plugin action invoke review --plugin jhochenbaum.hunkdiff >/dev/null
 for _ in $(seq 20); do
   hunk session get --repo "$repo" >/dev/null 2>&1 && break
   sleep 0.5
+done
+# The plugin splits beside the agent. After the panes already open reads better.
+for new in $(comm -13 <(echo "$before") <(panes)); do
+  "$(dirname "$0")/pane-at-end" "$new" || true
 done
 
 summary="$("$(dirname "$0")/hunk-pr-notes" --quiet "$repo")" || { printf '%s\n' "$summary" >&2; rc=1; }

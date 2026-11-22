@@ -16,7 +16,7 @@ from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, Item, PrepareSource, PullRequestSource, SweepSource, Ticket  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
-from workshop.tools import CommitRefused, Tools  # noqa: E402
+from workshop.tools import CommitRefused, Tools, last_pane  # noqa: E402
 
 
 class FakeSource:
@@ -2500,3 +2500,12 @@ class Explain(Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LastPane(unittest.TestCase):
+    def test_a_new_pane_goes_after_the_ones_already_in_the_row(self):
+        box = lambda pane, x, y, w=40, h=50: {"pane_id": pane, "rect": {"x": x, "y": y, "width": w, "height": h}}  # noqa: E731
+        layout = {"panes": [box("agent", 0, 0), box("hunk", 40, 0, h=25), box("below", 40, 25, 80, 25), box("end", 80, 0, h=25), box("other row", 0, 60)]}
+        self.assertEqual(last_pane(layout, "agent"), "below")
+        self.assertEqual(last_pane(layout, "hunk"), "end")
+        self.assertEqual(last_pane(layout, "other row"), "other row")
