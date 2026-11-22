@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.sources import GitHubSource, Item, JiraSource, MarkdownSource, PrepareSource, PullRequestSource, ReplySource, SweepSource, prepared, shortened, wiki  # noqa: E402
+from workshop.shell import ToolError  # noqa: E402
 from workshop.tools import slug  # noqa: E402
 
 
@@ -69,6 +71,27 @@ class Prepared(unittest.TestCase):
 
     def test_an_empty_ticket_still_has_its_shape(self):
         self.assertEqual(prepared("", "Requirements", "Do X"), "## Requirements\n\nDo X\n\n## Original ticket\n")
+
+
+class JiraErrors(unittest.TestCase):
+    def source(self):
+        return JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "moves": {"working": "In Progress"}})
+
+    def test_a_refusal_carries_the_reason_jira_gives(self):
+        body = io.BytesIO(b'{"errorMessages":["Field T-Shirt Size is required."],"errors":{"summary":"too long"}}')
+        refused = urllib.error.HTTPError("https://x.test/", 400, "Bad Request", {}, body)
+        with mock.patch("workshop.sources.urllib.request.urlopen", side_effect=refused):
+            with self.assertRaises(ToolError) as caught:
+                self.source()._call("POST", "issue/AB-1/transitions", {})
+        self.assertIn("Field T-Shirt Size is required.", str(caught.exception))
+        self.assertIn("summary: too long", str(caught.exception))
+
+    def test_no_route_names_what_jira_offers(self):
+        source = self.source()
+        with mock.patch.object(source, "_call", return_value={"transitions": [{"id": "1", "name": "Refine", "to": {"name": "Refined"}}]}):
+            with self.assertRaises(ValueError) as caught:
+                source.move("AB-1", "working")
+        self.assertIn("Jira offers Refined", str(caught.exception))
 
 
 class LongSections(unittest.TestCase):
