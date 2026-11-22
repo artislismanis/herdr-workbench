@@ -315,6 +315,7 @@ class JiraSource:
         self.repo_name, self.label, self.skip = repo_name, label, skip_statuses
         self.moves, self.route, self.project = jira_moves(cfg.get("moves", {})), cfg.get("route", []), cfg.get("project", "")
         self.unblocked = cfg.get("unblocked", [])
+        self.estimate = cfg.get("estimate", "")  # the name of the field that holds the team's estimate, such as T-Shirt Size
         self.base = cfg["base_url"].rstrip("/")
         self.email, self.token = cfg["email"], os.environ.get("JIRA_TOKEN") or cfg["token"]
         pair = f"{self.email}:{self.token}".encode()
@@ -377,6 +378,26 @@ class JiraSource:
     def rewrite(self, key: str, text: str) -> None:
         """Already in wiki markup: publish writes the new section that way, and the rest came from Jira."""
         self._call("PUT", f"issue/{key}", {"fields": {"description": text}})
+
+    def _estimate_field(self, key: str) -> tuple[str, list[str]]:
+        if not self.estimate:
+            return "", []
+        found = next((f["id"] for f in self._call("GET", "field") if f["name"] == self.estimate), "")
+        if not found:
+            raise ValueError(f"Jira has no field named {self.estimate}, the one [jira] estimate names")
+        allowed = self._call("GET", f"issue/{key}/editmeta")["fields"].get(found, {}).get("allowedValues", [])
+        return found, [a.get("value") or a.get("name", "") for a in allowed]
+
+    def estimate_choices(self, key: str) -> list[str]:
+        return self._estimate_field(key)[1]
+
+    def set_estimate(self, key: str, value: str) -> None:
+        field, choices = self._estimate_field(key)
+        if not field:
+            return
+        if value not in choices:
+            raise ValueError(f"{value!r} isn't a choice for {self.estimate}. Jira offers: {', '.join(choices)}")
+        self._call("PUT", f"issue/{key}", {"fields": {field: {"value": value}}})
 
     def attach(self, key: str, name: str, text: str) -> None:
         boundary = uuid.uuid4().hex
@@ -784,6 +805,13 @@ class PrepareSource:
 
     def signed(self, key: str, text: str) -> None:
         self.ticket.report(self._key(key), text)
+
+    def estimate_choices(self, key: str) -> list[str]:
+        return self.ticket.estimate_choices(self._key(key)) if isinstance(self.ticket, JiraSource) else []
+
+    def set_estimate(self, key: str, value: str) -> None:
+        if isinstance(self.ticket, JiraSource):
+            self.ticket.set_estimate(self._key(key), value)
 
     def queued(self) -> list[str]:
         return self.ticket.ready()

@@ -68,6 +68,7 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 #                             # only if your board allows moving to the next column only: a longer move walks this list
 # project = "ABC"             # the project key new tickets go in. Needed by sweeps and `workshop prepare <idea>`
 # unblocked = ["Ready for Release"]
+# estimate = "T-Shirt Size"   # the name of a select field for the team's estimate. The design talk agrees one of its choices, and workshop sets it on your yes
 #                             # a blocker in one of these statuses no longer holds a ticket back. Done always counts
 
 

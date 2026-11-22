@@ -404,12 +404,26 @@ class Engine:
         self.save(run)
         return self.advance(run)
 
+    def _estimating(self, run: Run) -> str:
+        """The design decides how big the work is, so its talk agrees the team's estimate too."""
+        choices = getattr(self.source_for(run), "estimate_choices", lambda key: [])(run.key)
+        if not choices:
+            return ""
+        return (
+            "\n\nAlso agree a size with them, as the team's estimate. Propose one with a line on why, and lean pessimistic: "
+            f"work runs longer than it looks. The choices are: {'; '.join(choices)}. Write the agreed one in the file as a line that is "
+            "exactly `ESTIMATE:` and the choice, word for word, just before the `QUEUE:` line."
+        )
+
     def _sign_off(self, run: Run, step: dict[str, Any]) -> None:
         """Your go: only now does what you agreed reach the ticket. A failed write stops here, so nothing is lost."""
         report = self._report(run, run.pipeline["steps"][run.index_of(step.get("report", step["id"]))])
         text = re.sub(r"^## Decision\n.*?(?=^#|^VERDICT|\Z)", "", report.read_text(encoding="utf-8"), flags=re.MULTILINE | re.DOTALL)  # it's for you, not the ticket
         text = re.sub(r"^(VERDICT|QUEUE): \w+\s*$", "", text, flags=re.MULTILINE)
         source = self.source_for(run)
+        if estimate := re.findall(r"^ESTIMATE: (.+?)\s*$", text, re.MULTILINE):
+            text = re.sub(r"^ESTIMATE: .*$", "", text, flags=re.MULTILINE)
+            getattr(source, "set_estimate", lambda key, value: None)(run.key, estimate[-1])  # before the write, so a size Jira refuses stops it whole
         source.publish(run.key, step["section"], text, step["label"])
         source.signed(run.key, f"{self.mark}Signed off the {step['section'].lower()}.")
         self.store.event(run, "signed_off", step=step["id"], section=step["section"])
@@ -993,7 +1007,7 @@ class Engine:
             method += f"\n\n{contract(Path(run.repo_path) if run.repo_path else None, run.repo)}\n\n{self._rules(run, step)}"
         sender = run.pipeline["steps"][run.index_of(run.sent_back)] if run.sent_back else {}
         fills = {"{run}": str(self.store.files(run)), "{base}": run.base, "{since}": run.reviewed, "{now}": run.checking, "{pr}": run.pr, "{queued}": self._queue_list(run) if step.get("queues") else "", "{sender}": run.sent_back, "{report}": str(self._report(run, sender)) if sender else "", "{out}": str(self._report(run, step))}
-        text = method + (contract_text(extra) if extra and not revising and not run.on_a_pr else "")
+        text = method + (contract_text(extra) if extra and not revising and not run.on_a_pr else "") + (self._estimating(run) if step.get("queues") else "")
         for mark, value in fills.items():
             text = text.replace(mark, value)
         run.next_prompt, run.sent_back = "", ""
