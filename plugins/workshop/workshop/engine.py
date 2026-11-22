@@ -15,7 +15,7 @@ from .shell import ToolError
 from .sources import Source
 from .store import SNAPSHOT, Run, Store
 from .throttle import Throttle
-from .tools import Tools, slug
+from .tools import CommitRefused, Tools, slug
 
 STEP_TIMEOUT = 45 * 60
 PREFIX = "[ai]"  # workshop comments as you, so its own comments mustn't count as yours
@@ -412,14 +412,19 @@ class Engine:
         return self.advance(run)
 
     def _estimating(self, run: Run) -> str:
-        """The design decides how big the work is, so its talk agrees the team's estimate too."""
+        """The design decides how many PRs there are and how big each is, so its talk agrees both."""
         choices = getattr(self.source_for(run), "estimate_choices", lambda key: [])(run.key)
+        parts = (
+            "\n\nOne ticket builds one PR. Where the design needs more than one, agree the split with them, and write each PR in build order "
+            "as a line that is exactly `PR:` and its title" + (", then ` | ` and its size from the choices below" if choices else "") + ", just before the `QUEUE:` line. "
+            "This ticket builds the first, and workshop files a ticket for each of the rest, each blocked by the one before. A design of one PR needs no `PR:` lines."
+        )
         if not choices:
-            return ""
-        return (
+            return parts
+        return parts + (
             "\n\nAlso agree a size with them, as the team's estimate. Propose one with a line on why, and lean pessimistic: "
             f"work runs longer than it looks. The choices are: {'; '.join(choices)}. Write the agreed one in the file as a line that is "
-            "exactly `ESTIMATE:` and the choice, word for word, just before the `QUEUE:` line."
+            "exactly `ESTIMATE:` and the choice, word for word, just before the `QUEUE:` line. Where the work splits, that's the size of the first PR."
         )
 
     def _sign_off(self, run: Run, step: dict[str, Any]) -> None:
@@ -428,12 +433,40 @@ class Engine:
         text = re.sub(r"^## Decision\n.*?(?=^#|^VERDICT|\Z)", "", report.read_text(encoding="utf-8"), flags=re.MULTILINE | re.DOTALL)  # it's for you, not the ticket
         text = re.sub(r"^(VERDICT|QUEUE): \w+\s*$", "", text, flags=re.MULTILINE)
         source = self.source_for(run)
-        if estimate := re.findall(r"^ESTIMATE: (.+?)\s*$", text, re.MULTILINE):
-            text = re.sub(r"^ESTIMATE: .*$", "", text, flags=re.MULTILINE)
+        parts = [(name.strip(), size.strip()) for name, size in re.findall(r"^PR: (.+?)(?: \| (.+?))?\s*$", text, re.MULTILINE)]
+        text = re.sub(r"^PR: .*$", "", text, flags=re.MULTILINE)
+        estimate = re.findall(r"^ESTIMATE: (.+?)\s*$", text, re.MULTILINE)
+        text = re.sub(r"^ESTIMATE: .*$", "", text, flags=re.MULTILINE)
+        if parts and parts[0][1]:
+            estimate = [parts[0][1]]  # this ticket builds the first PR
+        if estimate:
             getattr(source, "set_estimate", lambda key, value: None)(run.key, estimate[-1])  # before the write, so a size Jira refuses stops it whole
         source.publish(run.key, step["section"], text, step["label"])
         source.signed(run.key, f"{self.mark}Signed off the {step['section'].lower()}.")
         self.store.event(run, "signed_off", step=step["id"], section=step["section"])
+        if len(parts) > 1:
+            self._split(run, source, parts)
+
+    def _split(self, run: Run, source: Source, parts: list[tuple[str, str]]) -> None:
+        """One ticket per PR. Each one filed is noted at once, so a write that fails part way resumes without filing it twice."""
+        noted = self.store.files(run) / "parts.json"
+        filed = json.loads(noted.read_text(encoding="utf-8")) if noted.exists() else []
+        ticket = run.key.removeprefix("prep-")
+        title = source.get(run.key).title
+        keys = [ticket, *filed]
+        for n, (name, size) in list(enumerate(parts, 1))[len(keys) :]:
+            body = (
+                f"### Summary\n\nPart {n} of {len(parts)} of {ticket}, {title}. Build only PR {n}, \"{name}\", from the design of {ticket}. "
+                f"Start from the base branch once {keys[-1]} has merged. This ticket builds one PR, so leave out any stack the design describes.\n"
+            )
+            key = source.add_part(run.key, keys[-1], name, body)
+            keys.append(key)
+            noted.write_text(json.dumps(keys[1:]), encoding="utf-8")
+            if size:
+                getattr(source, "set_estimate", lambda key, value: None)(key, size)
+        rest = ", ".join(f"PR {n} is {key}" for n, key in enumerate(keys[1:], 2))
+        source.signed(run.key, f"{self.mark}Split into one ticket per PR. This ticket builds PR 1 only, \"{parts[0][0]}\". {rest}. Each is blocked by the one before.")
+        self.store.event(run, "split", parts=keys[1:])
 
     def in_order(self, repo: str, keys: list[str]) -> list[str]:
         return sorted(keys, key=lambda key: self.queue_place(repo, key))
@@ -454,12 +487,18 @@ class Engine:
             return
         ticket, source = run.key.removeprefix("prep-"), self.source_for(run)
         others = self.in_order(run.repo, [key for key in source.queued() if key != ticket])
+        noted = self.store.files(run) / "parts.json"
+        parts = json.loads(noted.read_text(encoding="utf-8")) if noted.exists() else []  # they wait on this one, so they go with it
+        others = [key for key in others if key not in parts]
         if found[-1] == "out":
-            source.dequeue(run.key)
+            for key in [run.key, *parts]:
+                source.dequeue(key)
             run.landed_as = "designed"
         else:
-            source.enqueue(run.key)
-            others.insert(max(int(found[-1]) - 1, 0), ticket)
+            for key in [run.key, *parts]:
+                source.enqueue(key)
+            place = max(int(found[-1]) - 1, 0)
+            others[place:place] = [ticket, *parts]
             run.landed_as = "queued"
         self.store.write(QUEUE, {**self.store.read(QUEUE), run.repo: others})
         self.store.event(run, "queued", place=found[-1])
@@ -1175,7 +1214,17 @@ class Engine:
         work = Path(run.worktree)
         ticket = self.source_for(run).get(run.key)
         title = f"{ticket.key}: {ticket.title}"
-        self.tools.commit_all(work, title)
+        try:
+            self.tools.commit_all(work, title)
+        except CommitRefused as refused:
+            if "implement" not in [s["id"] for s in run.pipeline["steps"]]:
+                raise
+            # A check in the repo's commit hooks is the builder's to fix, like a failed qa.
+            step, report = run.current, self._report(run, run.current)
+            report.write_text(f"{refused}\n\nVERDICT: FAILED\n", encoding="utf-8")
+            self.store.event(run, "step", step=step["id"], state="done", verdict="FAILED")
+            self._follow(run, step, {"goto": "implement", "max": 2, "prompt": "fix-commit.md"}, "FAILED", f"See {report}.")
+            return
         if self.tools.ahead(work, run.base) == 0:
             raise Park("The agents changed nothing, so there is no PR to open.")
         self.tools.push(work, run.branch)

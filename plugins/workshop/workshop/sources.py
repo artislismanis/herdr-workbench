@@ -220,6 +220,14 @@ class GitHubSource:
     def create(self, title: str, body: str) -> str:
         return run("gh", "issue", "create", "--title", title, "--body", body, cwd=self.repo).strip().rsplit("/", 1)[-1]
 
+    def add_part(self, original: str, blocker: str, title: str, body: str) -> str:
+        """An issue for one more PR of a design, with the original's labels, blocked by the PR before it."""
+        labels = [name for name in self.labels(original) if name not in (self.label, f"{self.label}-claimed")]
+        key = run("gh", "issue", "create", "--title", title, "--body", body, *[arg for name in labels for arg in ("--label", name)], cwd=self.repo).strip().rsplit("/", 1)[-1]
+        blocking = run_json("gh", "api", f"repos/{{owner}}/{{repo}}/issues/{blocker}", cwd=self.repo)["id"]
+        run("gh", "api", "-X", "POST", f"repos/{{owner}}/{{repo}}/issues/{key}/dependencies/blocked_by", "-F", f"issue_id={blocking}", cwd=self.repo)
+        return key
+
     def close(self, key: str, why: str) -> None:
         run("gh", "issue", "close", key, "--reason", "not planned", "--comment", why, cwd=self.repo)
 
@@ -444,13 +452,34 @@ class JiraSource:
     def _sections(self, attached: list[dict[str, Any]]) -> list[str]:
         """A section too long for the description is attached in full, and the agent needs all of it. The newest copy of each wins."""
         names = {f"{name.lower()}.md": name for name in SECTIONS}
+        return [f"## {names[name]} in full, from {name}\n\n{text}" for name, text in self._attached(attached).items()]
+
+    def _attached(self, attached: list[dict[str, Any]]) -> dict[str, str]:
+        names = {f"{name.lower()}.md" for name in SECTIONS}
         newest = {a["filename"]: a for a in sorted(attached, key=lambda a: a.get("created", "")) if a["filename"] in names}
-        found = []
+        found = {}
         for name, item in newest.items():
             req = urllib.request.Request(item["content"])
             req.add_header("Authorization", self.auth)
-            found.append(f"## {names[name]} in full, from {name}\n\n{jira_open(req, 60).decode('utf-8', 'replace')}")
+            found[name] = jira_open(req, 60).decode("utf-8", "replace")
         return found
+
+    def add_part(self, original: str, blocker: str, title: str, body: str) -> str:
+        """A ticket for one more PR of a design: filed like the original, with its sections attached, and blocked by the PR before it."""
+        f = self._call("GET", f"issue/{original}?fields=labels,parent,assignee,priority,issuetype,attachment")["fields"]
+        fields: dict[str, Any] = {"project": {"key": original.rsplit("-", 1)[0]}, "summary": title, "description": wiki(body), "issuetype": {"id": f["issuetype"]["id"]}, "labels": [name for name in f["labels"] if name not in (self.label, f"{self.label}-claimed")]}
+        if f.get("parent"):
+            fields["parent"] = {"key": f["parent"]["key"]}
+        if f.get("assignee"):
+            fields["assignee"] = {"accountId": f["assignee"]["accountId"]}
+        if f.get("priority"):
+            fields["priority"] = {"id": f["priority"]["id"]}
+        key = self._call("POST", "issue", {"fields": fields})["key"]
+        for name, text in self._attached(f.get("attachment") or []).items():
+            self.attach(key, name, text)
+        # Jira's own wording runs backwards here: the inward issue is the one that blocks.
+        self._call("POST", "issueLink", {"type": {"name": "Blocks"}, "inwardIssue": {"key": blocker}, "outwardIssue": {"key": key}})
+        return key
 
     def claim(self, key: str) -> None:
         labels = {"update": {"labels": [{"add": f"{self.label}-claimed"}]}}
@@ -812,6 +841,11 @@ class PrepareSource:
     def set_estimate(self, key: str, value: str) -> None:
         if isinstance(self.ticket, JiraSource):
             self.ticket.set_estimate(self._key(key), value)
+
+    def add_part(self, key: str, blocker: str, title: str, body: str) -> str:
+        if not (add := getattr(self.ticket, "add_part", None)):
+            raise ToolError("this source can't file a ticket for each PR")
+        return add(self._key(key), self._key(blocker), title, body)
 
     def queued(self) -> list[str]:
         return self.ticket.ready()

@@ -16,7 +16,7 @@ from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, Item, PrepareSource, PullRequestSource, SweepSource, Ticket  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
-from workshop.tools import Tools  # noqa: E402
+from workshop.tools import CommitRefused, Tools  # noqa: E402
 
 
 class FakeSource:
@@ -599,6 +599,51 @@ class Prepare(unittest.TestCase):
 
     def design(self, text):
         return self.agree(self.agree(self.engine.start("r", "prep-7", self.root, "main", load("prepare"), self.source, preparing=True, until=2)), "design", text)
+
+    def splitting(self, fail_on=0):
+        filed, sized = [], []
+
+        def add_part(original, blocker, title, body):
+            if fail_on and len(filed) + 1 == fail_on:
+                raise ToolError("Jira down")
+            filed.append((original, blocker, title, body))
+            return str(8 + len(filed) - 1)
+
+        self.ticket.add_part = add_part
+        self.source.set_estimate = lambda key, value: sized.append((key, value))
+        self.ticket.label, self.ticket.queue = "ai", ["3"]
+        return filed, sized
+
+    SPLIT = "### How\n\nIn three PRs.\n\nPR: Tests on each runtime | Small (3 Days)\nPR: Pin the libraries | X-Small (1 Day)\nPR: Explain the policy\nQUEUE: 1\nVERDICT: READY\n"
+
+    def test_the_design_talk_agrees_how_the_work_splits_into_prs(self):
+        self.agree(self.start())
+        self.assertIn("exactly `PR:` and its title", self.tools.prompts[-1][1])
+
+    def test_a_design_of_several_prs_files_a_ticket_for_each_after_the_first(self):
+        filed, sized = self.splitting()
+        run = self.design(self.SPLIT)
+        self.assertEqual([(original, blocker, title) for original, blocker, title, _ in filed], [("7", "7", "Pin the libraries"), ("7", "8", "Explain the policy")])
+        self.assertIn('Part 2 of 3 of 7, Title. Build only PR 2, "Pin the libraries"', filed[0][3])
+        self.assertEqual(sized, [("prep-7", "Small (3 Days)"), ("8", "X-Small (1 Day)")])
+        self.assertNotIn("PR:", self.ticket.text)
+        self.assertIn(f'{PREFIX} Split into one ticket per PR. This ticket builds PR 1 only, "Tests on each runtime". PR 2 is 8, PR 3 is 9. Each is blocked by the one before.', self.ticket.reports)
+        self.assertEqual(run.label, "queued")
+        self.assertEqual(self.ticket.tags.count("ai"), 3)
+        self.assertEqual(self.engine.in_order("r", ["3", "7", "8", "9"]), ["7", "8", "9", "3"])
+
+    def test_a_write_that_fails_part_way_resumes_without_filing_twice(self):
+        filed, _ = self.splitting(fail_on=2)
+        run = self.design(self.SPLIT)
+        self.assertEqual(run.status, "parked")
+        self.ticket.add_part = lambda original, blocker, title, body: filed.append((original, blocker, title, body)) or "9"
+        run = self.engine.resume(run)
+        self.assertEqual([(blocker, title) for _, blocker, title, _ in filed], [("7", "Pin the libraries"), ("8", "Explain the policy")])
+
+    def test_one_pr_files_nothing_more(self):
+        filed, _ = self.splitting()
+        self.design("### How\n\nLike so.\n\nPR: The whole thing\nQUEUE: hold\nVERDICT: READY\n")
+        self.assertEqual(filed, [])
 
     def test_a_yes_to_the_queue_adds_the_label_and_its_place(self):
         self.ticket.label, self.ticket.queue = "ai", ["3", "4"]
@@ -1605,6 +1650,21 @@ class Case(unittest.TestCase):
         run = self.start()
         run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
         return self.finish_agent(run, "ws-de-1", "implement")
+
+
+class RefusedCommit(Case):
+    def test_a_refused_commit_goes_back_to_the_builder_with_the_checks_output(self):
+        run = self.to_verify()
+        self.tools.commit_all = mock.Mock(side_effect=[CommitRefused("git commit failed:\nvale: 3 errors in docs/a.md"), None])
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual((run.status, run.current["id"]), ("running", "implement"))
+        self.assertIn("vale: 3 errors in docs/a.md", (self.kept() / "open-pr.md").read_text(encoding="utf-8"))
+        self.assertIn("The repo's commit checks refused the commit", self.tools.prompts[-1][1])
+
+    def test_a_commit_that_fails_for_another_reason_still_stops(self):
+        self.tools.commit_fails = True
+        run = self.finish_agent(self.to_verify(), "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual(run.status, "parked")
 
 
 class TicketCi(Case):

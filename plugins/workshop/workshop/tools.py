@@ -29,6 +29,10 @@ COPILOT = """query($owner: String!, $repo: String!, $number: Int!) { repository(
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
 
 
+class CommitRefused(ToolError):
+    """The repo's own commit checks said no. Their output says why."""
+
+
 def slug(key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", key.lower()).strip("-")
 
@@ -311,7 +315,9 @@ class Tools:
     def commit_all(self, work: Path, message: str) -> None:
         self.stage(work)
         if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=work).returncode != 0:
-            run("git", "commit", "-m", message, cwd=work)
+            done = subprocess.run(["git", "commit", "-m", message], cwd=work, capture_output=True, text=True)
+            if done.returncode != 0:
+                raise CommitRefused(f"git commit failed:\n{done.stdout.strip()}\n{done.stderr.strip()}".strip())
 
     def ahead(self, work: Path, base: str) -> int:
         return int(run("git", "rev-list", "--count", f"origin/{base}..HEAD", cwd=work).strip())
@@ -357,4 +363,4 @@ class Tools:
         return made.strip().splitlines()[-1]
 
 
-__all__ = ["ToolError", "Tools", "slug"]
+__all__ = ["CommitRefused", "ToolError", "Tools", "slug"]
