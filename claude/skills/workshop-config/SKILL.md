@@ -75,6 +75,8 @@ Offer as one multi-select question: "Anything else to set up? Each is off or at 
 | `[jira] project` | Can't create tickets | Sweeps, or `workshop prepare` from an idea |
 | `environments` per repo | `main`/`master` prod, `dev`/`preprod` preprod | Other branch names |
 | `commands.logs` | `logs` sweep proposes nothing | Using the logs sweep |
+| `commands.ci` per repo | A draft gets checks only where the repo's CI runs on drafts | The repo's CI skips drafts. The command starts CI on `$BRANCH` after each push, such as `az pipelines run --id <n> --branch "$BRANCH"`. Without it, the `ci` step passes with a note that no checks ran |
+| `[review] copilot` | Off: no Copilot review of a draft | The org has Copilot code review. Copilot reviews each draft, and its threads go back to the builder before you see the draft. Needs `ci` and `copilot` in the `ticket` pipeline's steps where the user keeps their own `ticket.toml` |
 | `[backlog]` labels | `planned`, `designed` | Team already uses other names |
 | `done_hours` | 24 | Finished work should linger longer or shorter |
 | `[review] after_post`, `block_failing_ci`, `[chat.reactions]` | Off, off, `eyes` for the claim and no other reaction | Fine-tuning chat reviews |
