@@ -379,7 +379,7 @@ class Engine:
             raise KeyError(f"{run.key} isn't parked")
         # A live agent may already have finished its step, so check it before prompting again.
         alive = run.phase == "prompted" and self.tools.agent_status(run.step_agent or run.agent) != "gone"
-        run.status, run.reason, run.phase, run.blocked_at = "running", "", run.phase if alive else "", 0.0
+        run.status, run.reason, run.phase, run.blocked_at = "running", "", run.phase if alive or run.phase == "finished" else "", 0.0
         self.store.event(run, "resumed")
         self.save(run)
         return self.advance(run)
@@ -863,6 +863,9 @@ class Engine:
         ) if line)
 
     def _agent(self, run: Run, step: dict[str, Any]) -> None:
+        if run.phase == "finished":  # the agent is done and you said yes: only the write to the ticket is left
+            self._agent_finished(run, step)
+            return
         if run.phase == "":
             if not self._held(run):
                 self._prompt_agent(run, step)
@@ -1006,6 +1009,28 @@ class Engine:
         self.store.event(run, "step", step=step["id"], state="running", usage=self.throttle.snapshot())
 
     def _agent_finished(self, run: Run, step: dict[str, Any]) -> None:
+        if run.phase != "finished":
+            self._agent_done(run, step)
+            if run.phase:  # it asked something, or was sent back for its brief
+                return
+        report = self._report(run, step)
+        if step.get("read_only") and self.tools.changes(Path(run.worktree)) != run.baseline:
+            raise Park(f"{step['id']} is read-only but changed files.")
+        if not report.exists():
+            raise Park(f"{step['id']} finished without writing {report.name}.")
+        verdict = ""
+        if allowed := step.get("verdict"):
+            found = re.findall(r"^VERDICT: ([A-Z_]+)\s*$", report.read_text(encoding="utf-8"), re.MULTILINE)
+            verdict = found[-1] if found else ""
+            if verdict not in allowed:
+                raise Park(f"{step['id']} gave no valid verdict.")
+        if step.get("interactive") and "section" in step:  # your yes was in the talk, and it only writes one once you've given it
+            run.phase = "finished"  # a failed write resumes here, not with a fresh agent
+            self._sign_off(run, step)
+            run.phase = ""
+        self._step_done(run, step, report, verdict)
+
+    def _agent_done(self, run: Run, step: dict[str, Any]) -> None:
         spent = self.tools.spent(Path(run.worktree), run.started_at, self.clock())
         self.store.event(run, "spent", step=step["id"], asked=self._ask_file(run).exists(), **spent)
         # The agent going quiet only triggers the check. The report decides.
@@ -1023,19 +1048,8 @@ class Engine:
         run.phase = ""
         if not run.reviewing:  # a reviewer stays beside hunk to answer for its review, until that's posted
             self._let_go_of_step(run)
-        report = self._report(run, step)
-        if step.get("read_only") and self.tools.changes(Path(run.worktree)) != run.baseline:
-            raise Park(f"{step['id']} is read-only but changed files.")
-        if not report.exists():
-            raise Park(f"{step['id']} finished without writing {report.name}.")
-        verdict = ""
-        if allowed := step.get("verdict"):
-            found = re.findall(r"^VERDICT: ([A-Z_]+)\s*$", report.read_text(encoding="utf-8"), re.MULTILINE)
-            verdict = found[-1] if found else ""
-            if verdict not in allowed:
-                raise Park(f"{step['id']} gave no valid verdict.")
-        if step.get("interactive") and "section" in step:  # your yes was in the talk, and it only writes one once you've given it
-            self._sign_off(run, step)
+
+    def _step_done(self, run: Run, step: dict[str, Any], report: Path, verdict: str) -> None:
         if step.get("queues"):
             self._enqueue(run, report.read_text(encoding="utf-8"))
         self.store.event(run, "step", step=step["id"], state="done", verdict=verdict, usage=self.throttle.snapshot())

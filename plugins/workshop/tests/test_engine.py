@@ -545,6 +545,18 @@ class Prepare(unittest.TestCase):
         self.assertEqual((run.status, run.current["id"]), ("parked", "requirements"))
         self.assertTrue((self.engine.store.files(run) / "requirements.md").exists())
 
+    def test_a_resume_after_a_failed_write_retries_the_write_not_the_talk(self):
+        run = self.start()
+        rewrite, prompts = self.ticket.rewrite, len(self.tools.prompts)
+        self.ticket.rewrite = mock.Mock(side_effect=ToolError("too long"))
+        run = self.agree(run)
+        self.ticket.rewrite = rewrite
+        run = self.engine.resume(run)
+        self.assertEqual((run.status, run.current["id"]), ("running", "design"))
+        self.assertIn("### What", self.ticket.text)
+        self.assertFalse(any("requirements" in p[1].lower() and "brainstorm" in p[1].lower() for p in self.tools.prompts[prompts:]))
+        self.assertEqual(len([e for e in self.engine.store.history() if e.get("type") == "spent" and e.get("step") == "requirements"]), 1)
+
     def test_the_agent_has_the_workspace_to_itself(self):
         run = self.start()
         self.assertEqual(run.step_pane, "")
