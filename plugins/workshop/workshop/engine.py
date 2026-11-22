@@ -30,6 +30,7 @@ ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "
 NO_STEPS = {"none", "n/a", "nothing", "no"}
 CI_SETTLE = 90  # seconds after a push or rerun before the checks count, so ones that haven't registered yet don't read as passed or failed
 CI_MINUTES = 60
+CI_NONE = 600  # seconds with no checks at all before a delivery counts the repo as having no CI
 
 
 def ci_state(checks: list[dict[str, str]]) -> str:
@@ -841,6 +842,11 @@ class Engine:
         if head != self.tools.head(work):
             raise Park(f"The PR's head is {head[:7]}, not the fix workshop pushed, so someone else has pushed. Look before going on.")
         state = ci_state(checks)
+        if state == "none" and not run.fixing and self.clock() - run.started_at > CI_NONE:
+            self._report(run, step).write_text("No checks ran on the draft. Either this repo has no CI, or its CI skips drafts and needs a ci command to start it.\n\nVERDICT: PASS\n", encoding="utf-8")
+            self.store.event(run, "step", step=step["id"], state="done", verdict="SKIPPED")
+            run.step, run.phase = run.step + 1, ""
+            return
         if state in ("pending", "none"):
             if self.clock() - run.started_at > step.get("minutes", CI_MINUTES) * 60:
                 raise Park(f"CI hasn't finished after {step.get('minutes', CI_MINUTES)} minutes." if state == "pending" else "No checks ran on the fix.")
@@ -858,9 +864,14 @@ class Engine:
 
     def _push_ci(self, run: Run) -> None:
         work = Path(run.worktree)
-        if self.tools.unpushed(work, run.branch):
+        pushed = bool(self.tools.unpushed(work, run.branch))
+        if pushed:
             self.tools.push(work, run.branch)
             self.store.event(run, "pushed")
+        # Some repos' CI skips drafts. Their ci command starts it, so a draft meets the bar a ready PR does.
+        if (start := run.commands.get("ci")) and (pushed or not run.fixing) and self.tools.pr_state(run.pr)["isDraft"]:
+            self.tools.start_ci(start, work, run.branch)
+            self.store.event(run, "ci_started")
         run.phase, run.started_at = "pushed", self.clock()
 
     def _report(self, run: Run, step: dict[str, Any]) -> Path:

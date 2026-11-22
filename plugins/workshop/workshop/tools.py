@@ -322,6 +322,9 @@ class Tools:
         found = run_json("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url", cwd=work)
         return found[0]["url"] if found else ""
 
+    def start_ci(self, command: str, work: Path, branch: str) -> None:
+        run("sh", "-c", command, cwd=work, env=os.environ | {"BRANCH": branch})
+
     def mark_ready(self, work: Path, pr: str) -> None:
         run("gh", "pr", "ready", pr, cwd=work)
 
