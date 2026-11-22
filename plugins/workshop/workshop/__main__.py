@@ -58,7 +58,7 @@ def state_root() -> Path:
 
 def review_settings(cfg: dict[str, Any], repo: dict[str, Any]) -> dict[str, str]:
     """Yours, and a repo's can differ. The defaults assume nothing about how a team claims reviews."""
-    found = {"mode": "silent", "claim": "none", "after_post": "none", "block_failing_ci": False} | cfg.get("review", {}) | repo.get("review", {})
+    found = {"mode": "silent", "claim": "none", "after_post": "none", "block_failing_ci": False, "copilot": False} | cfg.get("review", {}) | repo.get("review", {})
     if found["mode"] not in ("silent", "claimed") or found["claim"] not in CLAIMS or found["after_post"] not in ("none", "chat-reply"):
         raise KeyError(f"[review] takes mode silent or claimed, claim {', '.join(CLAIMS)}, and after_post none or chat-reply")
     if "chat" in (found["claim"].split("-")[0], found["after_post"].split("-")[0]) and "chat" not in cfg:
@@ -92,7 +92,10 @@ def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bo
     repo = cfg["repos"][name]
     source = make_source(name, repo, cfg.get("jira", {}))
     path = Path(repo["path"]).expanduser()
-    return engine.start(name, key, path, repo.get("base", "main"), load(repo.get("pipeline", "ticket"), path, name), source, override, restart, repo.get("commands"), environments=repo.get("environments"))
+    pipeline = load(repo.get("pipeline", "ticket"), path, name)
+    if not review_settings(cfg, repo)["copilot"]:  # a repo without Copilot would wait for a review that never comes
+        pipeline["steps"] = [step for step in pipeline["steps"] if step["kind"] != "copilot"]
+    return engine.start(name, key, path, repo.get("base", "main"), pipeline, source, override, restart, repo.get("commands"), environments=repo.get("environments"))
 
 
 def repo_of(cfg: dict[str, Any], url: str) -> tuple[str, str]:

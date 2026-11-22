@@ -1363,10 +1363,10 @@ class FakeThrottle:
         return {"5h": 10, "7d": 20}
 
 
-def to_draft():
-    """The ticket pipeline up to its draft PR. TicketCi covers the CI watch after it."""
+def to_draft(*kept):
+    """The ticket pipeline up to its draft PR, plus any of the checks after it named. TicketCi and TicketCopilot cover those."""
     pipeline = load("ticket")
-    return pipeline | {"steps": [s for s in pipeline["steps"] if s["id"] != "ci"]}
+    return pipeline | {"steps": [s for s in pipeline["steps"] if s["kind"] not in ("ci", "copilot") or s["id"] in kept]}
 
 
 class FakeTools:
@@ -1399,12 +1399,24 @@ class FakeTools:
         self.marked = {}
         self.talks, self.focused = [], ""
         self.behind, self.ci_started = 0, []
+        self.copilot_asked, self.copilot_reviewed, self.copilot_threads, self.answered_threads = 0, False, [], {}
+        self.copilot_on = True
 
     def mark(self, pane, label):
         self.marked[pane] = label
 
     def start_ci(self, command, work, branch):
         self.ci_started.append((command, branch))
+
+    def ask_copilot(self, work, pr):
+        self.copilot_asked += 1
+        return self.copilot_on
+
+    def copilot(self, work, pr, since):
+        return self.copilot_reviewed, [t for t in self.copilot_threads if t["id"] not in self.answered_threads]
+
+    def answer_thread(self, work, pr, comment, thread, body):
+        self.answered_threads[thread] = (comment, body)
 
     def start_command(self, command, work, output, finished, then=""):
         self.commands.append(command)
@@ -1602,7 +1614,7 @@ class TicketCi(Case):
     GREEN = [{"name": "test", "state": "SUCCESS", "link": "https://ci.test/2"}]
 
     def start(self, commands=None):
-        return self.engine.start("repo", "DE-1", self.root, "main", load("ticket"), self.source, commands=commands)
+        return self.engine.start("repo", "DE-1", self.root, "main", to_draft("ci"), self.source, commands=commands)
 
     def at_ci(self, commands=None):
         run = self.start(commands)
@@ -1653,6 +1665,67 @@ class TicketCi(Case):
         self.assertEqual(run.status, "parked")
         self.assertIn("ci still says FAILED after 2 rounds", run.reason)
         self.assertIn("- test: FAILURE https://ci.test/1", (self.kept() / "ci.md").read_text(encoding="utf-8"))
+
+
+class TicketCopilot(Case):
+    """Copilot reviews the draft, and its threads are answered before it reaches you."""
+
+    THREAD = {"id": "T1", "comment": 11, "path": "a.py", "line": 3, "body": "This drops the last row."}
+
+    def at_copilot(self):
+        run = self.engine.start("repo", "DE-1", self.root, "main", to_draft("copilot"), self.source)
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        run = self.finish_agent(run, "ws-de-1", "implement")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual((run.current["id"], run.phase, self.tools.copilot_asked), ("copilot", "asked", 1))
+        return run
+
+    def reviewed(self, run, *threads):
+        self.tools.copilot_reviewed, self.tools.copilot_threads = True, list(threads)
+        return self.engine.advance(run)
+
+    def test_a_review_with_no_threads_hands_you_the_draft(self):
+        run = self.engine.advance(self.at_copilot())
+        self.assertEqual(run.current["id"], "copilot")  # still waiting for Copilot
+        run = self.reviewed(run)
+        self.assertEqual(run.status, "done")
+
+    def test_threads_go_to_the_builder_then_each_is_answered_and_resolved(self):
+        run = self.reviewed(self.at_copilot(), self.THREAD)
+        self.assertEqual(run.current["id"], "implement")
+        self.assertIn("Copilot reviewed the draft PR", self.tools.prompts[-1][1])
+        self.assertIn("This drops the last row.", (self.kept() / "copilot.md").read_text(encoding="utf-8"))
+        (self.kept() / "copilot-replies.json").write_text(json.dumps([{"thread": "T1", "reply": "Fixed: the loop keeps the last row."}]))
+        run = self.finish_agent(run, "ws-de-1", "implement")
+        run = self.finish_agent(run, "ws-de-1-ai-review-2", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual(run.status, "done")
+        self.assertEqual(self.tools.answered_threads, {"T1": (11, "[ai] Fixed: the loop keeps the last row.")})
+        self.assertEqual(self.tools.copilot_asked, 1)
+
+    def test_a_thread_left_without_a_reply_stops_the_run(self):
+        run = self.reviewed(self.at_copilot(), self.THREAD)
+        (self.kept() / "copilot-replies.json").write_text("[]")
+        run = self.finish_agent(run, "ws-de-1", "implement")
+        run = self.finish_agent(run, "ws-de-1-ai-review-2", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual(run.status, "parked")
+        self.assertIn("`a.py:3`", run.reason)
+        self.assertTrue((self.kept() / "copilot-replies-posted.json").exists())
+
+    def test_a_repo_without_copilot_stops_at_once(self):
+        self.tools.copilot_on = False
+        run = self.engine.start("repo", "DE-1", self.root, "main", to_draft("copilot"), self.source)
+        run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
+        run = self.finish_agent(run, "ws-de-1", "implement")
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
+        self.assertEqual(run.status, "parked")
+        self.assertIn("Copilot isn't on for this repo", run.reason)
+
+    def test_no_review_in_time_stops_the_run(self):
+        run = self.at_copilot()
+        self.now += 21 * 60
+        run = self.engine.advance(run)
+        self.assertEqual(run.status, "parked")
+        self.assertIn("Copilot hasn't reviewed the draft after 20 minutes", run.reason)
 
 
 class HappyPath(Case):

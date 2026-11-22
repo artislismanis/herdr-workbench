@@ -85,6 +85,7 @@ Workshop doesn't read the logs itself, so any CI works. To say how this repo's l
 - `claim = "chat-reaction"` adds the claim reaction, eyes unless `[chat.reactions]` says otherwise, to the message that asked. It follows `mode`, so a silent review reacts after your go.
 - `after_post = "chat-reply"` offers a thread reply once your review is posted, with the decision filled in. Reactions set in `[chat.reactions]` go on the ask and the thread's first message: approved or comments, never both, and ci or copilot if they apply. Enter sends it all, `r` sends the reactions with no reply, `n` skips it, or type your own. It only adds reactions, as the Slack MCP can't remove them. A name that isn't an emoji in your workspace falls back to the standard one: `eyes`, `white_check_mark`, `speech_balloon`, `x` or `robot_face`.
 - `block_failing_ci = true` under `[review]` takes approving away while CI fails. Unresolved Copilot comments only warn.
+- `copilot = true` under `[review]` adds the `copilot` step to a delivery. It asks Copilot to review the draft and waits up to 20 minutes. Copilot's open threads go back to `implement` once, with `fix-copilot.md`. After the push, workshop replies to each thread with what changed or why not, marked with your `comment_prefix`, and resolves it. A thread with no reply stops the run.
 
 ## Pipelines
 
@@ -92,12 +93,12 @@ A pipeline is a list of steps, and `steps.toml` says what each step does. Set on
 
 ```toml
 ticket_stage = "Plan and Design"
-steps = ["tasks", "implement", "qa", "ai-review", "open-pr", "ci"]
+steps = ["tasks", "implement", "qa", "ai-review", "open-pr", "ci", "copilot"]
 ```
 
 | Pipeline | Steps |
 |---|---|
-| `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `open-pr`, then `ci`, which waits for green checks on the draft and sends red back to `implement` |
+| `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `open-pr`, then `ci`, which waits for green checks on the draft and sends red back to `implement`, and `copilot` when `[review] copilot` is on |
 | `gated` | The same, with your approval after `tasks` |
 | `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk with the reviewer beside it. Posting removes the workspace and checkout |
 | `reply` | `reply`: an agent answers comments on your own PR |
