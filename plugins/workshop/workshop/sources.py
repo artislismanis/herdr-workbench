@@ -114,6 +114,15 @@ def wiki(text: str) -> str:
     return "\n".join(out)
 
 
+SUMMARY = re.compile(r"^### Summary[ \t]*\n(.*?)(?=^### |\Z)", re.MULTILINE | re.DOTALL)
+
+
+def summary_of(text: str) -> str:
+    """The short map a report opens with, for the ticket. An old report has none."""
+    found = SUMMARY.search(text)
+    return found.group(1).strip() if found else ""
+
+
 def jira_open(req: urllib.request.Request, timeout: int) -> bytes:
     """Jira says why it refused, such as a field a move requires, so that goes into the error, not just the status."""
     try:
@@ -755,11 +764,17 @@ class PrepareSource:
 
     def publish(self, key: str, section: str, text: str, stage: str) -> None:
         ticket = self._key(key)
-        if isinstance(self.ticket, JiraSource):
+        summary, name = summary_of(text), f"{section.lower()}.md"
+        if isinstance(self.ticket, JiraSource) and summary:
+            # A person reads the map on the ticket. The agent that builds reads the attachment in full.
+            self.ticket.attach(ticket, name, text)
+            self.ticket.rewrite(ticket, prepared(self.ticket.body(ticket), section, f"{summary}\n\nThe full {section.lower()} is in the attachment {name}.", "h2. ", wiki))
+        elif summary:
+            self.ticket.rewrite(ticket, prepared(self.ticket.body(ticket), section, f"{summary}\n\n<details>\n<summary>The full {section.lower()}</summary>\n\n{text.strip()}\n\n</details>"))
+        elif isinstance(self.ticket, JiraSource):
             body = self.ticket.body(ticket)
             written = prepared(body, section, text, "h2. ", wiki)
             if len(written) > JIRA_ROOM:
-                name = f"{section.lower()}.md"
                 self.ticket.attach(ticket, name, text)
                 written = prepared(body, section, shortened(wiki(text), JIRA_ROOM - len(prepared(body, section, "", "h2. ", wiki)), name), "h2. ")
             self.ticket.rewrite(ticket, written)
