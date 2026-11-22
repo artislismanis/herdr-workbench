@@ -229,6 +229,8 @@ class Engine:
     def _let_go_of_step(self, run: Run) -> None:
         if run.step_pane:
             self.tools.close_pane(run.step_pane)
+            if run.worktree and run.pane:  # hunk sends to the last agent it saw here, and that pane has gone
+                self.tools.point_review(Path(run.worktree), run.pane)
         elif run.solo and run.step_agent and self._pane_kept(run):  # its pane holds the workspace open, so a new one takes over first
             old, run.pane = run.pane, self.tools.split(run.pane, Path(run.worktree))
             self.tools.close_pane(old)
@@ -644,6 +646,7 @@ class Engine:
             return "Already open in hunk."
         # A PR shows what GitHub shows: against where it branched, not against wherever its base has got to.
         files = self.tools.open_review(run.pane, work, self.tools.fork_point(work, run.base) if run.on_a_pr else f"origin/{run.base}", fresh)
+        self.tools.point_review(work, run.step_pane or run.pane)  # your comments go to whoever answers for the change
         placed, outside = place(load_notes(kept / "notes.json"), files)
         self.tools.replace_notes(work, placed)
         if run.on_a_pr:
@@ -730,6 +733,11 @@ class Engine:
     def show(self, run: Run) -> None:
         if run.pane:
             self.tools.mark(run.pane, "" if run.landed else run.label)
+        # An idle agent looks like it wants input, but workshop never reads what's typed there.
+        title = "answer on the board: a on Now" if run.status in ("waiting", "parked") and not run.your_turn else "self-review: talk here" if self.reviewable(run) else ""
+        for pane in (run.pane, run.step_pane):
+            if pane:
+                self.tools.title(pane, title)
 
     def delivered(self, run: Run) -> bool:
         return run.status == "done" and bool(run.pr) and not run.landed and not run.on_a_pr
@@ -1038,11 +1046,12 @@ class Engine:
         run.held = held
         return bool(held)
 
-    def _keep_earlier(self, report: Path) -> None:
-        if report.exists():
-            # The new round writes over it, and a failed round is worth keeping.
-            earlier = len(list(report.parent.glob(f"{report.stem}-*{report.suffix}")))
-            report.rename(report.with_stem(f"{report.stem}-{earlier + 1}"))
+    def _keep_earlier(self, report: Path) -> Path | None:
+        if not report.exists():
+            return None
+        # The new round writes over it, and a failed round is worth keeping.
+        earlier = len(list(report.parent.glob(f"{report.stem}-*{report.suffix}")))
+        return report.rename(report.with_stem(f"{report.stem}-{earlier + 1}"))
 
     def _command(self, run: Run, step: dict[str, Any]) -> None:
         """Runs the repo's command for this step. A repo without one skips it, and the timeline says so."""
@@ -1080,7 +1089,7 @@ class Engine:
 
     def _prompt_agent(self, run: Run, step: dict[str, Any]) -> None:
         work = Path(run.worktree)
-        self._keep_earlier(self._report(run, step))
+        last = self._keep_earlier(self._report(run, step))
         if run.on_a_pr:
             self._keep_earlier(self.store.files(run) / "notes.json")
             self._keep_earlier(self.store.files(run) / "replies.json")
@@ -1114,6 +1123,8 @@ class Engine:
         sender = run.pipeline["steps"][run.index_of(run.sent_back)] if run.sent_back else {}
         fills = {"{run}": str(self.store.files(run)), "{base}": run.base, "{since}": run.reviewed, "{now}": run.checking, "{pr}": run.pr, "{queued}": self._queue_list(run) if step.get("queues") else "", "{sender}": run.sent_back, "{report}": str(self._report(run, sender)) if sender else "", "{out}": str(self._report(run, step))}
         text = method + (contract_text(extra) if extra and not revising and not run.on_a_pr else "") + (self._estimating(run) if step.get("queues") else "")
+        if last and step.get("fresh") and not step.get("read_only"):  # a new agent remembers nothing of the round before
+            text += f"\n\nThis step ran before, in another session, and wrote `{last}`. Start from it, and write `{{out}}` in full."
         for mark, value in fills.items():
             text = text.replace(mark, value)
         run.next_prompt, run.sent_back = "", ""
@@ -1274,11 +1285,43 @@ class Engine:
             if run.reviewing:
                 run.reviewed = self.tools.head(Path(run.worktree))
                 self.save(run)
-            self.review(run, run.on_a_pr)
+            self.review(run, run.on_a_pr or bool(run.loops.get("rework#")))
+            if not run.on_a_pr:
+                self._brief_lead(run)
             self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there, and prefix+shift+u there {'posts' if run.on_a_pr else 'finishes'} it.")
         except STOPS as failed:  # the PR is delivered either way, and g tries again
             self.store.event(run, "review_failed", reason=str(failed))
             self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} hunk didn't open: g on the board tries again.")
+
+    def _brief_lead(self, run: Run) -> None:
+        """The run's own agent answers your self-review, on the model of the first step it ran."""
+        first = next((s for s in run.pipeline["steps"] if s["kind"] == "agent" and not s.get("fresh")), {})
+        if self.tools.agent_status(run.agent) == "gone":
+            self.tools.start_agent(run.agent, run.pane, self.store.files(run), first.get("model", ""), first.get("advisor", ""))
+            self.tools.point_review(Path(run.worktree), run.pane)
+        told = len(list(self.store.files(run).glob("prompt-self-review-*.md")))
+        sent = self.store.files(run) / f"prompt-self-review-{told + 1}.md"
+        text = prompt_text("self-review.md", Path(run.repo_path), run.repo).replace("{run}", str(self.store.files(run))).replace("{pr}", run.pr)
+        sent.write_text(text + "\n", encoding="utf-8")
+        self.tools.prompt(run.agent, f"Read `{sent}` and follow it.")
+
+    def rework(self, run: Run) -> Run:
+        """The plan you agreed in self-review is built, checked and reviewed again before the draft comes back to you."""
+        plan = self.store.files(run) / "rework.md"
+        if not self.reviewable(run) or not plan.exists() or "implement" not in [s["id"] for s in run.pipeline["steps"]]:
+            return run
+        kept = self.store.files(run) / "rework-plan.md"
+        self._keep_earlier(kept)
+        plan.rename(kept)
+        self._fresh_rounds(run)
+        run.loops["rework#"] = run.loops.get("rework#", 0) + 1
+        run.status, run.reason, run.step, run.phase = "running", "", run.index_of("implement"), ""
+        run.next_prompt, run.sent_back = "rework.md", ""
+        self.store.event(run, "rework")
+        self._post(run, "Building the changes agreed in self-review.")
+        self._move(run, "working")
+        self.save(run)
+        return self.advance(run)
 
     def _park(self, run: Run, reason: str) -> None:
         # Reported once: a parked run waits for a person, it never retries by itself.

@@ -13,7 +13,7 @@ The board is where you work. Open it with `prefix+shift+b`. You don't need to ke
 | Queue | The design talk ends by asking if it's ready and where it goes among what's queued. Agents take tickets in that order as slots free up | Say so in the talk, or say no and read it first. `p` with its number queues it later, moves it, or takes it back out to `designed`. Adding the delivery label by hand works too |
 | Build | An agent plans the tasks and implements them | Nothing, unless it stops |
 | Test | The repo's checks run, then a fresh agent reviews the work | Nothing, unless it stops |
-| Self-review | A draft PR opens in hunk, with the reviewer's notes on the diff | `g` to go there. Comment, send to the agent, then finish with `prefix+shift+u` |
+| Self-review | A draft PR opens in hunk, with the reviewer's notes on the diff. The run's own agent, the one that planned the tasks, waits beside it to talk your comments through | `g` to go there. Comment, send with `prefix+shift+s`, and talk it over. When you agree a plan, the agent writes it, and workshop builds, checks and reviews it again before the draft comes back. Finish with `prefix+shift+u` |
 | Team review | The PR is marked ready for reviewers | Ask for review, and answer comments with `a` on the Review tab |
 | Deploy | A merge to `dev` or `preprod` shows as `preprod`. A merge to `main` or `master` shows as `in prod` and closes the ticket | Do any listed release steps, then answer |
 | Maintain | Scheduled sweeps look at dependencies, docs, the backlog and logs | Approve or skip what they propose |

@@ -250,7 +250,7 @@ def advance_talks(engine: Engine) -> None:
 
 def advance_all(engine: Engine) -> None:
     for run in engine.store.all():
-        run = engine.answered_in_pane(run)
+        run = engine.rework(engine.answered_in_pane(run))  # the self-review agent goes idle once it has written the plan
         if run.status == "running":
             engine.advance(run)
 
