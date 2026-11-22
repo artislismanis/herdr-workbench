@@ -40,7 +40,7 @@ Only when `HERDR_ENV=1`. A plan, spec or write-up I need to approve goes to a Ma
 
 ```bash
 herdr plugin pane open --plugin annotate --entrypoint doc --placement split \
-  --direction right --target-pane "$HERDR_PANE_ID" --focus --cwd "$PWD" \
+  --direction right --target-pane "$(~/.config/herdr/bin/pane-at-end --last "$HERDR_PANE_ID")" --focus --cwd "$PWD" \
   --env PLANNOTATOR_TUI_FILE="$FILE" --env PLANNOTATOR_TUI_DELIVER_TO="$HERDR_PANE_ID"
 ```
 

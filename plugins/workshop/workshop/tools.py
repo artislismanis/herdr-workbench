@@ -29,6 +29,13 @@ COPILOT = """query($owner: String!, $repo: String!, $number: Int!) { repository(
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
 
 
+
+def last_pane(layout: dict[str, Any], pane: str) -> str:
+    """The last pane in the row of `pane`, so a new pane goes after the ones already open."""
+    rect = next(p["rect"] for p in layout["panes"] if p["pane_id"] == pane)
+    row = [p for p in layout["panes"] if p["rect"]["y"] < rect["y"] + rect["height"] and rect["y"] < p["rect"]["y"] + p["rect"]["height"]]
+    return max(row, key=lambda p: p["rect"]["x"] + p["rect"]["width"])["pane_id"]
+
 class CommitRefused(ToolError):
     """The repo's own commit checks said no. Their output says why."""
 
@@ -128,7 +135,8 @@ class Tools:
             pass
 
     def split(self, pane: str, path: Path) -> str:
-        made = run_json("herdr", "pane", "split", pane, "--direction", "right", "--cwd", str(path), "--no-focus")
+        last = last_pane(run_json("herdr", "pane", "layout", "--pane", pane)["result"]["layout"], pane)
+        made = run_json("herdr", "pane", "split", last, "--direction", "right", "--cwd", str(path), "--no-focus")
         return made["result"]["pane"]["pane_id"]
 
     def spent(self, work: Path, since: float, until: float) -> dict[str, Any]:
