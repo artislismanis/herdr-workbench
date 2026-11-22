@@ -212,7 +212,7 @@ class Board:
             if step["kind"] == "copilot":
                 return pulse("copilot", now, run.started_at)
             if step["kind"] == "agent" and run.worktree:
-                seen = [path.stat().st_mtime for path in transcripts(Path(run.worktree)).glob("*.jsonl")]
+                seen = [path.stat().st_mtime for path in transcripts(Path(run.worktree)).rglob("*.jsonl")]  # rglob: background agents write under subagents/
                 return pulse("agent", now, max(seen, default=0.0))
         except (OSError, ValueError, KeyError, TypeError):
             pass
