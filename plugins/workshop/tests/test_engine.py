@@ -1704,6 +1704,19 @@ class TicketCi(Case):
         self.assertEqual(self.tools.ci_started, [])
         self.assertIn("Draft PR ready", self.source.reports[-1])
 
+    def test_each_check_keeps_when_it_got_to_its_state(self):
+        run = self.at_ci()
+        self.tools.ci = [{"name": "test", "state": "IN_PROGRESS", "link": "https://ci.test/1"}]
+        run = self.later(run)
+        first = self.now
+        run = self.later(run, 60)
+        live = json.loads((self.kept() / "ci-live.json").read_text(encoding="utf-8"))
+        self.assertEqual((live["checks"][0]["since"], live["checks"][0]["link"]), (first, "https://ci.test/1"))
+        self.tools.ci = self.RED
+        self.later(run, 60)
+        live = json.loads((self.kept() / "ci-live.json").read_text(encoding="utf-8"))
+        self.assertEqual(live["checks"][0]["since"], self.now)
+
     def test_a_repo_whose_ci_skips_drafts_starts_it_with_its_command(self):
         self.at_ci({"ci": "az pipelines run --branch $BRANCH"})
         self.assertEqual(self.tools.ci_started, [("az pipelines run --branch $BRANCH", "workshop/de-1")])

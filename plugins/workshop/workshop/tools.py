@@ -340,7 +340,8 @@ class Tools:
         """Runs a repo's own command in the background, because it can outlast a tick. The exit code lands in finished, then the then command runs."""
         with output.open("w", encoding="utf-8") as log:
             wrapper = 'sh -c "$1"; echo $? > "$2"; sh -c "$3" >/dev/null 2>&1'
-            return subprocess.Popen(["sh", "-c", wrapper, "sh", command, str(finished), then], cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True).pid
+            # Unbuffered, so the board shows Python's output as it comes, not in blocks at the end.
+            return subprocess.Popen(["sh", "-c", wrapper, "sh", command, str(finished), then], cwd=work, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, env=os.environ | {"PYTHONUNBUFFERED": "1"}).pid
 
     def stop_command(self, pid: int) -> None:
         with contextlib.suppress(ProcessLookupError):

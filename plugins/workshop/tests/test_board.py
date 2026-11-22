@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
 from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Ask, Board  # noqa: E402
-from workshop.boardview import Line, Span, ago, backlog, waiting, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
+from workshop.boardview import pulse, timeline, Line, Span, ago, backlog, waiting, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.store import Run, Store  # noqa: E402
@@ -2176,3 +2176,28 @@ class OpenBoard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Pulse(unittest.TestCase):
+    NOW = 10_000.0
+
+    def test_a_command_shows_its_last_lines_and_their_age(self):
+        lines = pulse("command", self.NOW, self.NOW - 90, ("collected 12 items", "tests/a.py ...."))
+        self.assertEqual([line.text.strip() for line in lines], ["output 1m ago", "collected 12 items", "tests/a.py ...."])
+        self.assertEqual(lines[0].style, "dim")
+
+    def test_a_quiet_agent_shows_in_yellow(self):
+        self.assertEqual(pulse("agent", self.NOW, self.NOW - 11 * 60)[0].spans[0].style, "yellow")
+        self.assertEqual(pulse("agent", self.NOW, self.NOW - 30)[0].text, "agent last active 30s ago")
+
+    def test_each_check_has_its_state_age_and_link(self):
+        checks = ({"name": "test", "state": "IN_PROGRESS", "link": "https://ci/1", "since": self.NOW - 21 * 60}, {"name": "lint", "state": "FAILURE", "link": "https://ci/2", "since": self.NOW - 60})
+        stuck, failed = pulse("ci", self.NOW, checks=checks)
+        self.assertIn("https://ci/1", stuck.text)
+        self.assertEqual((stuck.spans[1].style, failed.spans[1].style), ("yellow", "red"))
+
+    def test_the_lines_sit_under_the_running_step(self):
+        run = Run(repo="r", key="DE-1", repo_path="/r", base="main", pipeline={"steps": [{"id": "qa", "kind": "command"}, {"id": "ci", "kind": "ci"}]})
+        shown = [line.text for line in timeline(run, [], (), 100, now=self.NOW, alive=[Line([Span("output 5s ago")])])]
+        self.assertTrue(shown[0].strip().startswith("◐ qa"))
+        self.assertIn("output 5s ago", shown[1])

@@ -11,6 +11,7 @@ from itertools import groupby, zip_longest
 from typing import Any, NamedTuple
 
 from .backlog import COLUMNS
+from .engine import FAILED_CHECKS
 from .pipeline import shipped
 from .review import section
 from .store import Run
@@ -817,7 +818,7 @@ def ticket_rows(run: Run, files: list[str], staged: bool, room: int) -> list[Lin
     return [*heading, *rows, plain()] if heading or rows else []
 
 
-def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], width: int, stopped: tuple[str, str] = ("", ""), earlier: bool = False, now: float | None = None) -> list[Line]:
+def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], width: int, stopped: tuple[str, str] = ("", ""), earlier: bool = False, now: float | None = None, alive: list[Line] | None = None) -> list[Line]:
     steps = run.pipeline["steps"]
     took = clock(run, events, time.time() if now is None else now)
     staged = any(step.get("stage") for step in steps) or bool(run.pipeline.get("ticket_stage"))
@@ -861,10 +862,33 @@ def timeline(run: Run, events: list[dict[str, Any]], reports: tuple[str, ...], w
         lines += [file_row([Span(under, "dim")], path, room) for path, _ in beside if path]
         if earlier:
             lines += [file_row([Span(under, "dim")], path, room, f"round {number}") for number, path in past]
+        if current and alive:
+            lines += [Line([Span(under + "  ", "dim"), *line.spans]) for line in alive]
         if current and stopped[0] == files_name(step):
             lines += findings(stopped[1], stopped[0], width - 4, under)
         if staged and index in ends and index < len(steps) - 1:
             lines.append(plain())
+    return lines
+
+
+QUIET_AGENT = 10 * 60  # seconds with no sign from an agent before its quiet shows in yellow
+QUIET_CHECK = 20 * 60  # the same for a CI check stuck in one state
+
+
+def pulse(kind: str, now: float, changed: float = 0.0, tail: tuple[str, ...] = (), checks: tuple[dict[str, Any], ...] = (), width: int = 120) -> list[Line]:
+    """Proof the running step is alive: what changed last, and when."""
+    quiet = now - changed if changed else 0.0
+    if kind == "command" and changed:
+        head = [Line([Span(f"output {ago(quiet)} ago", "yellow" if quiet > QUIET_AGENT else "dim")])]
+        return head + [Line([Span(cell(line, width), "dim")]) for line in tail]
+    if kind in ("agent", "copilot") and changed:
+        said = "agent last active" if kind == "agent" else "asked Copilot"
+        return [Line([Span(f"{said} {ago(quiet)} ago", "yellow" if quiet > QUIET_AGENT else "dim")])]
+    lines = []
+    for check in checks:
+        state, held = check["state"], now - check.get("since", now)
+        style = "green" if state in ("SUCCESS", "NEUTRAL", "SKIPPED") else "red" if state in FAILED_CHECKS else "yellow" if held > QUIET_CHECK else "dim"
+        lines.append(Line([Span(cell(check["name"], 28)), Span(cell(state.lower() or "queued", 12), style), Span(cell(ago(held), 5), "dim"), Span(check.get("link", ""), "mine")]))
     return lines
 
 
@@ -879,7 +903,7 @@ def briefing(handover: str, width: int) -> list[Line]:
     return [plain(), Line([Span("▌ Handover", "green")]), *(plain("  " + part.text) for item in handover.splitlines() for part in wrapped(item, width - 2))] if handover else []
 
 
-def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), earlier: bool = False, handover: str = "", brief: str = "") -> list[Line]:
+def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, files: str, width: int, reports: tuple[str, ...] = (), stopped: tuple[str, str] = ("", ""), earlier: bool = False, handover: str = "", brief: str = "", alive: list[Line] | None = None) -> list[Line]:
     spent = [e for e in events if e["type"] == "spent"]
     prices = [e["usd"] for e in spent]
     total = f"{sum(e['minutes'] for e in spent):.1f} min  " + ("unpriced" if None in prices else f"${sum(prices):.2f}") if spent else ""
@@ -896,4 +920,4 @@ def drill(run: Run, events: list[dict[str, Any]], title: str, next_action: str, 
     lines += [line for seen in run.noticed for line in wrapped(f"Since you started: {seen}", width, "yellow")]
     lines += briefing(handover, width)
     lines += wrapped(f"Then: {next_action}" if next_action else "", width, "dim")
-    return [*lines, plain(), rule("Workflow", width), *timeline(run, events, reports, width, ("", "") if run.current and run.current["kind"] == "gate" else stopped, earlier), *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]
+    return [*lines, plain(), rule("Workflow", width), *timeline(run, events, reports, width, ("", "") if run.current and run.current["kind"] == "gate" else stopped, earlier, alive=alive), *wrapped(f"Files: {files}", width, "dim"), plain(), rule("Log", width), *recent(events, 12)]

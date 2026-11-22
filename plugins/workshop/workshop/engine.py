@@ -32,6 +32,8 @@ CI_SETTLE = 90  # seconds after a push or rerun before the checks count, so ones
 CI_MINUTES = 60
 COPILOT_MINUTES = 20
 CI_NONE = 600  # seconds with no checks at all before a delivery counts the repo as having no CI
+FAILED_CHECKS = ("FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE")
+CI_LIVE = "ci-live.json"  # the checks as last seen, each with when it got to its state, for the board
 
 
 def ci_state(checks: list[dict[str, str]]) -> str:
@@ -39,7 +41,7 @@ def ci_state(checks: list[dict[str, str]]) -> str:
     if not checks:
         return "none"
     states = {c["state"] for c in checks}
-    return "failed" if states & {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"} else "pending" if states - {"SUCCESS", "NEUTRAL", "SKIPPED"} else "passed"
+    return "failed" if states & set(FAILED_CHECKS) else "pending" if states - {"SUCCESS", "NEUTRAL", "SKIPPED"} else "passed"
 
 
 class Park(Exception):
@@ -889,6 +891,7 @@ class Engine:
         if self.clock() - run.started_at < CI_SETTLE:
             return
         head, checks = self.tools.checks(run.pr)
+        self._note_checks(run, checks)
         if head != self.tools.head(work):
             raise Park(f"The PR's head is {head[:7]}, not the fix workshop pushed, so someone else has pushed. Look before going on.")
         state = ci_state(checks)
@@ -911,6 +914,16 @@ class Engine:
             self._follow(run, step, rule, verdict, f"See {report}.")
         else:
             raise Park(f"CI still fails. See {report}.")
+
+    def _note_checks(self, run: Run, checks: list[dict[str, str]]) -> None:
+        live = self.store.files(run) / CI_LIVE
+        try:
+            before = {c["name"]: c for c in json.loads(live.read_text(encoding="utf-8"))["checks"]}
+        except (OSError, ValueError, KeyError, TypeError):
+            before = {}
+        now = self.clock()
+        seen = [{**c, "since": before[c["name"]]["since"] if c["name"] in before and before[c["name"]]["state"] == c["state"] else now} for c in checks]
+        live.write_text(json.dumps({"at": now, "checks": seen}), encoding="utf-8")
 
     def _copilot(self, run: Run, step: dict[str, Any]) -> None:
         """Asks Copilot to review the draft, as a ready PR gets. Its open threads go to the builder, then each gets a reply and is resolved."""
