@@ -58,7 +58,7 @@ class Names(unittest.TestCase):
 
 class Text(unittest.TestCase):
     def test_controls_never_reach_the_terminal(self):
-        self.assertEqual(clean("a\x1b]0;x\x07b\nc‮"), "a ]0;x b c ")
+        self.assertEqual(clean("a\x1b]0;x\x07b\nc‮"), "a ]0;x b c")
 
     def test_ages(self):
         self.assertEqual([ago(s) for s in (5, 120, 7200, 172800)], ["5s", "2m", "2h", "2d"])
@@ -92,6 +92,12 @@ class PullDetail(unittest.TestCase):
         self.assertEqual(blocking.style, "red")
         self.assertNotIn("\x1b", blocking.text)
         self.assertIn("    alex: Thanks", text)
+
+    def test_a_comment_keeps_its_own_lines_and_paths_stay_whole(self):
+        review = "Needs a look\nNo open issues\n\n\n\n\nFile\nDescription\n\n\ndocs/\u200bhow-to/\u200brun.md\nExplains the tests."
+        text = texts(pull(pr(comments=[{"who": "copilot", "text": review}, {"who": "alex", "text": "Thanks"}])))
+        start = text.index("    copilot: Needs a look")
+        self.assertEqual(text[start:], ["    copilot: Needs a look", "      No open issues", "", "      File", "      Description", "", "      docs/how-to/run.md", "      Explains the tests.", "", "    alex: Thanks"])
 
     def test_an_older_snapshot_shows_no_discussion(self):
         self.assertFalse(any("Threads" in t for t in texts(pull(pr()))))

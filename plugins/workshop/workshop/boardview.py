@@ -122,7 +122,7 @@ def wrapped(text: str, width: int, style: str = "") -> list[Line]:
 
 def clean(text: str) -> str:
     """Ticket text comes from other people, so nothing in it reaches the terminal as a control."""
-    return "".join(c if c.isprintable() else " " for c in text)
+    return "".join(c if c.isprintable() else "" if unicodedata.category(c) == "Cf" else " " for c in text)  # GitHub puts zero-width spaces after each slash in a path
 
 
 def columns(text: str) -> int:
@@ -654,9 +654,24 @@ def now_view(runs: list[Run], prs: list[dict[str, Any]], linked: Callable[[dict[
     return lines
 
 
+def paragraphs(text: str) -> list[str]:
+    """The comment's own lines, with each run of blank lines cut to one. Bots write a table as one cell a line."""
+    kept: list[str] = []
+    for line in (line.strip() for line in text.splitlines()):
+        if line or kept and kept[-1]:
+            kept.append(line)
+    return kept[:-1] if kept and not kept[-1] else kept
+
+
 def said(who: str, text: str, width: int, style: str = "") -> list[Line]:
     critical = clean(text).strip().lower().startswith("blocking")
-    return [plain("    " + line.text, "red" if critical and not style else style) for line in wrapped(f"{who}: {text}", width - 4)]
+    tone = "red" if critical and not style else style
+    lines = []
+    for n, para in enumerate(paragraphs(text) or [""]):
+        lead = f"{who}: " if n == 0 else "  "
+        parts = textwrap.wrap(clean(lead + para), max(width - 4, 20), subsequent_indent="  ", break_on_hyphens=False) or [""]
+        lines += [plain("    " + part if part else "", tone) for part in parts]
+    return lines
 
 
 def discussion(pr: dict[str, Any], width: int) -> list[Line]:
@@ -670,7 +685,7 @@ def discussion(pr: dict[str, Any], width: int) -> list[Line]:
         lines += [line for note in thread["said"] for line in said(note["who"], note["text"], width, style)]
     if comments:
         lines += [plain(), rule("Comments", width)]
-    return lines + [line for note in comments for line in said(note["who"], note["text"], width)]
+    return lines + [line for n, note in enumerate(comments) for line in [*([plain()] if n else []), *said(note["who"], note["text"], width)]]
 
 
 def pull(pr: dict[str, Any], width: int = 120, story: list[Line] | None = None, run: Run | None = None) -> list[Line]:
