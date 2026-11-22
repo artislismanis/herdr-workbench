@@ -69,6 +69,7 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 # project = "ABC"             # the project key new tickets go in. Needed by sweeps and `workshop prepare <idea>`
 # unblocked = ["Ready for Release"]
 #                             # a blocker in one of these statuses no longer holds a ticket back. Done always counts
+# estimate = "T-Shirt Size"   # the name of a select field for the team's estimate. The design talk agrees one of its choices, and workshop sets it on your yes
 
 
 # ══ 2. Team-facing ═══════════════════════════════════════════════════════════════════════════════

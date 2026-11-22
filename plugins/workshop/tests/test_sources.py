@@ -94,6 +94,39 @@ class JiraErrors(unittest.TestCase):
         self.assertIn("Jira offers Refined", str(caught.exception))
 
 
+class JiraEstimate(unittest.TestCase):
+    def source(self, calls):
+        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "estimate": "T-Shirt Size"})
+
+        def call(method, path, body=None):
+            calls.append((method, path, body))
+            if path == "field":
+                return [{"id": "customfield_1", "name": "T-Shirt Size"}]
+            if path.endswith("editmeta"):
+                return {"fields": {"customfield_1": {"allowedValues": [{"value": "Small (3 Days)"}, {"value": "Large (> 2 weeks)"}]}}}
+            return None
+
+        source._call = call
+        return source
+
+    def test_it_offers_the_choices_jira_has(self):
+        self.assertEqual(self.source([]).estimate_choices("AB-1"), ["Small (3 Days)", "Large (> 2 weeks)"])
+
+    def test_a_choice_is_set_on_the_ticket(self):
+        calls = []
+        self.source(calls).set_estimate("AB-1", "Small (3 Days)")
+        self.assertIn(("PUT", "issue/AB-1", {"fields": {"customfield_1": {"value": "Small (3 Days)"}}}), calls)
+
+    def test_a_size_jira_doesnt_offer_is_refused_with_the_choices(self):
+        with self.assertRaises(ValueError) as caught:
+            self.source([]).set_estimate("AB-1", "Huge")
+        self.assertIn("Small (3 Days)", str(caught.exception))
+
+    def test_without_the_setting_nothing_is_asked(self):
+        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t"})
+        self.assertEqual(source.estimate_choices("AB-1"), [])
+
+
 class LongSections(unittest.TestCase):
     def test_what_fits_goes_whole_with_a_note(self):
         self.assertEqual(shortened("h3. A\n\nshort", 500, "design.md"), "h3. A\n\nshort\n\n_This part is too long for a Jira description. The whole of it is in the attachment design.md._")

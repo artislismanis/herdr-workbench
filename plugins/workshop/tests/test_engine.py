@@ -545,6 +545,26 @@ class Prepare(unittest.TestCase):
         self.assertEqual((run.status, run.current["id"]), ("parked", "requirements"))
         self.assertTrue((self.engine.store.files(run) / "requirements.md").exists())
 
+    def test_the_design_talk_agrees_a_size_from_the_choices_jira_offers(self):
+        self.source.estimate_choices = lambda key: ["Small (3 Days)", "Medium (1 Week)"]
+        run = self.agree(self.start())
+        self.assertIn("Small (3 Days); Medium (1 Week)", self.tools.prompts[-1][1])
+        self.assertIn("ESTIMATE:", self.tools.prompts[-1][1])
+
+    def test_the_requirements_talk_doesnt_estimate(self):
+        self.source.estimate_choices = lambda key: ["Small (3 Days)"]
+        self.start()
+        self.assertNotIn("ESTIMATE:", self.tools.prompts[-1][1])
+
+    def test_your_yes_sets_the_size_and_keeps_the_line_off_the_ticket(self):
+        set_to = []
+        self.source.estimate_choices = lambda key: ["Small (3 Days)"]
+        self.source.set_estimate = lambda key, value: set_to.append((key, value))
+        run = self.agree(self.start())
+        self.agree(run, "design", "### What\n\nA way.\n\nESTIMATE: Small (3 Days)\nQUEUE: hold\nVERDICT: READY\n")
+        self.assertEqual(set_to, [("prep-7", "Small (3 Days)")])
+        self.assertNotIn("ESTIMATE", self.ticket.text)
+
     def test_a_resume_after_a_failed_write_retries_the_write_not_the_talk(self):
         run = self.start()
         rewrite, prompts = self.ticket.rewrite, len(self.tools.prompts)
