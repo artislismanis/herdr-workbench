@@ -79,6 +79,7 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 # The Jira status for each step of a run. A move left out never changes the ticket, so with none of these
 # your tickets stay where they are. GitHub needs nothing: it uses <label>-<move> labels.
 # [jira.moves]
+# queued = "To Do"                  # you queued it, so it leaves a status in skip_statuses
 # working = "In Progress"           # the run started. A draft PR stays here while you self-review
 # blocked = "Pause/Blocked"         # the run stopped on a question or problem. Comment on the ticket to answer
 # review = "Code Review"            # you marked the PR ready

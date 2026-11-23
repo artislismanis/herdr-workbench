@@ -213,6 +213,10 @@ class PrepareTickets(unittest.TestCase):
         self.inner.tag.assert_called_once_with("AB-12", "ai")
         self.inner.take.assert_called_once_with("AB-12")
 
+    def test_queueing_moves_the_ticket_where_the_timer_can_see_it(self):
+        self.source.enqueue("prep-AB-12")
+        self.inner.move.assert_called_once_with("AB-12", "queued")
+
     def test_jira_keys_keep_their_shape(self):
         self.source.get("prep-AB-12")
         self.inner.get.assert_called_once_with("AB-12")
