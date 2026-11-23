@@ -242,6 +242,7 @@ Otherwise the question stays with you, and the detail on the board shows what th
 
 - It never answers a gate, or anything that merges, posts, spends money, touches preprod or prod, or changes what a dealer sees.
 - One look per question, and nothing more once the day's spend reaches `daily_usd` under `[lead]`. A look costs about a quarter of a dollar.
+- The Usage tab shows what it did this week: how many questions it answered and left for you, its five latest with the line it used or what it suggests, and its spend today.
 - `[lead] enabled = false` turns it off.
 
 ## Concluding a stopped run

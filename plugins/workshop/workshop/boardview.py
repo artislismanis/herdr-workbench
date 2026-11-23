@@ -328,6 +328,21 @@ def usage_view(rows: list[dict[str, Any]], events: list[dict[str, Any]], machine
         lines.append(plain(f"  {label:8}{found['agents']:.0f} agents at once   {count(found['tokens_in'])} tokens in, {count(found['tokens_out'])} out   ${found['spend']:.2f}"))
     model, step = top(spent, now)
     lines += [plain(f"  Most of this week's spend: {model}, on {step}", "dim")] if model else []
+    return lines + lead_view(events, now, width)
+
+
+def lead_view(events: list[dict[str, Any]], now: float, width: int) -> list[Line]:
+    """What the lead agent did this week: the questions it answered from your decisions, and those it left you."""
+    recent = lambda e, days: now - datetime.fromisoformat(e["at"]).timestamp() < days * 86400  # noqa: E731
+    week = [e for e in events if e["type"] in ("lead_answered", "lead_left") and recent(e, 7)]
+    today = sum(e.get("usd", 0) for e in events if e["type"] == "spent" and e.get("step") == "lead" and recent(e, 1))
+    if not week and not today:
+        return []
+    answered = sum(e["type"] == "lead_answered" for e in week)
+    lines = [rule("Lead agent", width), plain(f"  This week {answered} answered, {len(week) - answered} left for you   ${today:.2f} today")]
+    for e in reversed(week[-5:]):
+        what = f"answered from: {e.get('rule', '')}" if e["type"] == "lead_answered" else f"left for you, suggests: {e.get('suggest', '')}"
+        lines.append(plain(cell(f"  {e['key']}  {clean(what)}", width), "dim"))
     return lines
 
 
