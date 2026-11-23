@@ -51,6 +51,22 @@ def joined(lines):
     return "\n".join(texts(lines))
 
 
+class LeadOnUsage(unittest.TestCase):
+    NOW = datetime(2026, 11, 23, 12, tzinfo=UTC).timestamp()
+
+    def test_the_usage_tab_shows_what_the_lead_agent_did_this_week(self):
+        events = [
+            {"at": "2026-11-23T10:00:00Z", "type": "spent", "step": "lead", "usd": 0.25, "key": "1"},
+            {"at": "2026-11-23T10:00:01Z", "type": "lead_left", "suggest": "Merge them yourself.", "key": "DE-1"},
+            {"at": "2026-11-22T09:00:00Z", "type": "lead_answered", "rule": "Profile: dev", "key": "DE-2"},
+            {"at": "2026-11-01T09:00:00Z", "type": "lead_answered", "rule": "Old", "key": "DE-3"},
+        ]
+        text = joined(usage_view([], events, None, self.NOW))
+        self.assertIn("This week 1 answered, 1 left for you   $0.25 today", text)
+        self.assertIn("DE-1  left for you, suggests: Merge them yourself.", text)
+        self.assertNotIn("DE-3", text)
+
+
 class Names(unittest.TestCase):
     def test_a_stop_says_what_you_do_about_it(self):
         self.assertEqual((run(status="waiting").label, run(status="parked").label), ("decide", "fix"))
