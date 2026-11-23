@@ -48,7 +48,7 @@ class Item:
 
 
 # Where a ticket has got to. Each source shows these its own way.
-TICKET_MOVES = ("working", "blocked", "review", "approved", "preprod", "merged", "dropped")
+TICKET_MOVES = ("queued", "working", "blocked", "review", "approved", "preprod", "merged", "dropped")
 ORIGINAL = "Original ticket"
 HEADING = r"(?:## |h2\. )"  # Markdown, or Jira's wiki markup
 ORIGINAL_LINE = re.compile(rf"^{HEADING}{ORIGINAL}[ \t]*$", re.MULTILINE)
@@ -855,6 +855,8 @@ class PrepareSource:
             self.ticket.tag(self._key(key), label)
         if take := getattr(self.ticket, "take", None):
             take(self._key(key))
+        if move := getattr(self.ticket, "move", None):  # a skipped status, such as Backlog, hides a ticket from the timer
+            move(self._key(key), "queued")
 
     def dequeue(self, key: str) -> None:
         if label := getattr(self.ticket, "label", ""):
