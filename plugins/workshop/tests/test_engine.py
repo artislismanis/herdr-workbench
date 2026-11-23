@@ -102,6 +102,13 @@ class Briefs(unittest.TestCase):
         (self.engine.store.files(run) / "tasks.md").write_text("Tasks.\n\nVERDICT: READY\n")
         self.assertEqual(self.engine.advance(run).step, 1)
 
+    def test_a_verdict_ends_the_step_whatever_background_task_it_left(self):
+        run = self.engine.start("r", "7", self.root, "main", load("ticket"), self.source)
+        self.tools.statuses[run.agent] = "idle"
+        self.tools.pending = {"bx5jmig5g"}
+        (self.engine.store.files(run) / "tasks.md").write_text("Tasks.\n\nVERDICT: READY\n")
+        self.assertEqual(self.engine.advance(run).step, 1)
+
     def test_the_sidebar_follows_the_run(self):
         run = self.finish("Tasks.\n\nVERDICT: READY\n")
         self.assertEqual(self.tools.marked[run.pane], "working")

@@ -1131,7 +1131,8 @@ class Engine:
         if step.get("interactive"):
             self._talk(run, step, agent, status)
             return
-        if status not in ("working", "blocked", "gone") and self.tools.background(Path(run.worktree), run.started_at):
+        # A verdict in the report ends the step, even with a background task the transcript never closed, such as one it killed.
+        if status not in ("working", "blocked", "gone") and not (step.get("verdict") and self._agreed(run, step)) and self.tools.background(Path(run.worktree), run.started_at):
             status = "working"  # it ended its turn to wait for its own background work, and wakes when that's done
         if status == "working":
             if self.clock() - run.started_at > step.get("minutes", STEP_TIMEOUT / 60) * 60:
