@@ -20,7 +20,7 @@ from .lead import suggestion
 from .engine import CI_LIVE, STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .prs import FAILING
 from .review import decisions
-from .store import Run
+from .store import FOCUS, Run
 from .system import Meter
 from .throttle import DEFAULTS
 from .usage import samples
@@ -115,11 +115,12 @@ class Board:
         self.regions: list[tuple[int, int, int, Action]] = []
         self.finding, self.filter = False, ""  # typing a filter, and what the list is narrowed to
         self.phone = False
+        self.focused: float | None = None  # when the notification the board last opened on was sent
         self.reload()
         self.looked = self.piles()  # what each tab held when you last looked, so what's arrived since gets a dot
 
     def stamp(self) -> tuple[int, ...]:
-        paths = (self.store.root / "runs", self.store.root / "events.jsonl", self.store.root / SNAPSHOT, self.store.root / SKIPPED)
+        paths = (self.store.root / "runs", self.store.root / "events.jsonl", self.store.root / SNAPSHOT, self.store.root / SKIPPED, self.store.root / FOCUS)
         return tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in paths)
 
     def reload(self) -> None:
@@ -130,6 +131,18 @@ class Board:
             self.snapshot, self.skipped = self.store.read(SNAPSHOT), self.store.read(SKIPPED)
             if waiting and self.picked not in self.your_pile():  # dealt with, so the next one is ready
                 self.picked, self.viewing, self.side, self.earlier = None, "", 0, False
+            self.focus()
+
+    def focus(self) -> None:
+        """Opens on what the last notification was about, once, while it still waits on you. A card half answered stays put."""
+        found = self.store.read(FOCUS)
+        if not found or found.get("at") == self.focused or self.asking:
+            return
+        run, pile = run_for(self.runs, tuple(found["ref"])), self.your_pile()
+        ref = next((r for r in (tuple(found["ref"]), ("#pr", run.pr) if run else None) if r in pile), None)
+        if ref:
+            self.focused = found.get("at")
+            self.tab, self.picked, self.open, self.viewing, self.offset, self.side, self.filter, self.finding = NOW, ref, None, "", 0, 0, "", False
 
     def your_pile(self) -> set[tuple[str, str]]:
         return {found.ref for found in self.waiting()}

@@ -15,7 +15,7 @@ from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, WHEEL,
 from workshop.boardview import pulse, timeline, Line, Span, ago, backlog, waiting, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
-from workshop.store import Run, Store  # noqa: E402
+from workshop.store import FOCUS, Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 
 PIPELINE = {"name": "x", "steps": [{"id": "plan", "kind": "agent", "prompt": "tasks.md"}, {"id": "verify", "kind": "agent", "prompt": "ai-review.md"}, {"id": "pr", "kind": "draft_pr"}]}
@@ -891,6 +891,29 @@ class Keys(unittest.TestCase):
 
     def spot(self, wanted):
         return next((left, top) for top, left, _, action in self.board.regions if action == wanted)
+
+    def notified(self, key, at):
+        self.store.save(run(key, status="waiting", reason="Ask: which?"))
+        self.store.write(FOCUS, {"ref": ["r", key], "at": at})
+        self.board.reload()
+
+    def test_the_board_opens_on_what_the_notification_was_about(self):
+        self.board.tab = BACKLOG
+        self.notified("2", 1.0)
+        self.assertEqual((self.board.tab, self.board.picked), (0, ("r", "2")))
+
+    def test_it_opens_there_once(self):
+        self.notified("2", 1.0)
+        self.board.press(curses.KEY_UP)
+        self.board.tab = BACKLOG
+        self.store.event(run("1"), "claimed")
+        self.board.reload()
+        self.assertEqual(self.board.tab, BACKLOG)
+
+    def test_a_card_half_answered_stays_put(self):
+        self.board.asking = Ask("1", "?", (), (), "", "")
+        self.notified("2", 1.0)
+        self.assertIsNone(self.board.picked)
 
     def test_enter_opens_the_selected_run_and_esc_goes_back(self):
         self.board.press(curses.KEY_DOWN)

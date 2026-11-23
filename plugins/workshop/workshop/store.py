@@ -10,6 +10,7 @@ from typing import Any
 
 ACTIVE = ("running", "parked")
 SNAPSHOT = "board.json"  # what was last seen on the backlog and PRs
+FOCUS = "focus.json"  # what the last notification was about, so the board opens on it
 NAMES = {"running": "working", "waiting": "decide", "parked": "fix"}  # what you do about it, which is what the screen says
 
 

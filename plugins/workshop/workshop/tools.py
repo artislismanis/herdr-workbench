@@ -19,6 +19,7 @@ from .shell import ToolError, run, run_json
 
 BOARD = "workshop"  # the board's workspace
 BOARD_TAB = "Dashboard"
+OPEN_BOARD = "prefix+shift+b opens it on the board."
 REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
 USAGE_TIMEOUT = 30
@@ -303,7 +304,8 @@ class Tools:
 
     def notify(self, title: str, body: str) -> None:
         # Best effort: a notification must never stop a run.
-        subprocess.run(["herdr", "notification", "show", title, "--body", body, "--sound", "request"], capture_output=True)
+        # A click on a notification sent this way does nothing in herdr, so it says how to reach the board.
+        subprocess.run(["herdr", "notification", "show", title, "--body", f"{body} {OPEN_BOARD}", "--sound", "request"], capture_output=True)
 
     def screen(self, pane: str) -> str:
         """What a pane is showing, on one line: usually the prompt that stopped its agent."""
