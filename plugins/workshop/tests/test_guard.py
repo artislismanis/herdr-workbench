@@ -45,11 +45,11 @@ def github(*, comments=(), timeline=(), blocked=()):
 
 
 class GitHub(unittest.TestCase):
-    def guard(self, payload):
+    def guard(self, payload, below=""):
         source = GitHubSource(Path("."), "ai")
         repo = {"owner": {"login": "o"}, "name": "r"}
         with mock.patch("workshop.sources.run_json", side_effect=[repo, payload]), mock.patch("workshop.sources.run", return_value="me\n"):
-            return source.guard("7")
+            return source.guard("7", below)
 
     def comment(self, who, kind="User"):
         return {"createdAt": T2, "lastEditedAt": None, "author": person(who, kind), "editor": None}
@@ -80,6 +80,10 @@ class GitHub(unittest.TestCase):
     def test_an_open_blocker_stops_it(self):
         self.assertIn("#3", self.guard(github(blocked=[{"number": 3, "state": "OPEN"}])))
 
+    def test_the_blocker_it_stacks_on_lets_it_through_but_others_still_stop_it(self):
+        self.assertEqual(self.guard(github(blocked=[{"number": 3, "state": "OPEN"}]), below="3"), "")
+        self.assertIn("bob", self.guard(github(blocked=[{"number": 3, "state": "OPEN"}], comments=[self.comment("bob")]), below="3"))
+
 
 ME = {"accountId": "me", "accountType": "atlassian"}
 BOB = {"accountId": "bob", "accountType": "atlassian"}
@@ -87,7 +91,7 @@ APP = {"accountId": "auto", "accountType": "app"}
 
 
 class Jira(unittest.TestCase):
-    def guard(self, fields, history=(), unblocked=()):
+    def guard(self, fields, history=(), unblocked=(), below=""):
         cfg = {"base_url": "https://x.test", "email": "a@b", "token": "t", "unblocked": list(unblocked)}
         source = JiraSource("etl", "ai", [], cfg)
         replies = {"myself": {"accountId": "me"}}
@@ -100,7 +104,7 @@ class Jira(unittest.TestCase):
             return {"fields": {"creator": ME, "created": T1, "comment": {"comments": []}, "issuelinks": [], **fields}}
 
         with mock.patch.object(source, "_call", side_effect=call):
-            return source.guard("DE-1")
+            return source.guard("DE-1", below)
 
     def edit(self, who, field="description", at=T2, to=""):
         return {"author": who, "created": at, "items": [{"field": field, "toString": to}]}
@@ -139,6 +143,10 @@ class Jira(unittest.TestCase):
         blocker = self.blocker("Ready for Release", "indeterminate")
         self.assertIn("DE-9", self.guard(blocker))
         self.assertEqual(self.guard(blocker, unblocked=["Ready for Release"]), "")
+
+    def test_the_blocker_it_stacks_on_lets_it_through(self):
+        self.assertEqual(self.guard(self.blocker("To Do", "new"), below="DE-9"), "")
+        self.assertIn("DE-9", self.guard(self.blocker("To Do", "new"), below="DE-8"))
 
 
 if __name__ == "__main__":

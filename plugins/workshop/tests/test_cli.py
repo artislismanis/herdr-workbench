@@ -54,6 +54,48 @@ class Merge(unittest.TestCase):
         engine, _ = self.merge({}, "APPROVED")
         engine.tools.merge.assert_called_once_with(self.URL, False)
 
+    def test_a_pr_on_top_of_another_waits_for_the_one_below(self):
+        engine = mock.Mock()
+        engine.tools.checks.return_value = ("head", self.checks)
+        engine.store.all.return_value = [mock.Mock(pr=self.URL, below="DE-0")]
+        with mock.patch.object(cli, "repo_of", return_value=("r", "9")), self.assertRaisesRegex(ToolError, "Merge that one first"):
+            cli.merge(engine, {"repos": {"r": {"merge": "admin"}}}, self.URL)
+        engine.tools.merge.assert_not_called()
+
+
+class StackOn(unittest.TestCase):
+    def stack_on(self, runs, repo=None, reason="blocked by DE-0."):
+        engine = mock.Mock()
+        found = {run.key: run for run in runs}
+        engine.store.exists.side_effect = lambda name, key: key in found
+        engine.store.load.side_effect = lambda name, key: found[key]
+        return cli.stack_on(engine, {"stack": True} if repo is None else repo, "r", reason)
+
+    def layer(self, key, below="", **fields):
+        return cli.Run(repo="r", key=key, repo_path="/x", base="main", pipeline={"steps": []}, branch=f"workshop/{key.lower()}", status="done", below=below, **{"pr": "u", **fields})
+
+    def test_a_ticket_starts_on_its_blockers_open_pr(self):
+        below = self.layer("DE-0")
+        self.assertIs(self.stack_on([below]), below)
+        issue = self.layer("3")
+        self.assertIs(self.stack_on([issue], reason="blocked by #3."), issue)
+
+    def test_a_repo_that_doesnt_stack_waits_for_the_merge(self):
+        self.assertIsNone(self.stack_on([self.layer("DE-0")], repo={}))
+
+    def test_it_waits_for_a_blocker_with_no_pr_yet_or_already_merged(self):
+        self.assertIsNone(self.stack_on([self.layer("DE-0", pr="")]))
+        self.assertIsNone(self.stack_on([self.layer("DE-0", merged_by="me")]))
+
+    def test_two_blockers_or_one_workshop_doesnt_run_wait(self):
+        self.assertIsNone(self.stack_on([self.layer("DE-0")], reason="blocked by DE-0, DE-5."))
+        self.assertIsNone(self.stack_on([], reason="blocked by DE-0."))
+
+    def test_a_stack_stops_at_five_layers(self):
+        chain = [self.layer(f"DE-{n}", below=f"DE-{n + 1}" if n < 4 else "") for n in range(5)]
+        self.assertIsNone(self.stack_on(chain))
+        self.assertIsNotNone(self.stack_on(chain[1:], reason="blocked by DE-1."))
+
 
 class MergeListed(unittest.TestCase):
     def listed(self, text, states):
@@ -143,7 +185,7 @@ class Filling(unittest.TestCase):
             mock.patch.object(cli, "save_skipped"),
             mock.patch.object(cli, "make_source", return_value=source),
             mock.patch.object(cli, "running", side_effect=lambda _: started),
-            mock.patch.object(cli, "begin", side_effect=lambda _e, _c, _n, key: started.append(key)),
+            mock.patch.object(cli, "begin", side_effect=lambda _e, _c, _n, key, below=None: started.append(key)),
         ):
             cli.tick(engine, {"repos": {"r": {}}, "max_active": max_active, "max_waiting": max_waiting})
         return started

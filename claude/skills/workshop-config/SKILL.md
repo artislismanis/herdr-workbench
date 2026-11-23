@@ -69,6 +69,7 @@ Offer as one multi-select question: "Anything else to set up? Each is off or at 
 |---|---|---|
 | `[chat]` | No chat at all | Review asks arrive in Slack. Then also `[prs] intake = "chat"`, so GitHub requests alone don't reach Needs you |
 | `max_active` | 2 runs at once | Machine or limits want more or fewer |
+| `stack = true` per repo | A blocked ticket waits for its blocker to merge | Designs split into chains of PRs, and runs should overlap rather than queue |
 | `max_waiting` | Off | The pile on you grows faster than you clear it |
 | `[throttle]` | Weekdays 8-18, pause new at 80%, steps at 90% of the 5h limit | Different hours or tolerances |
 | `sweeps` per repo | None | Want scheduled looks at deps, docs, backlog, logs. On Jira needs `[jira] project` to create tickets and `moves.dropped` to close them |

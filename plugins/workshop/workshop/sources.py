@@ -288,9 +288,10 @@ class GitHubSource:
         me = run("gh", "api", "user", "--jq", ".login", cwd=self.repo).strip()
         return issue["data"]["repository"]["issue"], me
 
-    def guard(self, key: str) -> str:
+    def guard(self, key: str, below: str = "") -> str:
+        """Below is the blocker whose open PR the ticket starts on top of, so it doesn't hold the ticket back."""
         issue, me = self._history(key)
-        open_blockers = [str(b["number"]) for b in issue["blockedBy"]["nodes"] if b["state"] == "OPEN"]
+        open_blockers = [str(b["number"]) for b in issue["blockedBy"]["nodes"] if b["state"] == "OPEN" and str(b["number"]) != below]
         if open_blockers:
             return f"blocked by #{', #'.join(open_blockers)}."
         changes = _gh_change(issue["createdAt"], issue["author"]) + _gh_change(issue["lastEditedAt"], issue["editor"])
@@ -539,7 +540,8 @@ class JiraSource:
             if page.get("isLast", True) or not page["values"]:
                 return entries
 
-    def guard(self, key: str) -> str:
+    def guard(self, key: str, below: str = "") -> str:
+        """Below is the blocker whose open PR the ticket starts on top of, so it doesn't hold the ticket back."""
         me = self._call("GET", "myself")["accountId"]
         f = self._call("GET", f"issue/{key}?fields=creator,created,comment,issuelinks")["fields"]
         blockers = [
@@ -549,6 +551,7 @@ class JiraSource:
             and "inwardIssue" in link
             and link["inwardIssue"]["fields"]["status"]["statusCategory"]["key"] != "done"
             and link["inwardIssue"]["fields"]["status"]["name"] not in self.unblocked
+            and link["inwardIssue"]["key"] != below
         ]
         if blockers:
             return f"blocked by {', '.join(blockers)}."

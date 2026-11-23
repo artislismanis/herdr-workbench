@@ -12,13 +12,13 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.engine import CI_NONE, CI_SETTLE, PREFIX, STEP_TIMEOUT, Engine, Park, ci_state  # noqa: E402
+from workshop.engine import CI_NONE, CI_SETTLE, PREFIX, STEP_TIMEOUT, RESTACK_STEP, RESTACKS, Engine, Park, ci_state  # noqa: E402
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, Item, PrepareSource, PullRequestSource, SweepSource, Ticket  # noqa: E402
 from workshop.store import FOCUS, Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
-from workshop.tools import CommitRefused, Tools, last_pane  # noqa: E402
+from workshop.tools import CommitRefused, Conflict, Tools, last_pane  # noqa: E402
 
 
 class FakeSource:
@@ -39,7 +39,8 @@ class FakeSource:
     def finish(self, key):
         self.finished.append(key)
 
-    def guard(self, key):
+    def guard(self, key, below=""):
+        self.guarded_below = below
         return self.guard_reason
 
     def move(self, key, stage):
@@ -1712,6 +1713,22 @@ class FakeTools:
     def edit_pr(self, work, pr, title, body):
         self.edited = [*getattr(self, "edited", []), (pr, title)]
 
+    tips, conflict = {}, False
+
+    def tip(self, work, branch):
+        return self.tips[branch]
+
+    def move_onto(self, work, base, old):
+        if self.conflict:
+            raise Conflict("moving onto x hit a conflict")
+        self.moved = [*getattr(self, "moved", []), (base, old)]
+
+    def force_push(self, work, branch):
+        self.forced = [*getattr(self, "forced", []), branch]
+
+    def retarget(self, work, pr, base):
+        self.retargeted = (pr, base)
+
 
 class Case(unittest.TestCase):
     def setUp(self):
@@ -2756,3 +2773,95 @@ class LastPane(unittest.TestCase):
         self.assertEqual(last_pane(layout, "agent"), "below")
         self.assertEqual(last_pane(layout, "hunk"), "end")
         self.assertEqual(last_pane(layout, "other row"), "other row")
+
+
+class Stacked(Case):
+    """A ticket blocked by another starts on top of that one's open PR, and follows it until it merges."""
+
+    def below(self, **changes):
+        run = Run(repo="repo", key="DE-0", repo_path=str(self.root), base="main", pipeline=to_draft(), branch="workshop/de-0", pr="https://example.test/pr/0", status="done")
+        for name, value in changes.items():
+            setattr(run, name, value)
+        self.engine.save(run)
+        return run
+
+    def start(self):
+        self.below()
+        return self.engine.start("repo", "DE-1", self.root, "workshop/de-0", to_draft(), self.source, below="DE-0")
+
+    def stacked(self, **changes):
+        run = self.start()
+        run.phase, run.status = "", "done"
+        for name, value in changes.items():
+            setattr(run, name, value)
+        self.engine.save(run)
+        return run
+
+    def test_it_starts_on_the_branch_below_with_that_blocker_let_through(self):
+        run = self.start()
+        self.assertEqual(self.source.guarded_below, "DE-0")
+        self.assertEqual((run.base, run.below, run.below_head), ("workshop/de-0", "DE-0", "abc123"))
+        brief = (self.kept() / "brief.md").read_text(encoding="utf-8")
+        self.assertIn("starts from `workshop/de-0`, the branch of DE-0", brief)
+        self.assertIn("on top of the PR for DE-0", self.source.reports[0])
+
+    def test_it_follows_new_commits_on_the_pr_below(self):
+        run = self.stacked(pr="https://example.test/pr/1")
+        self.tools.tips = {"workshop/de-0": "new"}
+        self.tools.ancestor = False
+        run = self.engine.restack(run)
+        self.assertEqual(self.tools.moved, [("workshop/de-0", "abc123")])
+        self.assertEqual(self.tools.forced, [run.branch])
+        self.assertEqual((run.base, run.below_head), ("workshop/de-0", "new"))
+
+    def test_nothing_moves_while_the_pr_below_stays_put(self):
+        run = self.stacked()
+        self.tools.tips = {"workshop/de-0": "abc123"}
+        self.engine.restack(run)
+        self.assertFalse(hasattr(self.tools, "moved"))
+
+    def test_once_the_pr_below_merges_it_moves_onto_the_base(self):
+        run = self.stacked(pr="https://example.test/pr/1")
+        self.below(merged_by="me")
+        self.tools.tips = {"main": "merged"}
+        self.tools.ancestor = False
+        run = self.engine.restack(run)
+        self.assertEqual(self.tools.moved, [("main", "abc123")])
+        self.assertEqual(self.tools.retargeted, ("https://example.test/pr/1", "main"))
+        self.assertEqual((run.base, run.below, run.below_head), ("main", "", ""))
+
+    def test_it_never_moves_while_an_agent_works_in_the_checkout(self):
+        run = self.stacked(status="running", phase="prompted")
+        self.tools.tips = {"workshop/de-0": "new"}
+        self.engine.restack(run)
+        self.assertFalse(hasattr(self.tools, "moved"))
+
+    def test_a_conflict_goes_to_a_fresh_agent_then_back_to_waiting_on_the_pr(self):
+        run = self.stacked(pr="https://example.test/pr/1")
+        run.step = len(run.pipeline["steps"])
+        self.tools.tips = {"workshop/de-0": "new"}
+        self.tools.ancestor, self.tools.conflict = False, True
+        run = self.engine.restack(run)
+        self.assertEqual((run.status, run.current["id"]), ("running", "restack"))
+        self.assertIn("git rebase --onto origin/workshop/de-0 abc123", (self.kept() / "onto.md").read_text(encoding="utf-8"))
+        run = self.engine.advance(run)
+        reports = len(self.source.reports)
+        run = self.finish_agent(run, "ws-de-1-restack-1", "restack", "VERDICT: DONE\n")
+        self.assertEqual(run.status, "done")
+        self.assertEqual(len(self.source.reports), reports)  # delivered before, so nothing is posted again
+
+    def test_repeated_conflicts_wait_on_you(self):
+        run = self.stacked()
+        run.pipeline["steps"] += [dict(RESTACK_STEP)] * RESTACKS
+        self.tools.tips = {"workshop/de-0": "new"}
+        self.tools.ancestor, self.tools.conflict = False, True
+        run = self.engine.restack(run)
+        self.assertEqual(run.status, "parked")
+        self.assertIn("conflict again", run.reason)
+
+    def test_a_closed_pr_below_stops_it(self):
+        run = self.stacked()
+        self.below(landed="closed")
+        run = self.engine.restack(run)
+        self.assertEqual(run.status, "parked")
+        self.assertIn("nothing to sit on", run.reason)
