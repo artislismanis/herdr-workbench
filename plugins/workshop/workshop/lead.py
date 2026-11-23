@@ -133,6 +133,12 @@ def remember(run: Run, asked: str, text: str) -> None:
     workflow.write_text(current.rstrip() + "\n" + line + "\n", encoding="utf-8")
 
 
+def unsettled(engine: Engine, run: Run) -> str:
+    """The question the lead agent last left for you, still known once you've answered it."""
+    seen = json.loads(read(engine.store.files(run) / LEAD) or "{}")
+    return "" if seen.get("answer") else seen.get("question", "")
+
+
 def left(engine: Engine, run: Run) -> bool:
     """The lead agent looked at this question and left it for you."""
     seen = json.loads(read(engine.store.files(run) / LEAD) or "{}")
