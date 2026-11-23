@@ -227,8 +227,9 @@ class GitHubSource:
         """An issue for one more PR of a design, with the original's labels, blocked by the PR before it."""
         labels = [name for name in self.labels(original) if name not in (self.label, f"{self.label}-claimed")]
         key = run("gh", "issue", "create", "--title", title, "--body", body, *[arg for name in labels for arg in ("--label", name)], cwd=self.repo).strip().rsplit("/", 1)[-1]
-        blocking = run_json("gh", "api", f"repos/{{owner}}/{{repo}}/issues/{blocker}", cwd=self.repo)["id"]
-        run("gh", "api", "-X", "POST", f"repos/{{owner}}/{{repo}}/issues/{key}/dependencies/blocked_by", "-F", f"issue_id={blocking}", cwd=self.repo)
+        if blocker:  # a part that needs none of the others has none
+            blocking = run_json("gh", "api", f"repos/{{owner}}/{{repo}}/issues/{blocker}", cwd=self.repo)["id"]
+            run("gh", "api", "-X", "POST", f"repos/{{owner}}/{{repo}}/issues/{key}/dependencies/blocked_by", "-F", f"issue_id={blocking}", cwd=self.repo)
         return key
 
     def close(self, key: str, why: str) -> None:
@@ -485,7 +486,8 @@ class JiraSource:
         for name, text in self._attached(f.get("attachment") or []).items():
             self.attach(key, name, text)
         # Jira's own wording runs backwards here: the inward issue is the one that blocks.
-        self._call("POST", "issueLink", {"type": {"name": "Blocks"}, "inwardIssue": {"key": blocker}, "outwardIssue": {"key": key}})
+        if blocker:  # a part that needs none of the others has none
+            self._call("POST", "issueLink", {"type": {"name": "Blocks"}, "inwardIssue": {"key": blocker}, "outwardIssue": {"key": key}})
         return key
 
     def claim(self, key: str) -> None:
