@@ -28,6 +28,8 @@ COPILOT = """query($owner: String!, $repo: String!, $number: Int!) { repository(
   reviewThreads(first: 100) { nodes { id isResolved path line comments(first: 1) { nodes { databaseId author { login } body } } } } } } }"""
 GENERATED = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".venv", "node_modules")
 
+MERGE_POLLS, MERGE_POLL_SECONDS = 20, 3  # a stack's merge runs in the background
+
 
 
 def last_pane(layout: dict[str, Any], pane: str) -> str:
@@ -156,7 +158,26 @@ class Tools:
         """By the first method the repo allows, squash before a merge commit before a rebase."""
         allowed = run_json("gh", "repo", "view", url.split("/pull/")[0], "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed")
         method = next(flag for key, flag in (("squashMergeAllowed", "--squash"), ("mergeCommitAllowed", "--merge"), ("rebaseMergeAllowed", "--rebase")) if allowed[key])
-        run("gh", "pr", "merge", url, method, *(["--admin"] if admin else []))
+        try:
+            run("gh", "pr", "merge", url, method, *(["--admin"] if admin else []))
+        except ToolError as refused:
+            if "part of a stack" not in str(refused):
+                raise
+            self._merge_stacked(url, method.removeprefix("--"), admin)
+
+    def _merge_stacked(self, url: str, method: str, admin: bool) -> None:
+        """GitHub merges a stacked PR only through its async API. A PR in the middle takes those below it along, and only the bottom one can bypass rules."""
+        owner, repo, _, number = url.rstrip("/").split("/")[-4:]
+        path = f"repos/{owner}/{repo}/pulls/{number}/merge-async"
+        found = run_json("gh", "api", "-X", "PUT", path, "-f", f"merge_method={method}", "-F", f"bypass_rules={str(admin).lower()}")
+        for _ in range(MERGE_POLLS):
+            if found["status"] in ("merged", "enqueued"):
+                return
+            if found["status"] == "failed":
+                raise ToolError(f"GitHub didn't merge {url}: {found['details'].get('message', '')}")
+            time.sleep(MERGE_POLL_SECONDS)
+            found = run_json("gh", "api", f"{path}/{found['details']['uuid']}")
+        raise ToolError(f"GitHub is still merging {url}. The board catches up once it lands.")
 
     def open_threads(self, url: str) -> int:
         owner, repo, _, number = url.rstrip("/").split("/")[-4:]
