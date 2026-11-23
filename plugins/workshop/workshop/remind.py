@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from .boardview import WORK, Waiting, Work, working
-from .store import Store
+from .store import FOCUS, Store
 from .throttle import DAYS
 
 REMINDED = "reminded.json"
@@ -31,4 +31,5 @@ def remind(store: Store, found: list[Waiting], now: float, notify: Callable[[str
             kept[key] = day
     store.write(REMINDED, kept)  # what no longer waits drops out, so it's reminded afresh if it comes back
     if due:
+        store.write(FOCUS, {"ref": list(due[0].ref), "at": now})
         notify(f"{len(due)} waiting on you", ", ".join(f"{item.name} {item.label}" for item in due))

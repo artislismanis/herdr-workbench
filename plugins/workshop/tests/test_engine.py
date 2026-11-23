@@ -16,7 +16,7 @@ from workshop.engine import CI_NONE, CI_SETTLE, PREFIX, STEP_TIMEOUT, Engine, Pa
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, Item, PrepareSource, PullRequestSource, SweepSource, Ticket  # noqa: E402
-from workshop.store import Run, Store  # noqa: E402
+from workshop.store import FOCUS, Run, Store  # noqa: E402
 from workshop.tools import Tools  # noqa: E402
 from workshop.tools import CommitRefused, Tools, last_pane  # noqa: E402
 
@@ -2207,6 +2207,14 @@ class Gates(Case):
         self.assertEqual(self.tools.notes, ["Workshop: DE-1 needs you"])
         self.assertIn("waiting", self.source.reports[-1])
         self.assertIn("Start building", self.engine.explain(run))
+
+    def test_the_board_opens_on_what_needs_you(self):
+        self.assertEqual(self.engine.store.read(FOCUS)["ref"], ["repo", "DE-1"])
+
+    def test_a_notification_says_how_to_reach_the_board(self):
+        with mock.patch("workshop.tools.subprocess.run") as ran:
+            Tools().notify("Workshop: DE-1 needs you", "Your turn.")
+        self.assertIn("Your turn. prefix+shift+b opens it on the board.", ran.call_args.args[0])
 
     def test_a_waiting_run_doesnt_move_by_itself(self):
         prompts = len(self.tools.prompts)

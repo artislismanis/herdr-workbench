@@ -13,7 +13,7 @@ from .pipeline import PipelineError, contract, contract_text, prompt_text, promp
 from .review import decisions, load_notes, load_replies, place, section
 from .shell import ToolError
 from .sources import Source
-from .store import SNAPSHOT, Run, Store
+from .store import FOCUS, SNAPSHOT, Run, Store
 from .throttle import Throttle
 from .tools import CommitRefused, Tools, slug
 
@@ -1070,7 +1070,7 @@ class Engine:
         run.your_turn = True
         if run.told != step["id"]:
             run.told = step["id"]
-            self.tools.notify(f"Workshop: {run.key} needs you", f"Your turn on {step['id']}: g on the board goes there.")
+            self._notify(run, "needs you", f"Your turn on {step['id']}: g on the board goes there.")
 
     def _agreed(self, run: Run, step: dict[str, Any]) -> bool:
         report = self._report(run, step)
@@ -1336,10 +1336,10 @@ class Engine:
             self.review(run, run.on_a_pr or bool(run.loops.get("rework#")))
             if not run.on_a_pr:
                 self._brief_lead(run)
-            self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} It's open in hunk: g on the board goes there, and prefix+shift+u there {'posts' if run.on_a_pr else 'finishes'} it.")
+            self._notify(run, "ready", f"{run.pr} It's open in hunk: g on the board goes there, and prefix+shift+u there {'posts' if run.on_a_pr else 'finishes'} it.")
         except STOPS as failed:  # the PR is delivered either way, and g tries again
             self.store.event(run, "review_failed", reason=str(failed))
-            self.tools.notify(f"Workshop: {run.key} ready", f"{run.pr} hunk didn't open: g on the board tries again.")
+            self._notify(run, "ready", f"{run.pr} hunk didn't open: g on the board tries again.")
 
     def _brief_lead(self, run: Run) -> None:
         """The run's own agent answers your self-review, on the model of the first step it ran."""
@@ -1388,8 +1388,12 @@ class Engine:
         run.blocked_at = self.clock()
         self._move(run, "blocked")
 
+    def _notify(self, run: Run, what: str, text: str) -> None:
+        self.store.write(FOCUS, {"ref": [run.repo, run.key], "at": self.clock()})
+        self.tools.notify(f"Workshop: {run.key} {what}", text)
+
     def _tell(self, run: Run, text: str) -> None:
-        self.tools.notify(f"Workshop: {run.key} needs you", text)
+        self._notify(run, "needs you", text)
         self._post(run, text)
 
     def _post(self, run: Run, text: str) -> None:

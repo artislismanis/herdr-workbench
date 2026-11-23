@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.boardview import Waiting  # noqa: E402
 from workshop.remind import remind  # noqa: E402
-from workshop.store import Store  # noqa: E402
+from workshop.store import FOCUS, Store  # noqa: E402
 
 MONDAY_NINE = datetime(2026, 11, 9, 9).timestamp()
 
@@ -61,3 +61,7 @@ class Reminders(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_the_board_opens_on_the_first_one_due(self):
+        self.at(MONDAY_NINE + 3600, item(MONDAY_NINE, ("#pr", "u")), item(MONDAY_NINE))
+        self.assertEqual(self.store.read(FOCUS)["ref"], ["#pr", "u"])
