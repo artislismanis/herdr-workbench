@@ -68,8 +68,12 @@ class StackedMerge(unittest.TestCase):
 
     def test_a_stacked_pr_merges_through_the_async_api_and_waits_for_it(self):
         asked = self.merge({"status": "pending", "details": {"uuid": "u1"}}, {"status": "merged", "details": {}}, admin=True)
-        self.assertEqual(asked.call_args_list[1].args, ("gh", "api", "-X", "PUT", "repos/o/r/pulls/9/merge-async", "-f", "merge_method=squash", "-F", "bypass_rules=true"))
+        self.assertEqual(asked.call_args_list[1].args, ("gh", "api", "-X", "PUT", "repos/o/r/pulls/9/merge-async", "-f", "merge_method=squash", "-F", "bypass_rules=false"))
         self.assertEqual(asked.call_args_list[2].args, ("gh", "api", "repos/o/r/pulls/9/merge-async/u1"))
+
+    def test_an_admin_bypasses_rules_only_once_the_plain_merge_fails(self):
+        asked = self.merge({"status": "failed", "details": {"message": "blocked"}}, {"status": "merged", "details": {}}, admin=True)
+        self.assertEqual(asked.call_args_list[2].args[-1], "bypass_rules=true")
 
     def test_a_failed_async_merge_says_why(self):
         with self.assertRaisesRegex(ToolError, "not mergeable"):
