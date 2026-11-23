@@ -11,7 +11,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.backlog import SNAPSHOT  # noqa: E402
-from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, Ask, Board  # noqa: E402
+from workshop.board import BACKLOG, DELIVERY, NOTE_ROWS, OPERATE, REVIEW, WHEEL, Ask, Board  # noqa: E402
 from workshop.boardview import pulse, timeline, Line, Span, ago, backlog, waiting, block, cell, clean, columns, deliveries, drill, first_line, full_pile, operations, limit_style, doing, WORDS, pull, pull_status, pull_story, pulls, recent, refs, run_style, stage_groups, stage_state, stale, timeline, to_go, usage_line, usage_view, working  # noqa: E402
 from workshop.engine import Engine  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
@@ -2038,6 +2038,14 @@ class Mouse(Keys):
         self.assertEqual(self.board.selected(self.board.lines(149)), ("r", "2"))
         self.board.mouse(0, 0, curses.BUTTON4_PRESSED, 119)
         self.assertEqual(self.board.selected(self.board.lines(149)), ("r", "1"))
+
+    def test_arrows_and_the_wheel_scroll_a_detail_opened_full_width(self):
+        self.board.open = ("r", "1")
+        self.board.press(curses.KEY_DOWN, 119)
+        self.board.mouse(0, 0, curses.BUTTON5_PRESSED, 119)
+        self.assertEqual(self.board.offset, 1 + WHEEL)
+        self.board.press(curses.KEY_UP, 119)
+        self.assertEqual(self.board.offset, WHEEL)
 
 
 class Selecting(Keys):

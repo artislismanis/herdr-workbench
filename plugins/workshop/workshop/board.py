@@ -384,6 +384,8 @@ class Board:
             self.grid(0, -1 if key in (curses.KEY_UP, ord("k")) else 1, lines)
         elif key in (curses.KEY_LEFT, ord("h"), curses.KEY_RIGHT, ord("l")) and self.tab == BACKLOG and not self.open:
             self.grid(-1 if key in (curses.KEY_LEFT, ord("h")) else 1, 0, lines)
+        elif key in (curses.KEY_UP, ord("k"), curses.KEY_DOWN, ord("j")) and self.full(width):
+            self.scroll(-1 if key in (curses.KEY_UP, ord("k")) else 1, width)
         elif key in (curses.KEY_UP, ord("k")):
             self.move(-1, lines)
         elif key in (curses.KEY_DOWN, ord("j")):
@@ -806,7 +808,14 @@ class Board:
         lines += [plain(f"   {row}") for row in rows[first : first + NOTE_ROWS]]
         return [*lines, *wrapped("up and down choose, enter confirms, esc keeps a draft" if asking.options else "enter sends, esc keeps a draft", width - 1, "dim")]
 
+    def full(self, width: int) -> bool:
+        """A detail or report across the whole window, which scrolls like the panel rather than stepping through its links."""
+        return bool(self.open or self.viewing) and not self.panelled(width)
+
     def wheel(self, by: int, width: int) -> None:
+        if self.full(width):
+            self.scroll(by, width)
+            return
         lines = self.lines(width)
         for _ in range(abs(by)):
             self.move(1 if by > 0 else -1, lines)
