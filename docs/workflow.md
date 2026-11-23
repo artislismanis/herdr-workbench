@@ -22,7 +22,7 @@ Delivery owns a ticket until your self-review lets it go with `prefix+shift+u`. 
 
 ## Reviewing a PR
 
-The Review tab works like Delivery: Needs you, With agents, With people, and Done lately.
+The Review tab works like Delivery: Needs you, With agents, With people, and Done lately. A draft you opened yourself, with no run behind it, shows under Needs you as `draft`.
 
 1. `a` on someone else's PR runs the repo's checks and a fresh AI review. The row shows `working`, under With agents, and its detail shows the stages.
 2. When it's done, the row moves to Needs you as `check`. Its detail gives the AI's recommendation and what to do next, then a four line briefing to read before the diff: the intent, what the code delivers against it, the challenges, and the recommendation.

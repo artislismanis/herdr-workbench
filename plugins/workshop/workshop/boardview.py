@@ -36,7 +36,7 @@ REASONS = {"needs review": "asked of you", "open": "not asked of you", "checks f
 OWNER = {True: "", False: "theirs"}  # the colour of a row's tab symbol: yours plain like the titles, others' grey, and darker than the selection when selected
 SIGNS = {"Now": "✱", "Backlog": "☰", "Delivery": "▸", "Review": "⌕", "Operate": "⟳", "Usage": "⧖"}  # on each tab, and on Now rows to say which tab they belong to. One column wide, so rows line up
 NEXT_UP = ("fix", "decide", "check", "merge", "respond", "review")  # what waiting on you says: what you do next, closest to done first, as finishing frees someone. Unstopping a run comes before all of it
-YOUR_MOVE = {"checks failing": "fix", "approved": "merge", "you approved": "merge"}  # your own PR, by its state. The rest of yours is respond
+YOUR_MOVE = {"draft": "draft", "checks failing": "fix", "approved": "merge", "you approved": "merge"}  # your own PR, by its state. The rest of yours is respond
 CI_DOTS = {"SUCCESS": "green", "FAILURE": "red", "ERROR": "red", "PENDING": "yellow", "EXPECTED": "yellow"}
 PACE_AMBER, PACE_RED = 10, 25  # points ahead of an even pace, so a busy start isn't an alarm
 MACHINE_AMBER, MACHINE_RED = 75, 90
@@ -470,9 +470,9 @@ def run_for(runs: list[Run], ref: tuple[str, str] | None) -> Run | None:
 
 
 def pr_rows(runs: list[Run], items: list[dict[str, Any]], reviewable: Callable[[Run], bool]) -> list[dict[str, Any]]:
-    """A draft from delivery is still your self-review, on Delivery, until you let it go. Other drafts aren't in review, but a run on a PR shows nowhere else."""
+    """A draft from delivery is still your self-review, on Delivery, until you let it go. A draft you opened yourself shows here, as nowhere else would. Other drafts aren't in review, but a run on a PR shows nowhere else."""
     drafts = {r.pr for r in runs if reviewable(r)}
-    return [p for p in items if ((run := run_for(runs, ("#pr", p["url"]))) and run.on_a_pr and live(run)) or (p["url"] not in drafts and p["state"] != "draft")]
+    return [p for p in items if ((run := run_for(runs, ("#pr", p["url"]))) and run.on_a_pr and live(run)) or (p["url"] not in drafts and (p["state"] != "draft" or (p["mine"] and not run)))]
 
 
 class Waiting(NamedTuple):
