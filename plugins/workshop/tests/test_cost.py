@@ -75,5 +75,23 @@ class Spent(unittest.TestCase):
         self.assertEqual(cost.summary([]), "")
 
 
+
+class Background(unittest.TestCase):
+    def test_work_started_in_the_background_counts_until_its_notice_arrives(self):
+        with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": tmp}):
+            folder = cost.transcripts(Path("/w"))
+            folder.mkdir(parents=True)
+            lines = [
+                "Command running in background with ID: b1. Output is being written to",
+                "Command did not complete within its 600s timeout and was moved to the background (ID: b2).",
+                "Async agent launched successfully. (This tool result is internal metadata)\\nagentId: a3 (internal ID",
+                "agentId: s4 (use SendMessage to continue)",
+                "<task-notification><task-id>b1</task-id><status>completed</status>",
+            ]
+            (folder / "t.jsonl").write_text("\n".join(json.dumps({"text": line}) for line in lines))
+            self.assertEqual(cost.background(Path("/w"), 0), {"b2", "a3"})
+            self.assertEqual(cost.background(Path("/w"), 9e12), set())
+
+
 if __name__ == "__main__":
     unittest.main()

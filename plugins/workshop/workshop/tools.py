@@ -141,6 +141,9 @@ class Tools:
         made = run_json("herdr", "pane", "split", last, "--direction", "right", "--cwd", str(path), "--no-focus")
         return made["result"]["pane"]["pane_id"]
 
+    def background(self, work: Path, since: float) -> set[str]:
+        return cost.background(work, since)
+
     def spent(self, work: Path, since: float, until: float) -> dict[str, Any]:
         return cost.spent(work, since, until)
 

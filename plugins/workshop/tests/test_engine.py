@@ -91,6 +91,16 @@ class Briefs(unittest.TestCase):
         self.tools.statuses[run.agent] = "idle"
         return self.engine.advance(run)
 
+    def test_an_agent_waiting_on_its_own_background_work_is_still_working(self):
+        run = self.engine.start("r", "7", self.root, "main", load("ticket"), self.source)
+        self.tools.statuses[run.agent] = "idle"
+        self.tools.pending = {"bsovfcepf"}
+        run = self.engine.advance(run)
+        self.assertEqual((run.status, run.step, run.phase), ("running", 0, "prompted"))
+        self.tools.pending = set()
+        (self.engine.store.files(run) / "tasks.md").write_text("Tasks.\n\nVERDICT: READY\n")
+        self.assertEqual(self.engine.advance(run).step, 1)
+
     def test_the_sidebar_follows_the_run(self):
         run = self.finish("Tasks.\n\nVERDICT: READY\n")
         self.assertEqual(self.tools.marked[run.pane], "working")
@@ -1627,6 +1637,9 @@ class FakeTools:
     def reached(self, repo, pr, commit, branches):
         self.asked_reach = [*getattr(self, "asked_reach", []), (repo, pr, commit, branches)]
         return self.reaches
+
+    def background(self, work, since):
+        return getattr(self, "pending", set())
 
     def spent(self, work, since, until):
         return {"turns": 3, "tokens_in": 1000, "tokens_out": 50, "minutes": 1.5, "usd": 0.25}
