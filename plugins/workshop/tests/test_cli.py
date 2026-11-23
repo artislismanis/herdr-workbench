@@ -55,6 +55,27 @@ class Merge(unittest.TestCase):
         engine.tools.merge.assert_called_once_with(self.URL, False)
 
 
+class StackedMerge(unittest.TestCase):
+    URL = "https://github.com/o/r/pull/9"
+    ALLOWED = {"squashMergeAllowed": True, "mergeCommitAllowed": False, "rebaseMergeAllowed": False}
+
+    def merge(self, *answers, admin=False):
+        refused = ToolError("gh pr failed: This pull request is part of a stack and must be merged using the asynchronous merge REST API.")
+        with mock.patch("workshop.tools.run", side_effect=refused), mock.patch("workshop.tools.run_json", side_effect=[self.ALLOWED, *answers]) as asked, mock.patch("workshop.tools.time.sleep"):
+            from workshop.tools import Tools
+            Tools.__new__(Tools).merge(self.URL, admin)
+        return asked
+
+    def test_a_stacked_pr_merges_through_the_async_api_and_waits_for_it(self):
+        asked = self.merge({"status": "pending", "details": {"uuid": "u1"}}, {"status": "merged", "details": {}}, admin=True)
+        self.assertEqual(asked.call_args_list[1].args, ("gh", "api", "-X", "PUT", "repos/o/r/pulls/9/merge-async", "-f", "merge_method=squash", "-F", "bypass_rules=true"))
+        self.assertEqual(asked.call_args_list[2].args, ("gh", "api", "repos/o/r/pulls/9/merge-async/u1"))
+
+    def test_a_failed_async_merge_says_why(self):
+        with self.assertRaisesRegex(ToolError, "not mergeable"):
+            self.merge({"status": "failed", "details": {"message": "not mergeable"}})
+
+
 class Finish(unittest.TestCase):
     def actions(self, changed, draft):
         return [action for _, _, action in finish_choices(changed, draft)]
