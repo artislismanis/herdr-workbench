@@ -20,10 +20,14 @@ from workshop.shell import ToolError  # noqa: E402
 
 class Merge(unittest.TestCase):
     URL = "https://github.com/o/r/pull/9"
+    checks = [{"name": "ci", "state": "SUCCESS", "link": ""}]
+    threads = 0
 
     def merge(self, table, decision):
         engine = mock.Mock()
         engine.tools.pr_state.return_value = {"reviewDecision": decision}
+        engine.tools.checks.return_value = ("head", self.checks)
+        engine.tools.open_threads.return_value = self.threads
         engine.store.all.return_value = []
         with mock.patch.object(cli, "repo_of", return_value=("r", "9")):
             return engine, cli.merge(engine, {"repos": {"r": table}}, self.URL)
@@ -34,6 +38,17 @@ class Merge(unittest.TestCase):
         engine, said = self.merge({"merge": "admin"}, "")
         engine.tools.merge.assert_called_once_with(self.URL, True)
         self.assertIn("admin override", said)
+
+    def test_failing_or_running_checks_stop_even_an_admin_merge(self):
+        for state in ("FAILURE", "IN_PROGRESS"):
+            self.checks = [{"name": "ci", "state": state, "link": ""}]
+            with self.assertRaisesRegex(ToolError, "checks"):
+                self.merge({"merge": "admin"}, "")
+
+    def test_an_open_thread_stops_even_an_admin_merge(self):
+        self.threads = 2
+        with self.assertRaisesRegex(ToolError, "2 open threads"):
+            self.merge({"merge": "admin"}, "")
 
     def test_an_approved_pr_merges_with_no_override(self):
         engine, _ = self.merge({}, "APPROVED")

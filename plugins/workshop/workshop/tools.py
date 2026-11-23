@@ -158,6 +158,12 @@ class Tools:
         method = next(flag for key, flag in (("squashMergeAllowed", "--squash"), ("mergeCommitAllowed", "--merge"), ("rebaseMergeAllowed", "--rebase")) if allowed[key])
         run("gh", "pr", "merge", url, method, *(["--admin"] if admin else []))
 
+    def open_threads(self, url: str) -> int:
+        owner, repo, _, number = url.rstrip("/").split("/")[-4:]
+        query = "query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved}}}}}"
+        found = run_json("gh", "api", "graphql", "-F", f"o={owner}", "-F", f"r={repo}", "-F", f"n={number}", "-f", f"query={query}")
+        return sum(not t["isResolved"] for t in found["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"])
+
     def checks(self, url: str) -> tuple[str, list[dict[str, str]]]:
         """The PR's head and its checks, check runs and commit statuses alike, so it doesn't matter which CI reports them."""
         found = run_json("gh", "pr", "view", url, "--json", "headRefOid,statusCheckRollup")

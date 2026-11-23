@@ -20,7 +20,7 @@ from .board import show
 from .boardview import full_pile, waiting
 from .chat import CHAT, Chat
 from .doctor import doctor
-from .engine import MANUAL, PREFIX, STOPS, SWEEP_EVERY, SWEEPS, Engine, Park
+from .engine import MANUAL, PREFIX, STOPS, ci_state, SWEEP_EVERY, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
 from .remind import remind
 from .schedule import schedule
@@ -116,6 +116,11 @@ def merge(engine: Engine, cfg: dict[str, Any], url: str) -> str:
     admin = cfg["repos"][repo_of(cfg, url)[0]].get("merge") == "admin"
     if not admin and engine.tools.pr_state(url)["reviewDecision"] != "APPROVED":
         raise ToolError(f'{url} isn\'t approved. merge = "admin" in its repo\'s table merges it without.')
+    # Admin override skips GitHub's own rules, so these stand in for them.
+    if (state := ci_state(engine.tools.checks(url)[1])) in ("failed", "pending"):
+        raise ToolError(f"{url} has checks {state}. Merge once they pass.")
+    if threads := engine.tools.open_threads(url):
+        raise ToolError(f"{url} has {threads} open thread{'s' * (threads > 1)}. Resolve them first.")
     engine.tools.merge(url, admin)
     if run := next((r for r in engine.store.all() if r.pr == url and r.status == "done" and not r.landed), None):
         engine.land(run)  # at once, rather than at the next tick
