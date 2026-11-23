@@ -236,7 +236,7 @@ Each run works in a linked worktree, grouped under its repo's workspace in herdr
 
 A run that stops with its own question gets a look from the lead agent first, on the next `tick`. It reads the question, the ticket, the repo's `CLAUDE.md` and the `## Standing decisions` section of your `workflow.md`. Where a decision settles it, the lead agent answers the run, and the ticket gets the answer with the line it came from. An answer that names no line in those files stays a suggestion.
 
-Otherwise the question stays with you, and the detail on the board shows what the lead agent suggests. Your answer is added to the repo's standing decisions, as the question and your words, so the next run never asks it. Tidy the line by hand if it reads badly.
+Otherwise the question stays with you, and the detail on the board shows what the lead agent suggests. After you answer, a card asks whether to keep the answer as a standing decision. Most answers are for one run, so only a yes adds it to the repo's standing decisions, as the question and your words. `workshop keep <[repo/]key> <text>` does the same. Tidy the line by hand if it reads badly.
 
 - It never answers a gate, or anything that merges, posts, spends money, touches preprod or prod, or changes what a dealer sees.
 - One look per question, and nothing more once the day's spend reaches `daily_usd` under `[lead]`. A look costs about a quarter of a dollar.

@@ -16,7 +16,7 @@ from typing import Any, NamedTuple, Protocol
 from .backlog import SNAPSHOT
 from .boardview import ASK_AGAIN, DONE_HOURS, OPERATE_HOURS, RESPOND, SIGNS, Line, Span, Work, ago, backlog, cell, clean, columns, deliveries, document, drill, files_name, full_pile, pulse, now_view, only, operations, plain, pr_rows, pull, pull_story, pulls, refs, rule, run_for, ticket_view, timeline, usage_line, usage_view, waiting, wrapped
 from .cost import transcripts
-from .lead import suggestion
+from .lead import left, question, suggestion
 from .engine import CI_LIVE, STOPS, SWEEP_EVERY, SWEEPS, Engine
 from .prs import FAILING
 from .review import decisions
@@ -106,6 +106,7 @@ class Board:
         self.cursor = 0
         self.choice = 0  # which option the card has selected. Past the last is your own words
         self.follow = ""  # the run just answered, to carry on with once its command is done
+        self.offer: Ask | None = None  # asks whether the answer just sent is a standing decision
         self.series = False  # several decisions, answered one card at a time
         self.queue: list[Ask] = []
         self.given: list[str] = []
@@ -581,8 +582,11 @@ class Board:
         if not self.follow or self.refreshing:
             return
         run = next((r for r in self.runs if r.key == self.follow), None)
-        self.follow = ""
+        self.follow, offer, self.offer = "", self.offer, None
         if run is None or self.failed:
+            return
+        if offer:  # most answers are for this run alone, so only a yes makes one a rule
+            self.begin_note(offer)
             return
         if self.run_actions(run).get(ANSWER):
             self.begin_series(run)
@@ -656,6 +660,9 @@ class Board:
                     command, words = (asking.command, "\n".join(notes)) if notes else (command, "")
                 self.asking, self.series = None, False
                 self.follow = asking.key
+                run = next((r for r in self.runs if r.key == asking.key), None)
+                if words and command != "keep" and run and question(run) and left(self.engine, run):
+                    self.offer = Ask(asking.key, f"Keep that as a standing decision for {run.repo}?", (words,), (("Keep it", "keep", words),), "", "keep")
                 self.send(*filter(None, (command, asking.key, f"{asking.within}/{words}" if asking.within else words)))
         elif key in (curses.KEY_UP, curses.KEY_DOWN):
             self.choice = max(0, min(self.choice + (1 if key == curses.KEY_DOWN else -1), len(asking.options) - (not asking.typed)))

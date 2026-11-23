@@ -78,7 +78,8 @@ class Lead(Case):
         self.reply = {"answer": "", "rule": "", "suggest": ""}
         run = lead.look(self.engine, self.asking(), {})
         self.assertTrue(lead.left(self.engine, run))
-        lead.remember(run, run.reason, "Use `dev`.")
+        self.assertEqual(lead.unsettled(self.engine, run), run.reason)
+        lead.remember(run, lead.unsettled(self.engine, run), "Use `dev`.")
         self.assertTrue(self.workflow.read_text(encoding="utf-8").endswith(f"{DECIDED}\n- Which Databricks profile? Use `dev`.\n"))
 
 

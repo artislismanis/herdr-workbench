@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status [--json] | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | merge <url> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status [--json] | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | merge <url> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | keep <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -39,7 +39,7 @@ DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see
 TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "merge": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "merge": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "keep": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 SHOWN_SECONDS = 1  # long enough to see it worked, with nothing to dismiss
@@ -310,12 +310,14 @@ def no_room(engine: Engine, cfg: dict[str, Any]) -> bool:
     return len(active) >= cfg.get("max_active", 2) or bool(engine.throttle.hold_new(len(active)) or your_pile(engine, cfg))
 
 
-def learnt(engine: Engine, run: Run, text: str) -> Run:
-    """Your answer to a question the lead agent couldn't settle joins the repo's standing decisions."""
-    if text.strip() and lead.question(run) and lead.left(engine, run):
-        lead.remember(run, run.reason, text)
-        engine.store.event(run, "decision_kept")
-    return run
+def keep(engine: Engine, run: Run, text: str) -> str:
+    """An answer joins the repo's standing decisions only when you say it's a rule. Most answers are for one run."""
+    asked = lead.unsettled(engine, run)
+    if not asked or not text.strip():
+        raise ToolError(f"{run.key} has no question the lead agent left for you.")
+    lead.remember(run, asked, text)
+    engine.store.event(run, "decision_kept")
+    return f"Kept as a standing decision for {run.repo}."
 
 
 def ask_lead(engine: Engine, cfg: dict[str, Any]) -> None:
@@ -693,9 +695,11 @@ def main(argv: list[str]) -> int:
             case "reject":
                 waited(root, lambda: print(engine.explain(engine.reject(engine.store.find(argv[1]), argv[2]))))
             case "answer":
-                waited(root, lambda: print(engine.explain(engine.answer(learnt(engine, engine.store.find(argv[1]), argv[2]), argv[2]))))
+                waited(root, lambda: print(engine.explain(engine.answer(engine.store.find(argv[1]), argv[2]))))
+            case "keep":
+                waited(root, lambda: print(keep(engine, engine.store.find(argv[1]), argv[2])))
             case "retry":
-                waited(root, lambda: print(engine.explain(engine.retry(learnt(engine, engine.store.find(argv[1]), " ".join(argv[2:])), " ".join(argv[2:])))))
+                waited(root, lambda: print(engine.explain(engine.retry(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "pass":
                 waited(root, lambda: print(engine.explain(engine.accept(engine.store.find(argv[1]), " ".join(argv[2:])))))
             case "drop":

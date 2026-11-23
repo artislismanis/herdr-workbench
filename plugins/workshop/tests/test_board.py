@@ -1080,6 +1080,24 @@ class Keys(unittest.TestCase):
         self.assertIn("› Run it again", joined(self.board.note(80)))
         self.assertEqual(self.sent(), ("retry", "1"))
 
+    def answered_with_lead(self, left):
+        self.stopped(status="waiting")
+        self.board.press(ord("a"))
+        self.type_in("Use dev")
+        with mock.patch("workshop.board.question", return_value="Stuck"), mock.patch("workshop.board.left", return_value=left):
+            sent = self.sent()
+        self.board.carry_on()
+        return sent
+
+    def test_an_answer_becomes_a_standing_decision_only_on_a_yes(self):
+        self.answered_with_lead(True)
+        self.assertEqual(self.board.asking.command, "keep")
+        self.assertEqual(self.sent(), ("keep", "1", "Use dev"))
+
+    def test_no_offer_to_keep_an_answer_the_lead_agent_never_saw(self):
+        self.answered_with_lead(False)
+        self.assertNotEqual(getattr(self.board.asking, "command", ""), "keep")
+
     def test_a_stop_offers_a_talk_and_it_leaves_the_card_for_later(self):
         self.stopped()
         self.board.press(ord("a"))
