@@ -31,6 +31,23 @@ def transcripts(work: Path) -> Path:
     return config / "projects" / re.sub(r"[^a-zA-Z0-9]", "-", str(work))
 
 
+STARTED = re.compile(r"running in background with ID: (\w+)|moved to the background \(ID: (\w+)\)|Async agent launched successfully.{0,300}?agentId: (\w+)")
+ENDED = re.compile(r"<task-id>(\w+)</task-id>")
+
+
+def background(work: Path, since: float) -> set[str]:
+    """Commands and agents an agent started in the background and hasn't heard back from. It ends its turn to wait, so its pane looks finished."""
+    started: set[str] = set()
+    ended: set[str] = set()
+    for path in transcripts(work).glob("*.jsonl"):
+        if path.stat().st_mtime < since:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        started |= {next(filter(None, found.groups())) for found in STARTED.finditer(text)}
+        ended |= set(ENDED.findall(text))
+    return started - ended
+
+
 def usd(model: str, usage: dict[str, Any]) -> float | None:
     if model not in RATES:
         return None

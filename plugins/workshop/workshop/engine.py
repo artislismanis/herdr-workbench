@@ -1038,6 +1038,8 @@ class Engine:
         if step.get("interactive"):
             self._talk(run, step, agent, status)
             return
+        if status not in ("working", "blocked", "gone") and self.tools.background(Path(run.worktree), run.started_at):
+            status = "working"  # it ended its turn to wait for its own background work, and wakes when that's done
         if status == "working":
             if self.clock() - run.started_at > step.get("minutes", STEP_TIMEOUT / 60) * 60:
                 raise Park(f"{step['id']} ran past its time limit. Look at agent {agent}.")
