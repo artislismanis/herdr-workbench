@@ -547,6 +547,9 @@ class Board:
     def cards(self, run: Run) -> list[Ask]:
         """One card per decision, each with how it fits in. No brief from the agent means the reason, and the report stays above, because a wall of it here helps nobody."""
         options, typed, command = self.engine.choices(run)
+        if (listed := self.store.files(run) / "merges.md").exists():
+            count = len(re.findall(r"/pull/\d+", listed.read_text(encoding="utf-8")))
+            options = [(f"Approve and merge the {count} PR{'s' * (count != 1)} listed", "merge-listed", ""), *options]
         report = self.stop_report(run)[1]
         overview, said = decisions(run.reason)
         if not said:

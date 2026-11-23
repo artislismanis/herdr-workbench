@@ -110,7 +110,7 @@ def look(engine: Engine, run: Run, settings: dict[str, Any]) -> Run:
         return run
     engine.store.event(run, "lead_answered", rule=seen["rule"])
     engine._post(run, f"The lead agent answered from the standing decisions: {seen['answer']}\n\nFrom: {seen['rule']}")
-    return engine.answer(run, seen["answer"])
+    return engine.answer(run, seen["answer"], who="The lead agent, from the standing decisions,")
 
 
 def suggestion(engine: Engine, run: Run) -> str:

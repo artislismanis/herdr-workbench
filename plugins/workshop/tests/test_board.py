@@ -1080,6 +1080,13 @@ class Keys(unittest.TestCase):
         self.assertIn("› Run it again", joined(self.board.note(80)))
         self.assertEqual(self.sent(), ("retry", "1"))
 
+    def test_a_run_that_lists_prs_offers_to_approve_and_merge_them(self):
+        self.stopped(status="waiting")
+        (self.store.files(self.board.runs[0]) / "merges.md").write_text("https://github.com/o/r/pull/1\nhttps://github.com/o/r/pull/2\n", encoding="utf-8")
+        self.board.press(ord("a"))
+        self.assertEqual(self.board.asking.options[0][:2], ("Approve and merge the 2 PRs listed", "merge-listed"))
+        self.assertEqual(self.sent(), ("merge-listed", "1"))
+
     def answered_with_lead(self, left):
         self.stopped(status="waiting")
         self.board.press(ord("a"))

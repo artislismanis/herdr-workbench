@@ -158,6 +158,13 @@ class Tools:
     def pr_state(self, url: str) -> dict[str, Any]:
         return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid,baseRefName,body,mergeCommit,mergedBy")
 
+    def approve(self, url: str, body: str) -> None:
+        try:
+            run("gh", "pr", "review", url, "--approve", "--body", body)
+        except ToolError as refused:
+            if "own pull request" not in str(refused):  # GitHub never lets you approve your own, and nothing needs it to
+                raise
+
     def merge(self, url: str, admin: bool) -> None:
         """By the first method the repo allows, squash before a merge commit before a rebase."""
         allowed = run_json("gh", "repo", "view", url.split("/pull/")[0], "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed")
