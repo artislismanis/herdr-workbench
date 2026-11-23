@@ -38,6 +38,7 @@ PATIENCE = 60  # seconds a person's command waits for a tick to finish
 DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see the PR.", "COMMENTED": "Commented, see the PR."}
 TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
+STACK_DEPTH = 5  # layers at most: more needs a new plan, not another layer
 # Each command and how many arguments it needs.
 COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "merge": 1, "merge-listed": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "keep": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
@@ -89,14 +90,15 @@ def source_for(cfg: dict[str, Any]) -> Callable[[Run], Source]:
     return find
 
 
-def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bool = False, restart: bool = False) -> Run:
+def begin(engine: Engine, cfg: dict[str, Any], name: str, key: str, override: bool = False, restart: bool = False, below: Run | None = None) -> Run:
     repo = cfg["repos"][name]
     source = make_source(name, repo, cfg.get("jira", {}))
     path = Path(repo["path"]).expanduser()
     pipeline = load(repo.get("pipeline", "ticket"), path, name)
     if not review_settings(cfg, repo)["copilot"]:  # a repo without Copilot would wait for a review that never comes
         pipeline["steps"] = [step for step in pipeline["steps"] if step["kind"] != "copilot"]
-    return engine.start(name, key, path, repo.get("base", "main"), pipeline, source, override, restart, repo.get("commands"), environments=repo.get("environments"))
+    base = below.branch if below else repo.get("base", "main")
+    return engine.start(name, key, path, base, pipeline, source, override, restart, repo.get("commands"), environments=repo.get("environments"), below=below.key if below else "")
 
 
 def repo_of(cfg: dict[str, Any], url: str) -> tuple[str, str]:
@@ -119,6 +121,8 @@ def merge(engine: Engine, cfg: dict[str, Any], url: str) -> str:
     # Admin override skips GitHub's own rules, so these stand in for them.
     if (state := ci_state(engine.tools.checks(url)[1])) in ("failed", "pending"):
         raise ToolError(f"{url} has checks {state}. Merge once they pass.")
+    if below := next((r.below for r in engine.store.all() if r.pr == url and r.below), ""):
+        raise ToolError(f"{url} sits on the PR for {below}. Merge that one first.")
     if threads := engine.tools.open_threads(url):
         raise ToolError(f"{url} has {threads} open thread{'s' * (threads > 1)}. Resolve them first.")
     engine.tools.merge(url, admin)
@@ -306,6 +310,26 @@ def check_tickets(engine: Engine) -> None:
             engine.land(run)
 
 
+def restack_all(engine: Engine) -> None:
+    for run in engine.store.all():
+        if run.below:
+            engine.restack(run)
+
+
+def stack_on(engine: Engine, repo: dict[str, Any], name: str, reason: str) -> Run | None:
+    """The run a blocked ticket can start on top of: its one blocker's, with a PR open, in a repo that stacks."""
+    blocker = re.fullmatch(r"blocked by #?([\w.-]+)\.", reason)
+    if not repo.get("stack") or not blocker or not engine.store.exists(name, blocker[1]):
+        return None
+    below = engine.store.load(name, blocker[1])
+    if not below.pr or below.landed or below.merged_by or below.on_a_pr:
+        return None
+    depth, layer = 1, below
+    while layer.below and engine.store.exists(name, layer.below):
+        depth, layer = depth + 1, engine.store.load(name, layer.below)
+    return below if depth < STACK_DEPTH else None
+
+
 def running(engine: Engine) -> list[Run]:
     return [r for r in engine.store.all() if r.status == "running" and not r.preparing and not r.wake_at]  # a talk waits on you, so it takes no slot
 
@@ -355,6 +379,7 @@ def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     advance_all(engine)
     ask_lead(engine, cfg)
     check_tickets(engine)
+    restack_all(engine)
     check_chat(engine, cfg)
     poll(cfg, engine.store)  # before the limits below, or a full workshop stops the board updating
     start_ready(engine, cfg)
@@ -370,11 +395,12 @@ def start_ready(engine: Engine, cfg: dict[str, Any]) -> None:
         for key in engine.in_order(name, source.ready()):
             if engine.store.exists(name, key) or being_prepared(engine, name, key):
                 continue
-            if reason := source.guard(key):
+            below = None
+            if (reason := source.guard(key)) and not (below := stack_on(engine, repo, name, reason)):
                 skipped[f"{name}/{key}"] = reason
                 continue
-            print(f"{name}: starting {key}")
-            begin(engine, cfg, name, key)
+            print(f"{name}: starting {key}" + (f" on {below.key}" if below else ""))
+            begin(engine, cfg, name, key, below=below)
             if no_room(engine, cfg):
                 save_skipped(skipped)
                 return

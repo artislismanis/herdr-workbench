@@ -171,6 +171,8 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 #                             # replaces the default: main and master are prod, dev and preprod are preprod
 # merge = "admin"             # default: M on the board merges only an approved PR. admin merges without,
 #                             # with GitHub's admin override, for repos you merge alone
+# stack = true                # default: a blocked ticket waits for its blocker to merge. true starts it
+#                             # on top of the blocker's open PR, up to five layers deep
 # pipeline = "ticket"         # or "gated", for your approval after planning. README: Your own pipelines
 # review_pipeline = "review"  # AI review of someone's PR
 # reply_pipeline = "reply"    # answering comments on your own PR

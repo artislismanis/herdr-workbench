@@ -15,7 +15,7 @@ from .shell import ToolError
 from .sources import Source
 from .store import FOCUS, SNAPSHOT, Run, Store
 from .throttle import Throttle
-from .tools import CommitRefused, Tools, slug
+from .tools import CommitRefused, Conflict, Tools, slug
 
 STEP_TIMEOUT = 45 * 60
 PREFIX = "[ai]"  # workshop comments as you, so its own comments mustn't count as yours
@@ -49,6 +49,8 @@ def pr_text(path: Path, key: str, headings: list[str]) -> tuple[str, str, str]:
 
 
 AFTER_MERGE_STEP = {"id": "after-merge", "stage": "Deploy", "kind": "agent", "prompt": "after-merge.md", "fresh": True, "model": "sonnet", "verdict": ["PASS", "LATER", "FAILED"], "then": {"LATER": {"wait": 6 * 3600, "max": 3}, "FAILED": {"park": "A check after the merge failed."}}}
+RESTACK_STEP = {"id": "restack", "stage": "Build", "kind": "agent", "prompt": "restack.md", "fresh": True, "verdict": ["DONE", "FAILED"], "then": {"FAILED": {"park": "The branch couldn't move onto the PR below it."}}}
+RESTACKS = 3  # conflicts an agent resolves for one run before it waits on you
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 NO_STEPS = {"none", "n/a", "nothing", "no"}
 CI_SETTLE = 90  # seconds after a push or rerun before the checks count, so ones that haven't registered yet don't read as passed or failed
@@ -77,12 +79,12 @@ class Engine:
         self.mark = prefix + " "
         self.command = "/" + prefix.strip("[]")  # [ai] gives /ai
 
-    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, until: int = 0, environments: dict[str, str] | None = None, sweeping: str = "", fixing: bool = False) -> Run:
+    def start(self, repo: str, key: str, repo_path: Path, base: str, pipeline: dict[str, Any], source: Source, override: bool = False, restart: bool = False, commands: dict[str, str] | None = None, pr: str = "", claimed: bool = False, replying: bool = False, preparing: bool = False, at: int = 0, until: int = 0, environments: dict[str, str] | None = None, sweeping: str = "", fixing: bool = False, below: str = "") -> Run:
         if self.store.exists(repo, key) and not restart:
             raise Park(f"{key} already has a run. Use workshop resume {repo}/{key}, or start it with --restart to redo it from the top.")
         if not self.tools.identity_ok(repo_path):
             raise Park("Set git user.name and user.email first: workshop commits for the agents.")
-        reason = "" if override else source.guard(key)
+        reason = "" if override else source.guard(key, below) if below else source.guard(key)  # type: ignore[call-arg]  # only ticket sources stack
         if reason:
             raise Park(f"{key}: {reason}")
         for name in prompts_of(pipeline):  # before the claim, so a missing prompt costs nothing
@@ -91,7 +93,7 @@ class Engine:
             except PipelineError as missing:
                 raise Park(str(missing)) from missing
         source.claim(key)
-        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying and not fixing, replying=replying, fixing=fixing, begun=self.clock(), claimed=claimed, preparing=preparing, step=at, until=until, environments=environments or {}, sweeping=sweeping)
+        run = Run(repo=repo, key=key, repo_path=str(repo_path), base=base, pipeline=pipeline, commands=commands or {}, pr=pr, reviewing=bool(pr) and not replying and not fixing, replying=replying, fixing=fixing, begun=self.clock(), claimed=claimed, preparing=preparing, step=at, until=until, environments=environments or {}, sweeping=sweeping, below=below)
         if restart and self.store.exists(repo, key):
             # Same worktree, workspace and agent, so a redo leaves nothing behind.
             old = self.store.load(repo, key)
@@ -110,7 +112,7 @@ class Engine:
         self.save(run)
         self.store.event(run, "claimed", override=override, restart=restart)
         self._move(run, "working")
-        self._post(run, f"Started, on branch workshop/{slug(key)}.")
+        self._post(run, f"Started, on branch workshop/{slug(key)}" + (f", on top of the PR for {below}." if below else "."))
         return self.advance(run)
 
     def _catch_up(self, run: Run, reviewed: str) -> None:
@@ -386,6 +388,54 @@ class Engine:
         self.save(run)
         return True
 
+    def restack(self, run: Run) -> Run:
+        """A layer of a stack follows the PR below it: onto its new commits, and onto its base once it merges. Never while an agent works in the checkout."""
+        if not run.below or not run.worktree or run.landed or run.phase == "prompted" or run.your_turn or not self.store.exists(run.repo, run.below):
+            return run
+        below = self.store.load(run.repo, run.below)
+        if below.landed in ("closed", "dropped"):
+            if run.status != "parked":
+                self._park(run, f"The PR for {run.below} below it is {below.landed}, so this branch has nothing to sit on. Drop it, or move it onto the base by hand.")
+                self.save(run)
+            return run
+        merged = bool(below.merged_by)
+        onto = below.base if merged else below.branch
+        work = Path(run.worktree)
+        try:
+            tip = self.tools.tip(work, onto)
+            if (tip == run.below_head and not merged) or self.tools.tracked_changes(work):
+                return run
+            if not self.tools.contains(work, tip):  # a conflict's agent may have moved it already
+                self.tools.move_onto(work, onto, run.below_head)
+            if run.pr:
+                self.tools.force_push(work, run.branch)
+                if merged:
+                    self.tools.retarget(work, run.pr, onto)  # GitHub does it when the branch below is deleted, but not every repo deletes it
+        except Conflict:
+            self._resolve(run, onto)
+            return run
+        except STOPS as failed:
+            self.store.event(run, "check_failed", reason=str(failed))
+            return run
+        if merged:
+            run.base, run.below = below.base, below.below
+        run.below_head = tip if run.below else ""
+        self.store.event(run, "restacked", onto=onto)
+        self.save(run)
+        return run
+
+    def _resolve(self, run: Run, onto: str) -> None:
+        """A fresh agent resolves the conflict, as a step slotted in before whatever's next."""
+        if sum(s["id"] == "restack" for s in run.pipeline["steps"]) >= RESTACKS:
+            self._park(run, f"Moving onto {onto} hit a conflict again. Run git rebase --onto origin/{onto} {run.below_head} in {run.worktree}.")
+            self.save(run)
+            return
+        (self.store.files(run) / "onto.md").write_text(f"git fetch origin {onto} && git rebase --onto origin/{onto} {run.below_head}\n", encoding="utf-8")
+        run.pipeline["steps"].insert(run.step, dict(RESTACK_STEP))
+        run.status, run.phase = "running", ""
+        self.store.event(run, "conflict", onto=onto)
+        self.save(run)
+
     def _reach(self, run: Run, place: str) -> None:
         if run.deployed == place:
             return
@@ -503,7 +553,7 @@ class Engine:
         for n, (name, size) in list(enumerate(parts, 1))[len(keys) :]:
             body = (
                 f"### Summary\n\nPart {n} of {len(parts)} of {ticket}, {title}. Build only PR {n}, \"{name}\", from the design of {ticket}. "
-                f"Start from the base branch once {keys[-1]} has merged. This ticket builds one PR, so leave out any stack the design describes.\n"
+                f"It builds on {keys[-1]}, and workshop gives it the branch to start from. This ticket builds one PR, so leave out the other parts the design describes.\n"
             )
             key = source.add_part(run.key, keys[-1], name, body)
             keys.append(key)
@@ -883,7 +933,14 @@ class Engine:
 
     def _write_brief(self, run: Run) -> None:
         ticket = self.source_for(run).get(run.key)
-        (self.store.files(run) / "brief.md").write_text(f"# {ticket.key}: {ticket.title}\n\n{ticket.body}\n", encoding="utf-8")
+        stack = (
+            f"\n## Where this branch starts\n\nThis branch starts from `{run.base}`, the branch of {run.below}, whose PR hasn't merged yet. "
+            f"Build only this ticket's part, on top of it. Where the ticket says to wait for {run.below} to merge, or to start from another branch, ignore that: "
+            f"workshop keeps this branch on top of {run.below}, and moves it onto the base once that PR merges.\n"
+            if run.below
+            else ""
+        )
+        (self.store.files(run) / "brief.md").write_text(f"# {ticket.key}: {ticket.title}\n\n{ticket.body}\n{stack}", encoding="utf-8")
 
     def _prepare(self, run: Run) -> None:
         # Each part records what it made, so a resume skips what already exists.
@@ -894,6 +951,8 @@ class Engine:
                 run.branch = f"workshop/{slug(run.key)}" + (AFTER_BRANCH if run.merged_by else "")  # the PR's branch has merged
                 path = self.tools.worktree(Path(run.repo_path), run.branch, run.base)
             run.worktree = str(path)
+            if run.below and not run.below_head:
+                run.below_head = self.tools.fork_point(path, run.base)
             if run.reviewed and not run.merged_by:  # back for new commits: its branch may be an old local one. After the merge it's a new branch from the base
                 self.tools.follow_pr(path, run.branch, run.base)
                 run.reviewed = run.reviewed if self.tools.contains(path, run.reviewed) else ""
@@ -1325,6 +1384,10 @@ class Engine:
         run.step, run.phase = run.step + 1, ""
 
     def _finish(self, run: Run) -> None:
+        if run.pr and run.pipeline["steps"][-1]["id"] == "restack":
+            run.status = "done"  # delivered before, so it goes back to waiting on its PR
+            self.save(run)
+            return
         if run.merged_by and run.pipeline["steps"][-1]["id"] == "after-merge":
             run.status = "done"  # the next tick follows the PR on to prod, as before the checks
             self.save(run)

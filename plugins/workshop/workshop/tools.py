@@ -43,6 +43,10 @@ class CommitRefused(ToolError):
     """The repo's own commit checks said no. Their output says why."""
 
 
+class Conflict(ToolError):
+    """A branch couldn't move onto the one below it without a person's or an agent's call."""
+
+
 def slug(key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", key.lower()).strip("-")
 
@@ -418,6 +422,22 @@ class Tools:
 
     def push(self, work: Path, branch: str) -> None:
         run("git", "push", "-u", "origin", branch, cwd=work)
+
+    def tip(self, work: Path, branch: str) -> str:
+        run("git", "fetch", "origin", branch, cwd=work)
+        return run("git", "rev-parse", f"origin/{branch}", cwd=work).strip()
+
+    def move_onto(self, work: Path, base: str, old: str) -> None:
+        """The commits after old, replayed onto the base. A conflict leaves the branch as it was."""
+        if subprocess.run(["git", "rebase", "--onto", f"origin/{base}", old], cwd=work, capture_output=True).returncode != 0:
+            subprocess.run(["git", "rebase", "--abort"], cwd=work, capture_output=True)
+            raise Conflict(f"moving onto {base} hit a conflict")
+
+    def force_push(self, work: Path, branch: str) -> None:
+        run("git", "push", "--force-with-lease", "origin", branch, cwd=work)
+
+    def retarget(self, work: Path, pr: str, base: str) -> None:
+        run("gh", "pr", "edit", pr, "--base", base, cwd=work)
 
     def find_pr(self, work: Path, branch: str) -> str:
         found = run_json("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url", cwd=work)
