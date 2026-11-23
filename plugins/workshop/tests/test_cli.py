@@ -163,7 +163,7 @@ class Sweeping(unittest.TestCase):
         self.assertEqual(self.due(30, "monthly"), 1)
 
     def test_a_sweep_waits_for_a_free_slot(self):
-        self.engine.store.all.return_value = [mock.Mock(status="running", preparing=False, sweeping="", landed="", repo="r")]
+        self.engine.store.all.return_value = [mock.Mock(status="running", preparing=False, sweeping="", landed="", repo="r", wake_at=0.0)]
         self.assertEqual(self.due(max_active=1), 0)
 
     def test_limits_hold_a_sweep_back(self):
@@ -266,7 +266,7 @@ class Preparing(unittest.TestCase):
         self.assertTrue(self.begin("r/7").kwargs["restart"])
 
     def test_preparing_never_takes_a_delivery_slot(self):
-        self.engine.store.all.return_value = [mock.Mock(status="running", preparing=True), mock.Mock(status="running", preparing=False)]
+        self.engine.store.all.return_value = [mock.Mock(status="running", preparing=True), mock.Mock(status="running", preparing=False, wake_at=0.0)]
         self.assertEqual(len(cli.running(self.engine)), 1)
 
     def test_a_ticket_being_prepared_isnt_started(self):

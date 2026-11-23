@@ -339,9 +339,9 @@ def doing(run: Run) -> str:
         return "done"
     if heading(run) == "Needs you":
         return "fix" if run.status == "parked" else "decide" if run.status == "waiting" or run.your_turn else "check"
-    if run.deployed == "preprod":  # merged to the branch before prod, so it waits on a promotion, not on reviewers
+    if run.deployed == "preprod" and run.status != "running":  # merged to the branch before prod, so it waits on a promotion, not on reviewers
         return "preprod"
-    return "working" if run.status == "running" else "waiting"
+    return "working" if run.status == "running" and not run.wake_at else "waiting"
 
 
 def rank(word: str) -> int:

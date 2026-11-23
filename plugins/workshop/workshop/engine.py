@@ -26,6 +26,8 @@ SWEEPS = "sweeps.json"  # when each ran, and what you've declined
 QUEUE = "queue.json"  # the delivery queue's order by repo, as tickets have no order of their own that every source shares
 SWEEP_EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 MANUAL = "manual"  # a sweep only you start, from Operate
+AFTER_MERGE = re.compile(r"^#+\s*after (the )?merge\s*$|^\s*[-*] \[ \] after (the )?merge", re.IGNORECASE | re.MULTILINE)
+AFTER_MERGE_STEP = {"id": "after-merge", "stage": "Deploy", "kind": "agent", "prompt": "after-merge.md", "fresh": True, "model": "sonnet", "verdict": ["PASS", "LATER", "FAILED"], "then": {"LATER": {"wait": 6 * 3600, "max": 3}, "FAILED": {"park": "A check after the merge failed."}}}
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 NO_STEPS = {"none", "n/a", "nothing", "no"}
 CI_SETTLE = 90  # seconds after a push or rerun before the checks count, so ones that haven't registered yet don't read as passed or failed
@@ -128,6 +130,9 @@ class Engine:
     def advance(self, run: Run) -> Run:
         """Move a run as far as it can go now. Parked and finished runs stay put."""
         while run.status == "running":
+            if run.wake_at > self.clock():
+                break
+            run.wake_at = 0.0
             step = run.current
             if step is None:
                 self._finish(run)
@@ -327,20 +332,20 @@ class Engine:
             self.store.event(run, "merged", by=run.merged_by, approved=pr.get("reviewDecision") == "APPROVED")
         kinds = run.environments or ENVIRONMENTS
         place = kinds.get(pr.get("baseRefName", run.base), "")
-        if place == "preprod":
-            if not run.deployed:
-                self._reach(run, "preprod")
-                self._move(run, "preprod")
-                self.save(run)
-                self._tidy(run, pr["headRefOid"])
-            if not self.tools.reached(Path(run.repo_path), run.pr, pr["mergeCommit"]["oid"], [branch for branch, kind in kinds.items() if kind == "prod"]):
-                return
+        if place == "preprod" and not run.deployed:
+            self._reach(run, "preprod")
+            self._move(run, "preprod")
+            self.save(run)
+        if run.worktree:
+            self._tidy(run, pr["headRefOid"])
+        if self._check_after_merge(run, pr):
+            return
+        if place == "preprod" and not self.tools.reached(Path(run.repo_path), run.pr, pr["mergeCommit"]["oid"], [branch for branch, kind in kinds.items() if kind == "prod"]):
+            return
         if place:
             self._reach(run, "prod")
         self.save(run)
-        if run.worktree:
-            self._tidy(run, pr["headRefOid"])
-        if place and (steps := self._release_steps(run, pr)):
+        if place and not any(s["id"] == "release" for s in run.pipeline["steps"]) and (steps := self._release_steps(run, pr)):
             (self.store.files(run) / "release.md").write_text("\n".join(["# Release steps", "", *steps, ""]), encoding="utf-8")
             run.pipeline["steps"].append({"id": "release", "stage": "Deploy", "kind": "gate", "report": "release", "go": "They're done", "change": "Say what went wrong"})
             run.step = len(run.pipeline["steps"]) - 1
@@ -349,7 +354,19 @@ class Engine:
             return
         self._landed(run)
 
+    def _check_after_merge(self, run: Run, pr: dict[str, Any]) -> bool:
+        """Checks the PR lists for after the merge run on its first merge, as the base is where they take effect."""
+        if any(s["id"] == "after-merge" for s in run.pipeline["steps"]) or not AFTER_MERGE.search(pr.get("body", "")):
+            return False
+        run.pipeline["steps"].append(dict(AFTER_MERGE_STEP))
+        run.step, run.status, run.phase, run.landed = len(run.pipeline["steps"]) - 1, "running", "", ""
+        self.store.event(run, "after_merge")
+        self.save(run)
+        return True
+
     def _reach(self, run: Run, place: str) -> None:
+        if run.deployed == place:
+            return
         run.deployed = place
         self.store.event(run, "deployed", environment=place)
         self.tools.notify(f"Workshop: {run.key} reached {place}", run.pr)
@@ -849,7 +866,7 @@ class Engine:
             if run.on_a_pr:
                 path, run.branch = self._pr_checkout(run)
             else:
-                run.branch = f"workshop/{slug(run.key)}"
+                run.branch = f"workshop/{slug(run.key)}" + ("-after-merge" if run.merged_by else "")  # the PR's branch has merged
                 path = self.tools.worktree(Path(run.repo_path), run.branch, run.base)
             run.worktree = str(path)
             if run.reviewed:  # back for new commits: its branch may be an old local one
@@ -1223,6 +1240,13 @@ class Engine:
     def _follow(self, run: Run, step: dict[str, Any], rule: dict[str, Any], verdict: str, where: str) -> None:
         if "park" in rule:
             raise Park(f"{rule['park']} {where}")
+        if "wait" in rule:
+            run.loops[step["id"]] = used = run.loops.get(step["id"], 0) + 1
+            if used > rule["max"]:
+                raise Park(f"{step['id']} still says {verdict} after {rule['max']} tries. {where}")
+            run.wake_at, run.phase = self.clock() + rule["wait"], ""
+            self.store.event(run, "later", step=step["id"], until=run.wake_at)
+            return
         target = run.index_of(rule["goto"])
         if target <= run.step:  # going on regardless isn't another round
             run.loops[step["id"]] = used = run.loops.get(step["id"], 0) + 1
@@ -1264,6 +1288,10 @@ class Engine:
         run.step, run.phase = run.step + 1, ""
 
     def _finish(self, run: Run) -> None:
+        if run.merged_by and run.pipeline["steps"][-1]["id"] == "after-merge":
+            run.status = "done"  # the next tick follows the PR on to prod, as before the checks
+            self.save(run)
+            return
         if run.deployed:
             self._landed(run)
             return

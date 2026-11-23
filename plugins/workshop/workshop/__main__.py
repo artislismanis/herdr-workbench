@@ -278,7 +278,7 @@ def check_tickets(engine: Engine) -> None:
 
 
 def running(engine: Engine) -> list[Run]:
-    return [r for r in engine.store.all() if r.status == "running" and not r.preparing]  # a talk waits on you, so it takes no slot
+    return [r for r in engine.store.all() if r.status == "running" and not r.preparing and not r.wake_at]  # a talk waits on you, so it takes no slot
 
 
 def look_after(engine: Engine, cfg: dict[str, Any]) -> None:
