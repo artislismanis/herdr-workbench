@@ -1703,6 +1703,7 @@ class FakeTools:
         if self.commit_fails:
             raise ToolError("git commit failed: empty ident name")
         self.commits.append(message)
+        self.tracked = []  # committed, so nothing is left in the checkout
 
     def ahead(self, work, base):
         return self.ahead_count
@@ -2864,6 +2865,19 @@ class Stacked(Case):
         run = self.finish_agent(run, "ws-de-1-restack-1", "restack", "VERDICT: DONE\n")
         self.assertEqual(run.status, "done")
         self.assertEqual(len(self.source.reports), reports)  # delivered before, so nothing is posted again
+
+    def test_a_pr_below_that_merged_mid_build_moves_it_before_its_pr_opens(self):
+        run = self.start()
+        self.below(merged_by="me")
+        self.tools.tips = {"main": "merged"}
+        self.tools.ancestor, self.tools.tracked = False, ["a.py"]  # the agents' work stays uncommitted until open-pr
+        verdicts = {"tasks": "VERDICT: READY\n", "ai-review": "VERDICT: PASS\n"}
+        while run.current and run.current["kind"] == "agent":
+            self.assertFalse(hasattr(self.tools, "moved"))
+            step = run.current["id"]
+            run = self.finish_agent(run, run.step_agent or run.agent, step, verdicts.get(step, "done"))
+        self.assertEqual(self.tools.moved, [("main", "abc123")])
+        self.assertEqual((run.base, run.below, self.tools.created), ("main", "", 1))
 
     def test_repeated_conflicts_wait_on_you(self):
         run = self.stacked()

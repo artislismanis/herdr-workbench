@@ -166,6 +166,11 @@ class Engine:
             if step is None:
                 self._finish(run)
                 break
+            if run.below and run.phase == "" and run.worktree and step["kind"] != "gate" and step["id"] != "restack":
+                self.restack(run)  # between steps nothing works in the checkout, so a stacked branch catches up
+                if run.status != "running":
+                    break
+                step = run.current
             before = (run.step, run.phase)
             try:
                 if step["kind"] != "gate":  # nothing works in the checkout at a gate, and a sweep's has gone
@@ -1382,6 +1387,10 @@ class Engine:
             self.store.event(run, "step", step=step["id"], state="done", verdict="FAILED")
             self._follow(run, step, {"goto": "implement", "max": 2, "prompt": "fix-commit.md"}, "FAILED", f"See {report}.")
             return
+        if run.below:  # the work is committed now, so the branch can move before its PR names a base
+            self.restack(run)
+            if run.status != "running" or run.current["id"] == "restack":
+                return
         if self.tools.ahead(work, run.base) == 0:
             raise Park("The agents changed nothing, so there is no PR to open.")
         self.tools.push(work, run.branch)
