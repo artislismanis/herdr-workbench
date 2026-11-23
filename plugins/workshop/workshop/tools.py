@@ -166,10 +166,21 @@ class Tools:
             self._merge_stacked(url, method.removeprefix("--"), admin)
 
     def _merge_stacked(self, url: str, method: str, admin: bool) -> None:
-        """GitHub merges a stacked PR only through its async API. A PR in the middle takes those below it along, and only the bottom one can bypass rules."""
+        """GitHub merges a stacked PR only through its async API, with those below it.
+
+        An admin passes branch protection without asking. Bypassing a ruleset works only on the bottom PR, so it's the second try.
+        """
+        try:
+            self._merge_async(url, method, False)
+        except ToolError:
+            if not admin:
+                raise
+            self._merge_async(url, method, True)
+
+    def _merge_async(self, url: str, method: str, bypass: bool) -> None:
         owner, repo, _, number = url.rstrip("/").split("/")[-4:]
         path = f"repos/{owner}/{repo}/pulls/{number}/merge-async"
-        found = run_json("gh", "api", "-X", "PUT", path, "-f", f"merge_method={method}", "-F", f"bypass_rules={str(admin).lower()}")
+        found = run_json("gh", "api", "-X", "PUT", path, "-f", f"merge_method={method}", "-F", f"bypass_rules={str(bypass).lower()}")
         for _ in range(MERGE_POLLS):
             if found["status"] in ("merged", "enqueued"):
                 return
