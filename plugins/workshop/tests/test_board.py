@@ -1389,6 +1389,11 @@ class Keys(unittest.TestCase):
         self.board.reload()
         self.assertEqual(len(self.board.pr_items()), 1)
 
+    def test_a_draft_you_opened_yourself_is_in_review(self):
+        self.on_pr(state="draft", mine=True)
+        self.assertEqual(len(self.board.pr_items()), 1)
+        self.assertIn("draft", joined(self.board.listing(WIDE)))
+
     def test_o_passes_on_the_selected_prs_link(self):
         self.on_pr()
         self.board.engine.tools.open_link.return_value = "Link copied"
