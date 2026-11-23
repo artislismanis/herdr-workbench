@@ -32,7 +32,7 @@ def transcripts(work: Path) -> Path:
 
 
 STARTED = re.compile(r"running in background with ID: (\w+)|moved to the background \(ID: (\w+)\)|Async agent launched successfully.{0,300}?agentId: (\w+)")
-ENDED = re.compile(r"<task-id>(\w+)</task-id>")
+ENDED = re.compile(r"<task-id>(\w+)</task-id>|Successfully stopped task: (\w+)")  # its notice, or the agent stopping it, which sends none
 
 
 def background(work: Path, since: float) -> set[str]:
@@ -44,7 +44,7 @@ def background(work: Path, since: float) -> set[str]:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         started |= {next(filter(None, found.groups())) for found in STARTED.finditer(text)}
-        ended |= set(ENDED.findall(text))
+        ended |= {next(filter(None, found.groups())) for found in ENDED.finditer(text)}
     return started - ended
 
 

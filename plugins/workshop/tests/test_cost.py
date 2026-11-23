@@ -87,6 +87,8 @@ class Background(unittest.TestCase):
                 "Async agent launched successfully. (This tool result is internal metadata)\\nagentId: a3 (internal ID",
                 "agentId: s4 (use SendMessage to continue)",
                 "<task-notification><task-id>b1</task-id><status>completed</status>",
+                "Command running in background with ID: b5. Output is being written to",
+                '{"message":"Successfully stopped task: b5 (pgrep -af run-local)"}',
             ]
             (folder / "t.jsonl").write_text("\n".join(json.dumps({"text": line}) for line in lines))
             self.assertEqual(cost.background(Path("/w"), 0), {"b2", "a3"})
