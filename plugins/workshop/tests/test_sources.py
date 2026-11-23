@@ -303,6 +303,18 @@ class TicketWrites(unittest.TestCase):
         self.assertEqual(run.call_args_list[0].args, ("gh", "issue", "create", "--title", "Pin it", "--body", "B", "--label", "designed"))
         self.assertEqual(run.call_args_list[1].args, ("gh", "api", "-X", "POST", "repos/{owner}/{repo}/issues/13/dependencies/blocked_by", "-F", "issue_id=555"))
 
+    def test_a_part_with_no_blocker_is_filed_unlinked(self):
+        source, calls = self.jira(), []
+        original = {"fields": {"labels": [], "issuetype": {"id": "1"}, "attachment": []}}
+        source._call = lambda method, path, body=None: calls.append((method, path)) or (original if method == "GET" else {"key": "AB-12"})
+        source.add_part("AB-10", "", "Docs", "B")
+        self.assertNotIn(("POST", "issueLink"), calls)
+        github = GitHubSource(Path("/repo"), "ai")
+        with mock.patch.object(github, "labels", return_value=[]), mock.patch("workshop.sources.run", return_value="https://github.com/o/r/issues/13\n") as run, mock.patch("workshop.sources.run_json") as api:
+            self.assertEqual(github.add_part("11", "", "Docs", "B"), "13")
+        self.assertEqual(run.call_count, 1)
+        api.assert_not_called()
+
     def test_jira_needs_a_project_to_create(self):
         with self.assertRaises(KeyError):
             self.jira().create("T", "B")

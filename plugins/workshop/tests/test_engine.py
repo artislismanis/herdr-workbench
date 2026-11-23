@@ -715,6 +715,14 @@ class Prepare(unittest.TestCase):
         self.assertEqual(self.ticket.tags.count("ai"), 3)
         self.assertEqual(self.engine.in_order("r", ["3", "7", "8", "9"]), ["7", "8", "9", "3"])
 
+    def test_a_part_that_needs_none_of_the_others_has_no_blocker(self):
+        filed, sized = self.splitting()
+        self.design("### How\n\nIn three.\n\nPR: Tests\nPR: Docs | alone | Small (3 Days)\nPR: Pins | X-Small (1 Day)\nQUEUE: 1\nVERDICT: READY\n")
+        self.assertEqual([(blocker, title) for _, blocker, title, _ in filed], [("", "Docs"), ("7", "Pins")])
+        self.assertIn("starts from the base branch", filed[0][3])
+        self.assertEqual(sized, [("8", "Small (3 Days)"), ("9", "X-Small (1 Day)")])
+        self.assertIn("8 needs none of the others, so it starts at once.", self.ticket.reports[-1])
+
     def test_a_write_that_fails_part_way_resumes_without_filing_twice(self):
         filed, _ = self.splitting(fail_on=2)
         run = self.design(self.SPLIT)

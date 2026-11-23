@@ -61,6 +61,12 @@ FAILED_CHECKS = ("FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"
 CI_LIVE = "ci-live.json"  # the checks as last seen, each with when it got to its state, for the board
 
 
+def part(line: str) -> tuple[str, str, bool]:
+    """A `PR:` line of a design: its title, then its size and `alone`, in either order and both optional."""
+    name, *rest = [field.strip() for field in line.split(" | ")]
+    return name, next((field for field in rest if field != "alone"), ""), "alone" in rest
+
+
 def ci_state(checks: list[dict[str, str]]) -> str:
     """passed, failed, pending or none: one failure is enough to start on, as the rest only add to it."""
     if not checks:
@@ -513,7 +519,8 @@ class Engine:
         parts = (
             "\n\nOne ticket builds one PR. Where the design needs more than one, agree the split with them, and write each PR in build order "
             "as a line that is exactly `PR:` and its title" + (", then ` | ` and its size from the choices below" if choices else "") + ", just before the `QUEUE:` line. "
-            "This ticket builds the first, and workshop files a ticket for each of the rest, each blocked by the one before. A design of one PR needs no `PR:` lines."
+            "This ticket builds the first, and workshop files a ticket for each of the rest, each blocked by the one before. A design of one PR needs no `PR:` lines. "
+            "Where a PR needs none of the code of the PRs before it, end its line with ` | alone`: its ticket has no blocker, so it starts at once, beside the rest."
         )
         if not choices:
             return parts
@@ -529,7 +536,7 @@ class Engine:
         text = re.sub(r"^## Decision\n.*?(?=^#|^VERDICT|\Z)", "", report.read_text(encoding="utf-8"), flags=re.MULTILINE | re.DOTALL)  # it's for you, not the ticket
         text = re.sub(r"^(VERDICT|QUEUE): \w+\s*$", "", text, flags=re.MULTILINE)
         source = self.source_for(run)
-        parts = [(name.strip(), size.strip()) for name, size in re.findall(r"^PR: (.+?)(?: \| (.+?))?\s*$", text, re.MULTILINE)]
+        parts = [part(line) for line in re.findall(r"^PR: (.+?)\s*$", text, re.MULTILINE)]
         text = re.sub(r"^PR: .*$", "", text, flags=re.MULTILINE)
         estimate = re.findall(r"^ESTIMATE: (.+?)\s*$", text, re.MULTILINE)
         text = re.sub(r"^ESTIMATE: .*$", "", text, flags=re.MULTILINE)
@@ -543,26 +550,30 @@ class Engine:
         if len(parts) > 1:
             self._split(run, source, parts)
 
-    def _split(self, run: Run, source: Source, parts: list[tuple[str, str]]) -> None:
+    def _split(self, run: Run, source: Source, parts: list[tuple[str, str, bool]]) -> None:
         """One ticket per PR. Each one filed is noted at once, so a write that fails part way resumes without filing it twice."""
         noted = self.store.files(run) / "parts.json"
         filed = json.loads(noted.read_text(encoding="utf-8")) if noted.exists() else []
         ticket = run.key.removeprefix("prep-")
         title = source.get(run.key).title
         keys = [ticket, *filed]
-        for n, (name, size) in list(enumerate(parts, 1))[len(keys) :]:
+        for n, (name, size, alone) in list(enumerate(parts, 1))[len(keys) :]:
+            blocker = "" if alone else next(keys[i] for i in range(n - 2, -1, -1) if i == 0 or not parts[i][2])
             body = (
                 f"### Summary\n\nPart {n} of {len(parts)} of {ticket}, {title}. Build only PR {n}, \"{name}\", from the design of {ticket}. "
-                f"It builds on {keys[-1]}, and workshop gives it the branch to start from. This ticket builds one PR, so leave out the other parts the design describes.\n"
+                + ("It needs none of the other parts, so it starts from the base branch. " if alone else f"It builds on {blocker}, and workshop gives it the branch to start from. ")
+                + "This ticket builds one PR, so leave out the other parts the design describes.\n"
             )
-            key = source.add_part(run.key, keys[-1], name, body)
+            key = source.add_part(run.key, blocker, name, body)
             keys.append(key)
             noted.write_text(json.dumps(keys[1:]), encoding="utf-8")
             if size:
                 getattr(source, "set_estimate", lambda key, value: None)(key, size)
         getattr(source, "retitle", lambda key, title: None)(run.key, parts[0][0])  # the ticket now builds PR 1 alone, so it takes that name
         rest = ", ".join(f"PR {n} is {key}" for n, key in enumerate(keys[1:], 2))
-        source.signed(run.key, f"{self.mark}Split into one ticket per PR. This ticket builds PR 1 only, \"{parts[0][0]}\". {rest}. Each is blocked by the one before.")
+        alone = [key for key, (_, _, by_itself) in zip(keys[1:], parts[1:]) if by_itself]
+        free = f" {', '.join(alone)} {'needs' if len(alone) == 1 else 'need'} none of the others, so {'it starts' if len(alone) == 1 else 'they start'} at once." if alone else ""
+        source.signed(run.key, f"{self.mark}Split into one ticket per PR. This ticket builds PR 1 only, \"{parts[0][0]}\". {rest}. Each is blocked by the one before.{free}")
         self.store.event(run, "split", parts=keys[1:])
 
     def in_order(self, repo: str, keys: list[str]) -> list[str]:
