@@ -168,6 +168,8 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 #                             # manual: only when you run it. On Jira, needs [jira] project and moves.dropped
 # environments = { main = "prod", dev = "preprod" }
 #                             # replaces the default: main and master are prod, dev and preprod are preprod
+# merge = "admin"             # default: M on the board merges only an approved PR. admin merges without,
+#                             # with GitHub's admin override, for repos you merge alone
 # pipeline = "ticket"         # or "gated", for your approval after planning. README: Your own pipelines
 # review_pipeline = "review"  # AI review of someone's PR
 # reply_pipeline = "reply"    # answering comments on your own PR

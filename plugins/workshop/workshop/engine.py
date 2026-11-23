@@ -322,6 +322,9 @@ class Engine:
 
     def _merged(self, run: Run, pr: dict[str, Any]) -> None:
         """A branch is an environment. Only prod ends a run, so a ticket stays open while its work is in preprod."""
+        if not run.merged_by:
+            run.merged_by = (pr.get("mergedBy") or {}).get("login", "") or "someone"
+            self.store.event(run, "merged", by=run.merged_by, approved=pr.get("reviewDecision") == "APPROVED")
         kinds = run.environments or ENVIRONMENTS
         place = kinds.get(pr.get("baseRefName", run.base), "")
         if place == "preprod":

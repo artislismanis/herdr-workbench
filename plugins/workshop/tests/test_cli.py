@@ -18,6 +18,28 @@ from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 
 
+class Merge(unittest.TestCase):
+    URL = "https://github.com/o/r/pull/9"
+
+    def merge(self, table, decision):
+        engine = mock.Mock()
+        engine.tools.pr_state.return_value = {"reviewDecision": decision}
+        engine.store.all.return_value = []
+        with mock.patch.object(cli, "repo_of", return_value=("r", "9")):
+            return engine, cli.merge(engine, {"repos": {"r": table}}, self.URL)
+
+    def test_an_unapproved_pr_waits_unless_the_repo_merges_as_admin(self):
+        with self.assertRaises(ToolError):
+            self.merge({}, "")
+        engine, said = self.merge({"merge": "admin"}, "")
+        engine.tools.merge.assert_called_once_with(self.URL, True)
+        self.assertIn("admin override", said)
+
+    def test_an_approved_pr_merges_with_no_override(self):
+        engine, _ = self.merge({}, "APPROVED")
+        engine.tools.merge.assert_called_once_with(self.URL, False)
+
+
 class Finish(unittest.TestCase):
     def actions(self, changed, draft):
         return [action for _, _, action in finish_choices(changed, draft)]

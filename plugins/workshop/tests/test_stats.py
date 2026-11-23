@@ -51,6 +51,10 @@ class Stats(unittest.TestCase):
         self.assertIn("plus unpriced", text)
         self.assertIn("1 x Agent gone", text)
 
+    def test_merges_without_approval_are_counted_per_repo(self):
+        merges = [{"type": "merged", "repo": "a", "key": "1", "by": "me", "approved": False}, {"type": "merged", "repo": "a", "key": "2", "by": "me", "approved": True}]
+        self.assertIn("  a: 1", stats([spent("1", "plan"), *merges]))
+
 
 if __name__ == "__main__":
     unittest.main()

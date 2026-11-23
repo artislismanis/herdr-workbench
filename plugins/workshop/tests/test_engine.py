@@ -393,6 +393,14 @@ class Deploy(unittest.TestCase):
         self.assertEqual((run.landed, run.deployed, self.source.moves[-1]), ("merged", "prod", "merged"))
         self.assertEqual(self.tools.asked_reach[-1][1:], (self.URL, "abc", ["main", "master"]))
 
+    def test_a_merge_without_approval_is_logged_once_with_who(self):
+        self.merged("dev")
+        self.tools.pr |= {"reviewDecision": "", "mergedBy": {"login": "me"}}
+        run = self.engine.land(self.delivered())
+        self.engine.land(run)
+        merges = [e for e in self.engine.store.history() if e["type"] == "merged"]
+        self.assertEqual([(e["by"], e["approved"]) for e in merges], [("me", False)])
+
     def test_preprod_is_told_once(self):
         self.merged("dev")
         run = self.engine.land(self.delivered())

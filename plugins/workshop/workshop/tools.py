@@ -150,7 +150,13 @@ class Tools:
             run("gh", "pr", "edit", number, "--add-reviewer", ",".join(who), cwd=repo)
 
     def pr_state(self, url: str) -> dict[str, Any]:
-        return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid,baseRefName,body,mergeCommit")
+        return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid,baseRefName,body,mergeCommit,mergedBy")
+
+    def merge(self, url: str, admin: bool) -> None:
+        """By the first method the repo allows, squash before a merge commit before a rebase."""
+        allowed = run_json("gh", "repo", "view", url.split("/pull/")[0], "--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed")
+        method = next(flag for key, flag in (("squashMergeAllowed", "--squash"), ("mergeCommitAllowed", "--merge"), ("rebaseMergeAllowed", "--rebase")) if allowed[key])
+        run("gh", "pr", "merge", url, method, *(["--admin"] if admin else []))
 
     def checks(self, url: str) -> tuple[str, list[dict[str, str]]]:
         """The PR's head and its checks, check runs and commit statuses alike, so it doesn't matter which CI reports them."""

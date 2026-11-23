@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status [--json] | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status [--json] | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | merge <url> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -39,7 +39,7 @@ DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see
 TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "merge": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 SHOWN_SECONDS = 1  # long enough to see it worked, with nothing to dismiss
@@ -109,6 +109,17 @@ def repo_of(cfg: dict[str, Any], url: str) -> tuple[str, str]:
         if github_repo(path) == f"{found[1]}/{found[2]}":
             return name, found[3]
     raise KeyError(f"{found[1]}/{found[2]} needs a [repos] table with its path before workshop can review its PRs")
+
+
+def merge(engine: Engine, cfg: dict[str, Any], url: str) -> str:
+    """With admin override where the repo's table says merge = "admin", so you can merge alone. GitHub records who."""
+    admin = cfg["repos"][repo_of(cfg, url)[0]].get("merge") == "admin"
+    if not admin and engine.tools.pr_state(url)["reviewDecision"] != "APPROVED":
+        raise ToolError(f'{url} isn\'t approved. merge = "admin" in its repo\'s table merges it without.')
+    engine.tools.merge(url, admin)
+    if run := next((r for r in engine.store.all() if r.pr == url and r.status == "done" and not r.landed), None):
+        engine.land(run)  # at once, rather than at the next tick
+    return f"Merged {url}" + (" with admin override." if admin else ".")
 
 
 def begin_review(engine: Engine, cfg: dict[str, Any], url: str, mode: str = "") -> Run:
@@ -648,6 +659,8 @@ def main(argv: list[str]) -> int:
             case "rerequest":
                 name, number = repo_of(cfg, argv[1])
                 engine.tools.rerequest(Path(cfg["repos"][name]["path"]).expanduser(), number)
+            case "merge":
+                waited(root, lambda: print(merge(engine, cfg, argv[1])))
             case "reply":
                 waited(root, lambda: print(engine.explain(begin_reply(engine, cfg, argv[1]))))
             case "fix-ci":

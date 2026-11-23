@@ -260,6 +260,8 @@ A branch is an environment: a merge to `main` or `master` is prod, and to `dev` 
 
 A merge to preprod takes the run's worktree, moves the ticket to its `preprod` state, and keeps the ticket open. Each tick then checks whether the PR has reached prod, first by its merge commit, then, for repos that squash on the way, by whether its changes apply in reverse to prod's tree. A merge to prod lands the run and closes the ticket, and the run shows as `in prod`. On Jira, `moves` can name a status for `preprod`.
 
+`M` on the board merges your PR, from its row or its run, once you confirm. It takes the first method the repo allows: squash, then a merge commit, then a rebase. It merges only an approved PR, unless the repo's table sets `merge = "admin"`. Then it merges with GitHub's admin override, and the card says so before you confirm. However a PR merges, the event log records who merged it and whether it was approved. A merge with no approval shows in the recent events, and `workshop stats` counts them for each repo.
+
 If the PR or the ticket's design has a `Release steps` heading, the run stops at a `release` gate once it's in prod, with the steps in `release.md`. `workshop approve` says they're done and lands it.
 
 ## Maintain

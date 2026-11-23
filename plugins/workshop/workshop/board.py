@@ -53,6 +53,7 @@ TAB_KEY = ord("\t")
 AI_REVIEW = ord("a")  # with nothing stopped under it, where the same key answers
 AI_REVIEW_OTHER = ord("A")  # the mode you don't usually use
 CLAIM = ord("m")
+MERGE = ord("M")
 PREPARE = ord("p")
 FIND = ord("/")
 TALK = "talk"
@@ -366,6 +367,10 @@ class Board:
         if key == AI_REVIEW_OTHER and (pr := self.unreviewed(lines)):
             self.send("pr", pr, f"--{self.other_mode()}")
             return True
+        if key == MERGE and (pr := self.mergeable(lines)):
+            admin = self.admin(pr)
+            self.begin_note(Ask(pr, f"Merge #{pr.rsplit('/', 1)[-1]}{' with admin override' if admin else ''}?", (), (("Merge it", "merge", ""),), "", "merge"))
+            return True
         if key == CLAIM and (found := self.claimable(lines)):
             self.send("claim", found.key)
             return True
@@ -481,6 +486,18 @@ class Board:
         if pr is None or not pr["mine"] or pr["checks"] not in FAILING:
             return ""
         return "" if any(r.fixing and r.pr == url and r.status != "done" for r in self.runs) else url
+
+    def mergeable(self, lines: list[Line]) -> str:
+        """Your open PR, from its row or the delivery that made it."""
+        wanted = self.open or self.selected(lines)
+        run = self.run_of(wanted)
+        url = wanted[1] if wanted and wanted[0] == "#pr" else run.pr if run and not run.landed else ""
+        pr = next((p for p in self.snapshot.get("prs", {}).get("items", []) if p["url"] == url), None)
+        return url if pr and pr["mine"] and pr["state"] not in ("draft", "merged", "closed") else ""
+
+    def admin(self, url: str) -> bool:
+        repo = url.split("/pull/")[0].rsplit("/", 1)[-1]
+        return self.cfg.get("repos", {}).get(repo, {}).get("merge") == "admin"
 
     def answerable(self, lines: list[Line]) -> str:
         """The selected PR, if it's yours with comments an agent could answer."""
@@ -762,6 +779,7 @@ class Board:
         offers = [("a re-review", AI_REVIEW)] if self.askable(lines) else offers
         offers = [("a fix CI", AI_REVIEW)] if self.fixable(lines) else offers
         offers += [("m claim", CLAIM)] * bool(self.claimable(lines))
+        offers += [("M merge", MERGE)] * bool(self.mergeable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG)
         offers += [(f"esc clear /{self.filter}", ESCAPE)] if self.filter and not self.open else [("/ filter", FIND)] * (self.tab != USAGE and not self.open)
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run and run.pane) + [("o link", ord("o"))] * bool(self.link(lines)) + [("w wide" if self.phone else "w phone", PHONE), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
