@@ -401,6 +401,43 @@ class Deploy(unittest.TestCase):
         merges = [e for e in self.engine.store.history() if e["type"] == "merged"]
         self.assertEqual([(e["by"], e["approved"]) for e in merges], [("me", False)])
 
+    def test_checks_for_after_the_merge_run_at_the_first_merge(self):
+        for body in ("## For reviewer\n\n- [ ] After merge, the runs list each pin.", "## After merge\n\n- Read the alerts."):
+            self.merged("dev", body)
+            run = self.engine.land(self.delivered())
+            self.assertEqual((run.status, run.current["id"], run.deployed, run.worktree), ("running", "after-merge", "preprod", ""))
+
+    def test_the_checks_are_added_once(self):
+        self.merged("dev", "## After merge\n\n- x")
+        run = self.engine.land(self.delivered())
+        run.status = "done"
+        self.engine.land(run)
+        self.assertEqual([s["id"] for s in run.pipeline["steps"]].count("after-merge"), 1)
+
+    def test_once_the_checks_pass_it_follows_the_pr_on_to_prod(self):
+        self.merged("dev", "## After merge\n\n- x")
+        run = self.engine.land(self.delivered())
+        run.step += 1
+        self.engine._finish(run)
+        self.assertEqual((run.status, run.landed), ("done", ""))
+        self.tools.reaches = True
+        run = self.engine.land(run)
+        self.assertEqual((run.landed, run.deployed), ("merged", "prod"))
+        self.assertEqual([e["environment"] for e in self.engine.store.history() if e["type"] == "deployed"], ["preprod", "prod"])
+
+    def test_later_waits_then_runs_the_step_again_and_gives_up_after_three(self):
+        self.merged("dev", "## After merge\n\n- x")
+        run = self.engine.land(self.delivered())
+        step = run.current
+        self.engine._follow(run, step, step["then"]["LATER"], "LATER", "")
+        self.assertEqual((run.wake_at, run.current["id"]), (1000.0 + 6 * 3600, "after-merge"))
+        self.assertIs(self.engine.advance(run), run)
+        self.assertEqual(run.phase, "")
+        for _ in range(2):
+            self.engine._follow(run, step, step["then"]["LATER"], "LATER", "")
+        with self.assertRaises(Park):
+            self.engine._follow(run, step, step["then"]["LATER"], "LATER", "")
+
     def test_preprod_is_told_once(self):
         self.merged("dev")
         run = self.engine.land(self.delivered())

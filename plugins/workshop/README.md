@@ -262,6 +262,8 @@ A merge to preprod takes the run's worktree, moves the ticket to its `preprod` s
 
 `M` on the board merges your PR, from its row or its run, once you confirm. It takes the first method the repo allows: squash, then a merge commit, then a rebase. It merges only an approved PR, unless the repo's table sets `merge = "admin"`. Then it merges with GitHub's admin override, and the card says so before you confirm. However a PR merges, the event log records who merged it and whether it was approved. A merge with no approval shows in the recent events, and `workshop stats` counts them for each repo.
 
+Some checks can only run once a PR has merged, such as reading the runs a change to the Dependabot config starts. A PR lists them under an `After merge` heading, or in checklist items that start with "After merge". On the first merge, into preprod or prod, the run gains an `after-merge` step. A fresh Sonnet runs each check from a new checkout of the base. Where a check fails and the fix is a file change, it opens the fix as a draft PR. `PASS` sends the run on to wait for prod as before. `LATER` runs the step again in 6 hours, up to three times, and frees its slot meanwhile. `FAILED` stops the run for you, with the report.
+
 If the PR or the ticket's design has a `Release steps` heading, the run stops at a `release` gate once it's in prod, with the steps in `release.md`. `workshop approve` says they're done and lands it.
 
 ## Maintain
