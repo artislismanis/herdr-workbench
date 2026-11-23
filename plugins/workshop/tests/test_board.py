@@ -1488,6 +1488,29 @@ class Keys(unittest.TestCase):
             thread.call_args.kwargs["target"]()
         self.tools.workshop.assert_called_once_with("fix-ci", url)
 
+    def test_your_approved_pr_merges_after_you_confirm(self):
+        self.on_pr(mine=True, state="approved")
+        self.assertIn("M merge", self.board.footer().text)
+        url = self.board.picked[1]
+        self.board.press(ord("M"))
+        self.assertTrue(self.board.asking.question.startswith("Merge #"))
+        self.assertNotIn("admin", self.board.asking.question)
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(10)
+            thread.call_args.kwargs["target"]()
+        self.tools.workshop.assert_called_once_with("merge", url)
+
+    def test_a_draft_or_someone_elses_pr_offers_no_merge(self):
+        for fields in ({"mine": True, "state": "draft"}, {"mine": False, "state": "approved"}):
+            self.on_pr(**fields)
+            self.assertNotIn("M merge", self.board.footer().text)
+
+    def test_a_repo_set_to_admin_says_so_before_the_merge(self):
+        self.on_pr(mine=True, state="review")
+        self.board.cfg = {"repos": {self.board.picked[1].split("/pull/")[0].rsplit("/", 1)[-1]: {"merge": "admin"}}}
+        self.board.press(ord("M"))
+        self.assertIn("with admin override", self.board.asking.question)
+
     def test_a_fix_under_way_offers_no_second_one(self):
         self.on_pr(mine=True, state="checks failing", checks="FAILURE")
         self.store.save(run("ci-7", pr=self.board.picked[1], fixing=True))

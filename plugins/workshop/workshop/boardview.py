@@ -201,6 +201,7 @@ def recent(events: list[dict[str, Any]], count: int) -> list[Line]:
     for e in reversed([e for e in events if e["type"] != "spent"][-count:]):
         style = "red" if e["type"] in BAD_EVENTS else "green" if e["type"] in GOOD_EVENTS or e.get("state") == "done" else "dim"
         what = " ".join(part for part in (e["type"] if e["type"] != "step" else "", e.get("step", ""), e.get("state", "")) if part)
+        what += f" by {e['by']}, not approved" if e["type"] == "merged" and not e.get("approved") else ""
         lines.append(Line([Span("  ● ", style), Span(e["at"][5:16].replace("T", " ") + "  ", "dim"), Span(cell(f"{e['repo']}/{e['key']}", 24) + " ", "dim"), Span(clean(what))]))
     return lines
 

@@ -33,6 +33,8 @@ def stats(events: list[dict[str, Any]]) -> str:
     if done:
         lines += [f"First pass: {first_pass} of {len(done)}", f"Average cost per ticket (API-equivalent USD): ${sum(priced) / len(done):.2f}"]
     lines += _table("By step:", by_step) + _table("By model:", by_model) + _table("By repo:", by_repo) + _table("By ticket:", by_ticket)
+    if alone := Counter(e["repo"] for e in events if e["type"] == "merged" and not e.get("approved")):
+        lines += ["Merged without approval:", *(f"  {repo}: {n}" for repo, n in sorted(alone.items()))]
     if parks := Counter(e["reason"][:70] for e in events if e["type"] == "parked"):
         lines += ["Why runs stopped:", *(f"  {n} x {reason}" for reason, n in parks.most_common(5))]
     return "\n".join(lines)

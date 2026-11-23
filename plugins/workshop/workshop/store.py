@@ -60,6 +60,7 @@ class Run:
     told: str = ""  # the interactive step you've been told about
     environments: dict[str, str] = field(default_factory=dict)  # the repo's, branch to environment, if it names its own
     deployed: str = ""  # the furthest environment its PR has reached
+    merged_by: str = ""  # who merged its PR, logged once
     sweeping: str = ""  # which scheduled look at the repo this is
     fixing: bool = False  # your PR's failing CI, which it fixes and watches until it passes
     decided: dict[str, str] = field(default_factory=dict)  # your answer to each proposal: do, skip or guide
