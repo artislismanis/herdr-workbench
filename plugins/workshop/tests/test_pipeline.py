@@ -60,7 +60,7 @@ class Validate(unittest.TestCase):
         self.rejects({"name": "x", "steps": [agent(), gate | {"section": "Design", "label": "ai"}]}, "label must be one of")
 
     def test_the_shipped_pipeline_is_valid(self):
-        self.assertEqual([s["id"] for s in load("ticket")["steps"]], ["tasks", "implement", "qa", "ai-review", "open-pr", "ci", "copilot"])
+        self.assertEqual([s["id"] for s in load("ticket")["steps"]], ["tasks", "implement", "qa", "ai-review", "pr-text", "open-pr", "ci", "copilot"])
 
     def test_the_review_pipeline_is_valid_and_can_post_nothing(self):
         steps = load("review")["steps"]

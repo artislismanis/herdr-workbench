@@ -691,6 +691,13 @@ class Prepare(unittest.TestCase):
 
     SPLIT = "### How\n\nIn three PRs.\n\nPR: Tests on each runtime | Small (3 Days)\nPR: Pin the libraries | X-Small (1 Day)\nPR: Explain the policy\nQUEUE: 1\nVERDICT: READY\n"
 
+    def test_a_split_ticket_takes_the_name_of_the_pr_it_builds(self):
+        self.splitting()
+        renamed = []
+        self.ticket.retitle = lambda key, title: renamed.append((key, title))
+        self.design(self.SPLIT)
+        self.assertEqual(renamed, [("7", "Tests on each runtime")])
+
     def test_the_design_talk_agrees_how_the_work_splits_into_prs(self):
         self.agree(self.start())
         self.assertIn("exactly `PR:` and its title", self.tools.prompts[-1][1])
@@ -1484,9 +1491,9 @@ class FakeThrottle:
 
 
 def to_draft(*kept):
-    """The ticket pipeline up to its draft PR, plus any of the checks after it named. TicketCi and TicketCopilot cover those."""
+    """The ticket pipeline up to its draft PR, plus any of the steps named that it leaves out. TicketCi, TicketCopilot and PrText cover those."""
     pipeline = load("ticket")
-    return pipeline | {"steps": [s for s in pipeline["steps"] if s["kind"] not in ("ci", "copilot") or s["id"] in kept]}
+    return pipeline | {"steps": [s for s in pipeline["steps"] if (s["kind"] not in ("ci", "copilot") and s["id"] != "pr-text") or s["id"] in kept]}
 
 
 class FakeTools:
@@ -1698,8 +1705,12 @@ class FakeTools:
 
     def create_pr(self, work, branch, base, title, body):
         self.created += 1
+        self.created_with = (title, body)
         self.pr = "https://example.test/pr/1"
         return self.pr
+
+    def edit_pr(self, work, pr, title, body):
+        self.edited = [*getattr(self, "edited", []), (pr, title)]
 
 
 class Case(unittest.TestCase):
@@ -1734,6 +1745,50 @@ class Case(unittest.TestCase):
         run = self.start()
         run = self.finish_agent(run, "ws-de-1", "tasks", "VERDICT: READY\n")
         return self.finish_agent(run, "ws-de-1", "implement")
+
+
+TEMPLATE = "## Description\n<!-- what and why -->\n\n## Related Issue\n<!-- the ticket -->\n"
+
+
+class PrText(Case):
+    def setUp(self):
+        super().setUp()
+        env = mock.patch.dict(os.environ, {"WORKSHOP_PIPELINES": str(self.root / "none")})  # the shipped pipeline, not yours
+        env.start()
+        self.addCleanup(env.stop)
+
+    def start(self):
+        run = self.engine.start("repo", "DE-1", self.root, "main", to_draft("pr-text"), self.source)
+        (Path(run.worktree) / ".github").mkdir(parents=True, exist_ok=True)
+        (Path(run.worktree) / ".github/pull_request_template.md").write_text(TEMPLATE, encoding="utf-8")
+        return run
+
+    def written(self, text):
+        run = self.to_verify()
+        run = self.finish_agent(run, "ws-de-1-ai-review-1", "ai-review", "VERDICT: PASS\n")
+        (self.kept() / "pr.md").write_text(text, encoding="utf-8")
+        return self.finish_agent(run, "ws-de-1-pr-text-1", "pr-text", "VERDICT: READY\n")
+
+    def test_the_pr_and_commit_take_the_title_and_text_it_wrote(self):
+        run = self.written("DE-1 Move the facts\n\n## Description\n\nWhy.\n\n## Related Issue\n\nDE-1")
+        self.assertEqual(run.status, "done")
+        self.assertEqual(self.tools.commits, ["DE-1 Move the facts"])
+        self.assertEqual(self.tools.created_with[1], "## Description\n\nWhy.\n\n## Related Issue\n\nDE-1")
+
+    def test_a_heading_left_out_goes_back_once_with_what_is_missing(self):
+        run = self.written("DE-1 Move the facts\n\n## Description\n\nWhy.")
+        self.assertEqual((run.status, run.current["id"]), ("running", "pr-text"))
+        self.assertIn("no `## Related Issue` heading", (self.kept() / "open-pr.md").read_text(encoding="utf-8"))
+
+    def test_a_title_without_the_key_goes_back(self):
+        run = self.written("Move the facts\n\n## Description\n\nWhy.\n\n## Related Issue\n\nDE-1")
+        self.assertEqual(run.current["id"], "pr-text")
+        self.assertIn("must start with DE-1", (self.kept() / "open-pr.md").read_text(encoding="utf-8"))
+
+    def test_a_pr_that_exists_gets_the_new_text(self):
+        self.tools.pr = "https://example.test/pr/1"
+        self.written("DE-1 Move the facts\n\n## Description\n\nWhy.\n\n## Related Issue\n\nDE-1")
+        self.assertEqual(self.tools.edited, [("https://example.test/pr/1", "DE-1 Move the facts")])
 
 
 class RefusedCommit(Case):

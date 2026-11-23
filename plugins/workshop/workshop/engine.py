@@ -28,6 +28,26 @@ SWEEP_EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 MANUAL = "manual"  # a sweep only you start, from Operate
 AFTER_MERGE = re.compile(r"^#+\s*after (the )?merge\s*$|^\s*[-*] \[ \] after (the )?merge", re.IGNORECASE | re.MULTILINE)
 AFTER_BRANCH = "-after-merge"
+PR_TEXT = "pr.md"  # the title on its first line, then the description
+TEMPLATES = (".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md", "pull_request_template.md", "docs/pull_request_template.md")
+
+
+def template_headings(work: Path) -> list[str]:
+    found = next((work / path for path in TEMPLATES if (work / path).is_file()), None)
+    return re.findall(r"^##\s+(.+?)\s*$", found.read_text(encoding="utf-8"), re.MULTILINE) if found else []
+
+
+def pr_text(path: Path, key: str, headings: list[str]) -> tuple[str, str, str]:
+    """The title and description pr-text wrote, and what's wrong with them, if anything."""
+    lines = path.read_text(encoding="utf-8").strip().splitlines() if path.exists() else []
+    if not lines:
+        return "", "", f"`{path}` is missing or empty."
+    title, body = lines[0].lstrip("#").strip(), "\n".join(lines[1:]).strip()
+    problems = [] if title.startswith(key) else [f"The title must start with {key}: {title}"]
+    problems += [f"The description has no `## {h}` heading from the template." for h in headings if not re.search(rf"^##\s+{re.escape(h)}\s*$", body, re.MULTILINE)]
+    return title, body, "\n".join(problems)
+
+
 AFTER_MERGE_STEP = {"id": "after-merge", "stage": "Deploy", "kind": "agent", "prompt": "after-merge.md", "fresh": True, "model": "sonnet", "verdict": ["PASS", "LATER", "FAILED"], "then": {"LATER": {"wait": 6 * 3600, "max": 3}, "FAILED": {"park": "A check after the merge failed."}}}
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 NO_STEPS = {"none", "n/a", "nothing", "no"}
@@ -490,6 +510,7 @@ class Engine:
             noted.write_text(json.dumps(keys[1:]), encoding="utf-8")
             if size:
                 getattr(source, "set_estimate", lambda key, value: None)(key, size)
+        getattr(source, "retitle", lambda key, title: None)(run.key, parts[0][0])  # the ticket now builds PR 1 alone, so it takes that name
         rest = ", ".join(f"PR {n} is {key}" for n, key in enumerate(keys[1:], 2))
         source.signed(run.key, f"{self.mark}Split into one ticket per PR. This ticket builds PR 1 only, \"{parts[0][0]}\". {rest}. Each is blocked by the one before.")
         self.store.event(run, "split", parts=keys[1:])
@@ -1268,7 +1289,15 @@ class Engine:
             raise Park("This run works on a PR that exists, so it never opens one, whatever its pipeline says.")
         work = Path(run.worktree)
         ticket = self.source_for(run).get(run.key)
-        title = f"{ticket.key}: {ticket.title}"
+        title, body = f"{ticket.key}: {ticket.title}", ""
+        if "pr-text" in [s["id"] for s in run.pipeline["steps"]]:
+            title, body, problem = pr_text(self.store.files(run) / PR_TEXT, ticket.key, template_headings(work))
+            if problem:
+                step, report = run.current, self._report(run, run.current)
+                report.write_text(f"{problem}\n\nVERDICT: FAILED\n", encoding="utf-8")
+                self.store.event(run, "step", step=step["id"], state="done", verdict="FAILED")
+                self._follow(run, step, {"goto": "pr-text", "max": 1, "prompt": "fix-pr-text.md"}, "FAILED", f"See {report}.")
+                return
         try:
             self.tools.commit_all(work, title)
         except CommitRefused as refused:
@@ -1284,9 +1313,11 @@ class Engine:
             raise Park("The agents changed nothing, so there is no PR to open.")
         self.tools.push(work, run.branch)
         run.pr = self.tools.find_pr(work, run.branch)
-        if not run.pr:
+        if run.pr and body:  # a round after rework rewrites the text too
+            self.tools.edit_pr(work, run.pr, title, body)
+        elif not run.pr:
             reports = [self._report(run, s) for s in run.pipeline["steps"] if s.get("publish") == "pr"]
-            body = reports[0].read_text(encoding="utf-8") if reports and reports[0].exists() else f"Delivers {ticket.key}."
+            body = body or (reports[0].read_text(encoding="utf-8") if reports and reports[0].exists() else f"Delivers {ticket.key}.")
             run.pr = self.tools.create_pr(work, run.branch, run.base, title, body)
         self.store.event(run, "step", step=run.current["id"], state="done", pr=run.pr)
         run.step, run.phase = run.step + 1, ""
