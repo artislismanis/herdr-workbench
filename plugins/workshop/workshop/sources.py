@@ -217,6 +217,9 @@ class GitHubSource:
     def rewrite(self, key: str, text: str) -> None:
         run("gh", "issue", "edit", key, "--body", text, cwd=self.repo)
 
+    def retitle(self, key: str, title: str) -> None:
+        run("gh", "issue", "edit", key, "--title", title, cwd=self.repo)
+
     def create(self, title: str, body: str) -> str:
         return run("gh", "issue", "create", "--title", title, "--body", body, cwd=self.repo).strip().rsplit("/", 1)[-1]
 
@@ -386,6 +389,9 @@ class JiraSource:
     def rewrite(self, key: str, text: str) -> None:
         """Already in wiki markup: publish writes the new section that way, and the rest came from Jira."""
         self._call("PUT", f"issue/{key}", {"fields": {"description": text}})
+
+    def retitle(self, key: str, title: str) -> None:
+        self._call("PUT", f"issue/{key}", {"fields": {"summary": title}})
 
     def _estimate_field(self, key: str) -> tuple[str, list[str]]:
         if not self.estimate:
@@ -841,6 +847,10 @@ class PrepareSource:
     def set_estimate(self, key: str, value: str) -> None:
         if isinstance(self.ticket, JiraSource):
             self.ticket.set_estimate(self._key(key), value)
+
+    def retitle(self, key: str, title: str) -> None:
+        if retitle := getattr(self.ticket, "retitle", None):
+            retitle(self._key(key), title)
 
     def add_part(self, key: str, blocker: str, title: str, body: str) -> str:
         if not (add := getattr(self.ticket, "add_part", None)):

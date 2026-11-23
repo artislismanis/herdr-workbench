@@ -39,6 +39,17 @@ read_only = true
 verdict = ["PASS", "CHANGES_NEEDED"]
 then.CHANGES_NEEDED = { goto = "implement", max = 2, prompt = "fix.md" }
 
+# Writes the PR title and description from the repo's template, in your prose style or else the repo's.
+# open-pr checks the title starts with the ticket key and every heading of the template is there.
+[step.pr-text]
+stage = "Deploy"
+kind = "agent"
+prompt = "pr-text.md"
+fresh = true
+read_only = true
+model = "sonnet"
+verdict = ["READY"]
+
 [step.open-pr]
 stage = "Deploy"
 kind = "draft_pr"

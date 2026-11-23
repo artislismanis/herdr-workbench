@@ -98,7 +98,7 @@ steps = ["tasks", "implement", "qa", "ai-review", "open-pr", "ci", "copilot"]
 
 | Pipeline | Steps |
 |---|---|
-| `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `open-pr`, then `ci`, which waits for green checks on the draft and sends red back to `implement`, and `copilot` when `[review] copilot` is on |
+| `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `pr-text`, `open-pr`, then `ci`, which waits for green checks on the draft and sends red back to `implement`, and `copilot` when `[review] copilot` is on |
 | `gated` | The same, with your approval after `tasks` |
 | `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk with the reviewer beside it. Posting removes the workspace and checkout |
 | `reply` | `reply`: an agent answers comments on your own PR |
@@ -107,6 +107,8 @@ steps = ["tasks", "implement", "qa", "ai-review", "open-pr", "ci", "copilot"]
 | `prepare` | `requirements` and `design`, two fresh agents that grill you, each with your go after it |
 
 `ticket_stage` names the stage the ticket itself stands for. It has no steps yet, so it leads the Workflow panel with the ticket, and it counts in the strip. Any step can set `stage`, and the Workflow panel groups by it. It's a free name, so use your own, and leave it out for a flat list. The shipped pipelines use Build, Test and Deploy, from [the AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook).
+
+`pr-text` writes the PR title and description to `pr.md` in the run folder. A fresh agent fills the repo's PR template from the ticket, the builder's report and the review. It uses your own prose style skill, or the repo's where you have none. `open-pr` checks that the title starts with the ticket key and that every `##` heading of the template is there. It sends the text back once with what's missing, and stops the run if it's still wrong. The commit takes the same title, and a later round rewrites the open PR's text. When a design splits a ticket, the ticket takes the name of PR 1, the only PR it builds.
 
 A `command` step runs what the repo sets for that step id under `[repos.<name>.commands]`, with no agent and no tokens. Its output is the report, and a failed `qa` goes back to `implement`. A repo without the command skips the step, shown as `SKIPPED`, and `ai-review` runs the repo's checks itself. Commands run as you, with your access, so only set them on repos you trust. A `ci` command starts CI on a draft, for a repo whose CI skips drafts, such as `az pipelines run --id 12 --branch "$BRANCH"`. The `ci` step runs it after each push, so the draft reaches you with green checks. A repo with no checks at all goes on after 10 minutes.
 
