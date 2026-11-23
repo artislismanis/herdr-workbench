@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status [--json] | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | merge <url> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | keep <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status [--json] | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | merge <url> | merge-listed <[repo/]key> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | keep <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
 
 import fcntl
 import json
@@ -39,7 +39,7 @@ DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see
 TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "merge": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "keep": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "merge": 1, "merge-listed": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "keep": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
 
 
 SHOWN_SECONDS = 1  # long enough to see it worked, with nothing to dismiss
@@ -125,6 +125,30 @@ def merge(engine: Engine, cfg: dict[str, Any], url: str) -> str:
     if run := next((r for r in engine.store.all() if r.pr == url and r.status == "done" and not r.landed), None):
         engine.land(run)  # at once, rather than at the next tick
     return f"Merged {url}" + (" with admin override." if admin else ".")
+
+
+MERGES = "merges.md"  # the PRs a run wants approved and merged, one link per line
+
+
+def merge_listed(engine: Engine, cfg: dict[str, Any], run: Run) -> str:
+    """The PRs a run listed, approved and merged on your go. The agent never does it, so auto mode has nothing to refuse."""
+    path = engine.store.files(run) / MERGES
+    urls = re.findall(r"https://github\.com/[^\s/]+/[^\s/]+/pull/\d+", path.read_text(encoding="utf-8")) if path.exists() else []
+    if not urls:
+        raise ToolError(f"{run.key} lists no PRs to merge.")
+    done, failed = [], []
+    for url in urls:
+        try:
+            if engine.tools.pr_state(url)["state"] != "MERGED":
+                engine.tools.approve(url, f"{engine.mark}Approved for {run.key} on your go in workshop.")
+                merge(engine, cfg, url)
+            done.append(url)
+        except STOPS as stop:
+            failed.append(f"{url}: {stop}")
+    path.unlink()
+    text = "\n".join([f"Approved and merged: {', '.join(done) or 'none'}.", *([f"Not merged: {'; '.join(failed)}"] if failed else [])])
+    engine.answer(run, text, who="Workshop, on the person's go,")
+    return text
 
 
 def begin_review(engine: Engine, cfg: dict[str, Any], url: str, mode: str = "") -> Run:
@@ -696,6 +720,8 @@ def main(argv: list[str]) -> int:
                 waited(root, lambda: print(engine.explain(engine.reject(engine.store.find(argv[1]), argv[2]))))
             case "answer":
                 waited(root, lambda: print(engine.explain(engine.answer(engine.store.find(argv[1]), argv[2]))))
+            case "merge-listed":
+                waited(root, lambda: print(merge_listed(engine, cfg, engine.store.find(argv[1]))))
             case "keep":
                 waited(root, lambda: print(keep(engine, engine.store.find(argv[1]), argv[2])))
             case "retry":

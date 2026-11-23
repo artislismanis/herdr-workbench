@@ -55,6 +55,34 @@ class Merge(unittest.TestCase):
         engine.tools.merge.assert_called_once_with(self.URL, False)
 
 
+class MergeListed(unittest.TestCase):
+    def listed(self, text, states):
+        folder = Path(tempfile.mkdtemp())
+        (folder / "merges.md").write_text(text, encoding="utf-8")
+        engine = mock.Mock(mark="[ai] ")
+        engine.store.files.return_value = folder
+        engine.store.all.return_value = []
+        engine.tools.pr_state.side_effect = lambda url: {"state": states.pop(0), "reviewDecision": "APPROVED"}
+        engine.tools.checks.return_value = ("head", [])
+        engine.tools.open_threads.return_value = 0
+        run = mock.Mock(key="DE-1")
+        with mock.patch.object(cli, "repo_of", return_value=("r", "9")):
+            said = cli.merge_listed(engine, {"repos": {"r": {}}}, run)
+        return engine, run, said, folder
+
+    def test_each_listed_pr_is_approved_then_merged_and_the_run_told(self):
+        engine, run, said, folder = self.listed("https://github.com/o/r/pull/1\nhttps://github.com/o/r/pull/2\n", ["OPEN", "OPEN", "OPEN", "OPEN"])
+        self.assertEqual([c.args[0] for c in engine.tools.approve.call_args_list], ["https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"])
+        self.assertEqual(engine.tools.merge.call_count, 2)
+        engine.answer.assert_called_once_with(run, said, who="Workshop, on the person's go,")
+        self.assertFalse((folder / "merges.md").exists())
+
+    def test_one_already_merged_is_left_alone(self):
+        engine, _, said, _ = self.listed("https://github.com/o/r/pull/1\n", ["MERGED"])
+        engine.tools.approve.assert_not_called()
+        self.assertIn("Approved and merged: https://github.com/o/r/pull/1", said)
+
+
 class StackedMerge(unittest.TestCase):
     URL = "https://github.com/o/r/pull/9"
     ALLOWED = {"squashMergeAllowed": True, "mergeCommitAllowed": False, "rebaseMergeAllowed": False}

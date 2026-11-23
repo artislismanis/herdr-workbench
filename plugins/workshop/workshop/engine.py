@@ -660,11 +660,12 @@ class Engine:
         self.save(run)
         return self.advance(run)
 
-    def answer(self, run: Run, text: str) -> Run:
+    def answer(self, run: Run, text: str, who: str = "A person") -> Run:
         step = run.current
         if run.status not in ("waiting", "parked") or step is None or step["kind"] != "agent":
             raise KeyError(f"{run.key} isn't waiting for an answer")
-        self._note(run, "answers.md", f"Q: {run.reason}\n\nA: {text}")
+        asked = run.reason
+        self._note(run, "answers.md", f"Q: {asked}\n\nA: {text}")
         self._fresh_rounds(run)
         self._ask_file(run).unlink(missing_ok=True)
         run.status, run.reason, run.blocked_at = "running", "", 0.0
@@ -675,7 +676,8 @@ class Engine:
             if run.phase != "prompted" or self.tools.agent_status(agent) == "gone":
                 run.phase = ""  # the step starts again, and its prompt points at the answers
             else:
-                self.tools.prompt(agent, f"A person answered your question in `{self.store.files(run)}/answers.md`. Read it, then carry on with the same step.")
+                # The answer goes in the message: auto mode trusts what it's told, not what a file says.
+                self.tools.prompt(agent, f"You asked:\n\n{asked}\n\n{who} answered:\n\n{text}\n\nIt's also in `{self.store.files(run)}/answers.md`. Carry on with the same step.")
                 run.started_at = self.clock()
         except STOPS as stop:
             self._park(run, f"{step['id']} failed: {stop}")

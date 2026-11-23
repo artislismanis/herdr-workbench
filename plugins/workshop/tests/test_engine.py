@@ -2332,6 +2332,11 @@ class Questions(Case):
         self.assertIn("A: v2", (self.kept() / "answers.md").read_text(encoding="utf-8"))
         self.assertFalse((self.kept() / "ask.md").exists())
 
+    def test_the_answer_itself_goes_in_the_message_with_who_gave_it(self):
+        run = self.asked()
+        self.engine.answer(run, "Use v2", who="The lead agent")
+        self.assertIn("The lead agent answered:\n\nUse v2", self.tools.prompts[-1][1])
+
     def test_an_answer_in_the_pane_carries_the_run_on(self):
         run = self.asked()
         (self.kept() / "ask.md").unlink()
