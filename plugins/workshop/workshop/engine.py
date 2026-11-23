@@ -869,7 +869,7 @@ class Engine:
                 run.branch = f"workshop/{slug(run.key)}" + ("-after-merge" if run.merged_by else "")  # the PR's branch has merged
                 path = self.tools.worktree(Path(run.repo_path), run.branch, run.base)
             run.worktree = str(path)
-            if run.reviewed:  # back for new commits: its branch may be an old local one
+            if run.reviewed and not run.merged_by:  # back for new commits: its branch may be an old local one. After the merge it's a new branch from the base
                 self.tools.follow_pr(path, run.branch, run.base)
                 run.reviewed = run.reviewed if self.tools.contains(path, run.reviewed) else ""
             self._write_brief(run)

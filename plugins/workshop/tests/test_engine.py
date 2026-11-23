@@ -407,6 +407,13 @@ class Deploy(unittest.TestCase):
             run = self.engine.land(self.delivered())
             self.assertEqual((run.status, run.current["id"], run.deployed, run.worktree), ("running", "after-merge", "preprod", ""))
 
+    def test_the_checks_start_from_a_new_branch_off_the_base(self):
+        self.merged("dev", "## After merge\n\n- x")
+        run = self.engine.land(self.delivered(reviewed="abc"))
+        self.tools.follow_pr = mock.Mock(side_effect=AssertionError("fetched the PR branch"))
+        self.engine._prepare(run)
+        self.assertEqual(run.branch, "workshop/7-after-merge")
+
     def test_the_checks_are_added_once(self):
         self.merged("dev", "## After merge\n\n- x")
         run = self.engine.land(self.delivered())
