@@ -27,6 +27,7 @@ QUEUE = "queue.json"  # the delivery queue's order by repo, as tickets have no o
 SWEEP_EVERY = {"weekly": 7 * 86400, "monthly": 30 * 86400}
 MANUAL = "manual"  # a sweep only you start, from Operate
 AFTER_MERGE = re.compile(r"^#+\s*after (the )?merge\s*$|^\s*[-*] \[ \] after (the )?merge", re.IGNORECASE | re.MULTILINE)
+AFTER_BRANCH = "-after-merge"
 AFTER_MERGE_STEP = {"id": "after-merge", "stage": "Deploy", "kind": "agent", "prompt": "after-merge.md", "fresh": True, "model": "sonnet", "verdict": ["PASS", "LATER", "FAILED"], "then": {"LATER": {"wait": 6 * 3600, "max": 3}, "FAILED": {"park": "A check after the merge failed."}}}
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 NO_STEPS = {"none", "n/a", "nothing", "no"}
@@ -337,7 +338,8 @@ class Engine:
             self._move(run, "preprod")
             self.save(run)
         if run.worktree:
-            self._tidy(run, pr["headRefOid"])
+            # The checkout for the checks after the merge never held the PR's commits. wt still keeps it if it holds work.
+            self._tidy(run, "" if run.branch.endswith(AFTER_BRANCH) else pr["headRefOid"])
         if self._check_after_merge(run, pr):
             return
         if place == "preprod" and not self.tools.reached(Path(run.repo_path), run.pr, pr["mergeCommit"]["oid"], [branch for branch, kind in kinds.items() if kind == "prod"]):
@@ -866,7 +868,7 @@ class Engine:
             if run.on_a_pr:
                 path, run.branch = self._pr_checkout(run)
             else:
-                run.branch = f"workshop/{slug(run.key)}" + ("-after-merge" if run.merged_by else "")  # the PR's branch has merged
+                run.branch = f"workshop/{slug(run.key)}" + (AFTER_BRANCH if run.merged_by else "")  # the PR's branch has merged
                 path = self.tools.worktree(Path(run.repo_path), run.branch, run.base)
             run.worktree = str(path)
             if run.reviewed and not run.merged_by:  # back for new commits: its branch may be an old local one. After the merge it's a new branch from the base

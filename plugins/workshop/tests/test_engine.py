@@ -414,6 +414,17 @@ class Deploy(unittest.TestCase):
         self.engine._prepare(run)
         self.assertEqual(run.branch, "workshop/7-after-merge")
 
+    def test_the_checkout_for_the_checks_goes_once_they_pass(self):
+        self.merged("dev", "## After merge\n\n- x")
+        run = self.engine.land(self.delivered())
+        self.engine._prepare(run)
+        self.tools.heads = ["base-tip"]  # its head is the base's, never the PR's
+        run.step += 1
+        self.engine._finish(run)
+        removed = len(self.tools.removed)
+        run = self.engine.land(run)
+        self.assertEqual((run.worktree, len(self.tools.removed)), ("", removed + 1))
+
     def test_the_checks_are_added_once(self):
         self.merged("dev", "## After merge\n\n- x")
         run = self.engine.land(self.delivered())
