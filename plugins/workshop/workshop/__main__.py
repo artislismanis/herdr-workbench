@@ -30,7 +30,7 @@ from .stats import stats
 from .store import Run, Store
 from .throttle import DEFAULTS, Throttle, usage_path
 from .system import Meter, agents_open
-from .tools import Tools
+from .tools import Tools, temp_folder
 from .usage import sample
 
 
@@ -676,6 +676,9 @@ def main(argv: list[str]) -> int:
         return 2
     if command in ("advance", "sample") and not config_path().exists():
         return 0  # herdr fires this for everyone who has the plugin, configured or not
+    if "TMPDIR" not in os.environ and (folder := temp_folder()):
+        Path(folder).expanduser().mkdir(parents=True, exist_ok=True)
+        os.environ["TMPDIR"] = str(Path(folder).expanduser())
     if command == "finish" and not config_path().exists():
         return post_review(here())  # no runs here, so it's a plain PR review
     if not config_path().exists():
