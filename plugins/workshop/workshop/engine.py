@@ -420,6 +420,7 @@ class Engine:
                 self.tools.move_onto(work, onto, run.below_head)
             if run.pr:
                 self.tools.force_push(work, run.branch)
+                run.pushed = self.tools.head(work)
                 if merged:
                     self.tools.retarget(work, run.pr, onto)  # GitHub does it when the branch below is deleted, but not every repo deletes it
         except Conflict:
@@ -1394,7 +1395,7 @@ class Engine:
                 return
         if self.tools.ahead(work, run.base) == 0:
             raise Park("The agents changed nothing, so there is no PR to open.")
-        self.tools.push(work, run.branch)
+        self._push(run, work)
         run.pr = self.tools.find_pr(work, run.branch)
         if run.pr and body:  # a round after rework rewrites the text too
             self.tools.edit_pr(work, run.pr, title, body)
@@ -1404,6 +1405,19 @@ class Engine:
             run.pr = self.tools.create_pr(work, run.branch, run.base, title, body)
         self.store.event(run, "step", step=run.current["id"], state="done", pr=run.pr)
         run.step, run.phase = run.step + 1, ""
+
+    def _push(self, run: Run, work: Path) -> None:
+        """A round of rework may move the branch onto its base to clear a conflict. Workshop then replaces the branch, only while it still holds workshop's own push."""
+        if run.pr:
+            tip = self.tools.tip(work, run.branch)
+            if not self.tools.contains(work, tip):
+                if run.pushed and tip != run.pushed:
+                    raise Park(f"Someone else pushed to {run.branch}, so workshop won't replace it. Look before going on.")
+                self.tools.force_push(work, run.branch, tip)
+                run.pushed = self.tools.head(work)
+                return
+        self.tools.push(work, run.branch)
+        run.pushed = self.tools.head(work)
 
     def _finish(self, run: Run) -> None:
         if run.pr and run.pipeline["steps"][-1]["id"] == "restack":

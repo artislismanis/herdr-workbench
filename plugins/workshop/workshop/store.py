@@ -67,6 +67,7 @@ class Run:
     fixing: bool = False  # your PR's failing CI, which it fixes and watches until it passes
     below: str = ""  # the ticket whose open PR this branch sits on, until that PR merges
     below_head: str = ""  # the commit of that PR this branch last moved onto
+    pushed: str = ""  # the head workshop last pushed, so it only ever replaces its own push
     decided: dict[str, str] = field(default_factory=dict)  # your answer to each proposal: do, skip or guide
     revised: bool = False  # the agent has acted on your guidance
     applied: list[int] = field(default_factory=list)  # proposals done, should a failure stop it halfway
