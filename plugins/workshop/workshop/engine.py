@@ -474,9 +474,9 @@ class Engine:
             return
         """A landed run's checkout goes, unless it holds work: wt refuses uncommitted changes, and a head that isn't the PR's has commits nobody pushed."""
         try:
-            if landed_head and self.tools.head(Path(run.worktree)) != landed_head:
-                raise ToolError("it has commits that aren't on the PR")
             if Path(run.worktree).is_dir():  # a checkout someone deleted by hand is tidied already
+                if landed_head and self.tools.head(Path(run.worktree)) != landed_head:
+                    raise ToolError("it has commits that aren't on the PR")
                 self.tools.remove_worktree(Path(run.repo_path), Path(run.worktree))
             pane = run.pane
             run.worktree, run.pane, run.agent, run.step_pane, run.step_agent = "", "", "", "", ""

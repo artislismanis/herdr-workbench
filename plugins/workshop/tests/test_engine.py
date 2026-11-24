@@ -493,6 +493,15 @@ class Deploy(unittest.TestCase):
         self.engine.land(self.engine.store.load(run.repo, run.key))
         self.assertEqual(len([e for e in self.engine.store.history() if e["type"] == "merged"]), 1)
 
+    def test_a_merged_run_whose_checkout_has_gone_lets_go_of_it(self):
+        self.merged("dev")
+        run = self.delivered()
+        shutil.rmtree(run.worktree)
+        with mock.patch.object(self.tools, "head", side_effect=ToolError("git rev-parse failed: no such directory")):
+            run = self.engine.land(run)
+        self.assertEqual(run.worktree, "")
+        self.assertNotIn("kept_worktree", [e["type"] for e in self.engine.store.history()])
+
     def test_preprod_is_told_once(self):
         self.merged("dev")
         run = self.engine.land(self.delivered())
