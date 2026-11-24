@@ -437,10 +437,12 @@ class Lock(unittest.TestCase):
         self.assertTrue(locked(self.root, lambda: done.append(1), 2))
         self.assertEqual(done, [1])
 
-    def test_a_persons_command_says_when_it_couldnt_run(self):
+    def test_a_persons_command_says_it_waits_then_why_it_gave_up(self):
         self.held()
-        with mock.patch("workshop.__main__.PATIENCE", 0.3), self.assertRaisesRegex(ToolError, "busy"):
+        said = io.StringIO()
+        with mock.patch("workshop.__main__.PATIENCE", 0.3), contextlib.redirect_stderr(said), self.assertRaisesRegex(ToolError, "stayed busy"):
             waited(self.root, lambda: None)
+        self.assertIn("runs as soon as it's free", said.getvalue())
 
     def test_a_persons_command_waits_its_turn(self):
         lock = (self.root / "lock").open("w")

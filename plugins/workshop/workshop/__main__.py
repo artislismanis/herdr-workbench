@@ -34,7 +34,7 @@ from .tools import Tools, temp_folder
 from .usage import sample
 
 
-PATIENCE = 60  # seconds a person's command waits for a tick to finish
+PATIENCE = 15 * 60  # seconds a person's command waits its turn, as what you ask for no later tick picks up
 DECIDED = {"APPROVED": "Approved.", "CHANGES_REQUESTED": "Changes requested, see the PR.", "COMMENTED": "Commented, see the PR."}
 TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
@@ -485,9 +485,12 @@ def locked(root: Path, work: Callable[[], None], patience: float = 0) -> bool:
 
 
 def waited(root: Path, work: Callable[[], None]) -> None:
-    """For what a person asks for, which no later tick would pick up."""
+    """For what a person asks for, which no later tick would pick up, so it waits its turn rather than give up."""
+    if locked(root, work):
+        return
+    print("Workshop is busy. This runs as soon as it's free.", file=sys.stderr, flush=True)
     if not locked(root, work, PATIENCE):
-        raise ToolError("Workshop is busy, so nothing happened. Try again in a moment.")
+        raise ToolError(f"Workshop stayed busy for {PATIENCE // 60} minutes, so nothing happened.")
 
 
 def here() -> str:
@@ -614,7 +617,7 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
     print("[y] push, post and ask for another look, [n] cancel: ", end="", flush=True)
     if pick() != "y":
         return 0
-    outcome = ["Workshop is busy, so nothing happened. Try again in a moment."]
+    outcome = [""]
 
     def act() -> None:
         try:
@@ -623,7 +626,7 @@ def finish_reply(engine: Engine, run: Run, path: str, root: Path) -> int:
         except STOPS as failed:
             outcome[0] = str(failed)
 
-    locked(root, act, PATIENCE)
+    waited(root, act)
     print(outcome[0])
     if not engine.store.load(run.repo, run.key).replied:
         return 1  # the popup stays, so the reason can be read
@@ -657,7 +660,7 @@ def finish(engine: Engine, root: Path, cfg: dict[str, Any]) -> int:
     if action == "comment":
         return post_review(path, "--as", "comment")
     if action:
-        outcome = ["Workshop is busy, so nothing happened. Try again in a moment."]
+        outcome = [""]
         done = [False]
 
         def act() -> None:
@@ -669,7 +672,7 @@ def finish(engine: Engine, root: Path, cfg: dict[str, Any]) -> int:
             except STOPS as failed:
                 outcome[0] = str(failed)
 
-        locked(root, act)
+        waited(root, act)
         print(outcome[0])
         if not done[0]:
             return 1  # the popup stays, so the reason can be read
