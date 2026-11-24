@@ -177,6 +177,7 @@ class Filling(unittest.TestCase):
         source = mock.Mock()
         source.ready.return_value = ready
         source.guard.return_value = ""
+        source.held.return_value = []
         with (
             mock.patch.object(cli, "read_limits"),
             mock.patch.object(cli, "advance_all"),
@@ -575,3 +576,23 @@ class TempFolder(unittest.TestCase):
     def test_a_tmpdir_you_set_stays(self):
         mine = tempfile.mkdtemp()
         self.assertEqual(self.started({"TMPDIR": "/elsewhere"}, before=mine), mine)
+
+
+class QueueHeld(unittest.TestCase):
+    def test_a_ticket_labelled_in_jira_leaves_backlog(self):
+        source = mock.Mock()
+        source.held.return_value = ["DE-9"]
+        with mock.patch.object(cli, "make_source", return_value=source), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.queue_held({"repos": {"r": {}}}), {})
+        source.move.assert_called_once_with("DE-9", "queued")
+
+    def test_one_it_cant_move_says_why(self):
+        source = mock.Mock()
+        source.held.return_value = ["DE-9"]
+        source.move.side_effect = ValueError("DE-9 has no route to To Do")
+        with mock.patch.object(cli, "make_source", return_value=source):
+            self.assertIn("no route to To Do", cli.queue_held({"repos": {"r": {}}})["r/DE-9"])
+
+    def test_a_source_with_no_statuses_is_left_alone(self):
+        with mock.patch.object(cli, "make_source", return_value=object()):
+            self.assertEqual(cli.queue_held({"repos": {"r": {}}}), {})
