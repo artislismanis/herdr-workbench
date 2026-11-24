@@ -170,7 +170,12 @@ class Tools:
             run("gh", "pr", "edit", number, "--add-reviewer", ",".join(who), cwd=repo)
 
     def pr_state(self, url: str) -> dict[str, Any]:
-        return run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid,baseRefName,body,mergeCommit,mergedBy")
+        pr = run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid,baseRefName,body,mergeCommit,mergedBy,latestReviews")
+        # GitHub leaves the decision blank on a branch whose rules ask for no review, though people approved it.
+        if not pr.get("reviewDecision"):
+            standing = {r["state"] for r in pr.get("latestReviews") or []}
+            pr["reviewDecision"] = "APPROVED" if "APPROVED" in standing and "CHANGES_REQUESTED" not in standing else ""
+        return pr
 
     def approve(self, url: str, body: str) -> None:
         try:
