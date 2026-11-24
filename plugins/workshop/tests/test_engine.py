@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -267,9 +268,10 @@ class Sweeps(unittest.TestCase):
         self.tools.statuses[run.step_agent] = "gone"
         run = self.engine.advance(run)
         self.tools.lost = {run.pane}
+        shutil.rmtree(run.worktree)
         with mock.patch.object(self.tools, "linked", side_effect=ToolError("herdr worktree failed: worktree path not found")):
             run = self.engine.drop(run, "Again")
-        self.assertEqual((run.status, run.landed), ("done", "dropped"))
+        self.assertEqual((run.status, run.landed, run.worktree), ("done", "dropped", ""))
         self.ticket.create.assert_not_called()
 
     def test_a_broken_file_is_a_stop_not_a_quiet_nothing(self):
