@@ -370,11 +370,11 @@ def keep(engine: Engine, run: Run, text: str) -> str:
 
 def ask_lead(engine: Engine, cfg: dict[str, Any]) -> None:
     for run in engine.store.all():
-        lead.look(engine, run, cfg.get("lead", {}))
+        lead.look_stopped(engine, lead.look(engine, run, cfg.get("lead", {})), cfg.get("lead", {}))
 
 
 def tick(engine: Engine, cfg: dict[str, Any]) -> None:
-    """Move every run on, then start ready tickets while there's room. Polling costs no tokens, except the lead agent's look at a new question."""
+    """Move every run on, then start ready tickets while there's room. Polling costs no tokens, except the lead agent's look at a new question or stop."""
     read_limits(engine)
     advance_all(engine)
     ask_lead(engine, cfg)

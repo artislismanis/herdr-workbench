@@ -83,5 +83,64 @@ class Lead(Case):
         self.assertTrue(self.workflow.read_text(encoding="utf-8").endswith(f"{DECIDED}\n- Which Databricks profile? Use `dev`.\n"))
 
 
+class LeadOnStops(Lead):
+    def parked(self):
+        self.tools.claude = self.claude
+        run = self.start()
+        self.tools.statuses["ws-de-1"] = "gone"
+        run = self.engine.advance(run)
+        self.assertEqual(run.status, "parked")
+        return run
+
+    def test_a_passing_stop_runs_the_step_once_more(self):
+        self.reply = {"retry": True, "note": "Start the tasks again.", "why": "The agent went away mid-step."}
+        run = lead.look_stopped(self.engine, self.parked(), {})
+        self.assertEqual(run.status, "running")
+        self.assertIn("The lead agent: The agent went away mid-step. Start the tasks again.", self.source.reports[-1])
+        self.assertIn("has gone", self.calls[0])
+        self.assertEqual([e["type"] for e in self.engine.store.history() if e["type"].startswith("lead_")], ["lead_retried"])
+
+    def test_it_retries_a_step_once_a_run(self):
+        self.reply = {"retry": True, "note": "", "why": "Gone."}
+        run = lead.look_stopped(self.engine, self.parked(), {})
+        self.tools.statuses["ws-de-1"] = "gone"
+        run = self.engine.advance(run)
+        self.assertEqual(run.status, "parked")
+        run.reason = "tasks ran past its time limit. Look at agent ws-de-1."  # a new stop, on the step it already retried
+        lead.look_stopped(self.engine, run, {})
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_stop_it_leaves_shows_why_on_the_board(self):
+        self.reply = {"retry": False, "note": "", "why": "The same test fails each time."}
+        run = lead.look_stopped(self.engine, self.parked(), {})
+        self.assertEqual(run.status, "parked")
+        self.assertEqual(lead.suggestion(self.engine, run), "The same test fails each time.")
+        lead.look_stopped(self.engine, run, {})
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_stop_only_you_can_clear_gets_no_look(self):
+        run = self.parked()
+        run.reason = "Rejected at tasks: not this way"
+        lead.look_stopped(self.engine, run, {})
+        self.assertEqual(self.calls, [])
+
+    def test_a_talk_with_you_gets_no_look(self):
+        run = self.parked()
+        run.current["interactive"] = True
+        lead.look_stopped(self.engine, run, {})
+        self.assertEqual(self.calls, [])
+
+    def test_stops_share_the_daily_cap(self):
+        run = self.parked()
+        self.engine.store.event(run, "spent", step="lead", usd=5.0)
+        lead.look_stopped(self.engine, run, {})
+        self.assertEqual(self.calls, [])
+
+    def test_a_reply_it_cant_read_leaves_the_stop_with_you(self):
+        self.reply = ["not", "an", "object"]
+        run = lead.look_stopped(self.engine, self.parked(), {})
+        self.assertEqual(run.status, "parked")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -149,7 +149,8 @@ token = ""                    # an API token from id.atlassian.com. JIRA_TOKEN i
 # weekly_pace_stop = 15       # no new agent steps this far ahead
 
 # ── Lead agent ───────────────────────────────────────────────────────────────────────────────────
-# Answers a run's question from the Standing decisions in workflow.md before it reaches you.
+# Answers a run's question from the Standing decisions in workflow.md before it reaches you,
+# and runs a step that stopped once more when the cause looks passing.
 # [lead]
 # enabled = true
 # model = "claude-opus-5-5"
