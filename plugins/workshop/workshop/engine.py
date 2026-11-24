@@ -364,6 +364,7 @@ class Engine:
         if not run.merged_by:
             run.merged_by = (pr.get("mergedBy") or {}).get("login", "") or "someone"
             self.store.event(run, "merged", by=run.merged_by, approved=pr.get("reviewDecision") == "APPROVED")
+            self.save(run)
         kinds = run.environments or ENVIRONMENTS
         place = kinds.get(pr.get("baseRefName", run.base), "")
         if place == "preprod" and not run.deployed:

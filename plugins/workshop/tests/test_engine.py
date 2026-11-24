@@ -485,6 +485,14 @@ class Deploy(unittest.TestCase):
         with self.assertRaises(Park):
             self.engine._follow(run, step, step["then"]["LATER"], "LATER", "")
 
+    def test_a_merge_still_waiting_for_prod_is_logged_once_across_ticks(self):
+        self.merged("dev")
+        run = replace(self.delivered(), deployed="preprod", worktree="")  # reached preprod before workshop kept who merged
+        self.engine.save(run)
+        self.engine.land(run)
+        self.engine.land(self.engine.store.load(run.repo, run.key))
+        self.assertEqual(len([e for e in self.engine.store.history() if e["type"] == "merged"]), 1)
+
     def test_preprod_is_told_once(self):
         self.merged("dev")
         run = self.engine.land(self.delivered())
