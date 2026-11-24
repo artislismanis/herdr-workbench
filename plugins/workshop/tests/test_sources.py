@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest import mock
@@ -536,6 +537,27 @@ class Jira(unittest.TestCase):
 
     def test_jql_skips_listed_statuses(self):
         self.assertIn('status not in ("Backlog", "Icebox")', self.source(["Backlog", "Icebox"]).jql())
+
+    def held_source(self, route):
+        source = JiraSource("etl", "ai", ["Backlog", "Awaiting input"], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "moves": {"queued": "To Do"}, "route": route})
+        source._call = mock.Mock(return_value={"issues": [{"key": "DE-9"}]})
+        return source
+
+    def test_a_ticket_labelled_in_backlog_counts_as_held(self):
+        source = self.held_source(["Backlog", "Refined", "To Do", "In Progress"])
+        self.assertEqual(source.held(), ["DE-9"])
+        jql = urllib.parse.unquote_plus(source._call.call_args.args[1])
+        self.assertIn('status in ("Backlog")', jql)
+        self.assertIn('labels = "ai"', jql)
+
+    def test_a_status_off_the_route_holds_on_purpose(self):
+        source = self.held_source(["Awaiting input"])
+        self.assertEqual(source.held(), [])
+        source._call.assert_not_called()
+
+    def test_no_queued_move_holds_nothing(self):
+        source = JiraSource("etl", "ai", ["Backlog"], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "route": ["Backlog", "To Do"]})
+        self.assertEqual(source.held(), [])
 
 
 class JiraBoard(unittest.TestCase):

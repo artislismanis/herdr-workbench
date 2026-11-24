@@ -342,7 +342,7 @@ class JiraSource:
         raw = jira_open(req, 30)
         return json.loads(raw) if raw else None
 
-    def jql(self) -> str:
+    def jql(self, statuses: list[str] | None = None) -> str:
         parts = [
             f'labels = "{self.label}"',
             f'labels = "{self.repo_name}"',
@@ -350,7 +350,10 @@ class JiraSource:
             "assignee = currentUser()",
             "statusCategory != Done",
         ]
-        if self.skip:
+        if statuses is not None:
+            names = ", ".join(f'"{s}"' for s in statuses)
+            parts.append(f"status in ({names})")
+        elif self.skip:
             names = ", ".join(f'"{s}"' for s in self.skip)
             parts.append(f"status not in ({names})")
         return " AND ".join(parts) + " ORDER BY priority DESC, updated ASC"
@@ -373,6 +376,15 @@ class JiraSource:
 
     def ready(self) -> list[str]:
         query = urllib.parse.urlencode({"jql": self.jql(), "fields": "key", "maxResults": 20})
+        return [i["key"] for i in self._call("GET", f"search/jql?{query}")["issues"]]
+
+    def held(self) -> list[str]:
+        """Queued by its label, yet in a skipped status the route puts before the queue, such as Backlog: a label added in Jira skips the move q makes."""
+        target = self.moves.get("queued", ("", None))[0]
+        early = [s for s in self.skip if target in self.route and s in self.route[: self.route.index(target)]]
+        if not early:
+            return []
+        query = urllib.parse.urlencode({"jql": self.jql(early), "fields": "key", "maxResults": 20})
         return [i["key"] for i in self._call("GET", f"search/jql?{query}")["issues"]]
 
     def closed(self, key: str) -> bool:

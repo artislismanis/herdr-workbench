@@ -386,10 +386,24 @@ def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     start_sweeps(engine, cfg)
 
 
+def queue_held(cfg: dict[str, Any]) -> dict[str, str]:
+    """Makes the move q makes, for a ticket labelled in Jira itself. One it can't move says why under status."""
+    stuck: dict[str, str] = {}
+    for name, repo in cfg["repos"].items():
+        source = make_source(name, repo, cfg.get("jira", {}))
+        for key in source.held() if hasattr(source, "held") else []:
+            try:
+                source.move(key, "queued")
+                print(f"{name}: moved {key} out of a status the timer skips")
+            except STOPS as failed:
+                stuck[f"{name}/{key}"] = f"Queued, but held in a status the timer skips: {failed}"
+    return stuck
+
+
 def start_ready(engine: Engine, cfg: dict[str, Any]) -> None:
     if no_room(engine, cfg):
         return
-    skipped: dict[str, str] = {}
+    skipped: dict[str, str] = queue_held(cfg)
     for name, repo in cfg["repos"].items():
         source = make_source(name, repo, cfg.get("jira", {}))
         for key in engine.in_order(name, source.ready()):
