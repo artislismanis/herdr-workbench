@@ -16,7 +16,8 @@ MODEL = "claude-opus-5-5"
 DAILY_USD = 5.0
 CLAUDE_MD = 20_000  # characters of the repo's CLAUDE.md, enough for its rules
 TAIL = 8_000  # characters from the end of a stopped step's report, where the failure is
-PERSON = ("Rejected at", "is waiting for an answer in its pane", "someone else has pushed", "is checked out in", "changed tracked files")  # stops only a person can clear
+# Stops only a person can clear, and loops that ran out of rounds: a retry would hand those a fresh set.
+PERSON = ("Rejected at", "is waiting for an answer in its pane", "someone else has pushed", "is checked out in", "changed tracked files", "still says", "CI still fails", "Copilot left", "Copilot threads still open", "couldn't move onto the PR below", "hit a conflict again", "nothing to sit on")
 
 ASK = """You are the lead engineer on a team. An agent building a change stopped to ask a person a question. Answer it only if the person's standing decisions, or the repo's own CLAUDE.md, already settle it. Otherwise leave it for the person, with the answer you'd suggest.
 

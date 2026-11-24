@@ -124,6 +124,13 @@ class LeadOnStops(Lead):
         lead.look_stopped(self.engine, run, {})
         self.assertEqual(self.calls, [])
 
+    def test_a_loop_out_of_rounds_gets_no_look(self):
+        run = self.parked()
+        for reason in ("ai-review still says CHANGES_NEEDED after 3 rounds. See it.", "CI still fails. See ci.md.", "The branch couldn't move onto the PR below it."):
+            run.reason = reason
+            lead.look_stopped(self.engine, run, {})
+        self.assertEqual(self.calls, [])
+
     def test_a_talk_with_you_gets_no_look(self):
         run = self.parked()
         run.current["interactive"] = True
