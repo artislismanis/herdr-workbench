@@ -98,6 +98,9 @@ class TheirPRs(unittest.TestCase):
     def test_a_draft_waits_even_when_requested(self):
         self.assertEqual(move("them", draft=True, requested=True), ("others", "draft"))
 
+    def test_a_dismissed_approval_asked_again_is_a_re_review(self):
+        self.assertEqual(move("them", reviews=[review(ME, "DISMISSED", "older")], requested=True), ("you", "re-review"))
+
     def test_after_my_review_it_waits_on_them(self):
         self.assertEqual(move("them", reviews=[review(ME, "CHANGES_REQUESTED")]), ("others", "waiting for fixes"))
         self.assertEqual(move("them", reviews=[review(ME, "CHANGES_REQUESTED", "older")]), ("others", "new commits"))
