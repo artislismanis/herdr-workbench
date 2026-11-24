@@ -97,6 +97,8 @@ class Board:
         self.side = 0  # how far the panel has scrolled
         self.earlier = False  # older rounds' reports showing
         self.message, self.said, self.refreshing, self.seen = "", 0.0, False, None
+        self.pending: list[tuple[str, ...]] = []  # commands in the order you gave them, the running one first
+        self.sending = threading.Lock()
         self.grab: tuple[int, int] | None = None  # where a press landed, until its release
         self.reach: tuple[int, int] | None = None  # how far the drag has got
         self.painted: dict[int, list[tuple[int, str]]] = {}  # what's on each row, since a drag selects what's drawn
@@ -644,12 +646,11 @@ class Board:
         elif key in ENTERS:
             typing = self.choice == len(asking.options)
             command, words = (asking.command, self.typed.strip()) if typing else asking.options[self.choice][1:]
-            # While another command runs, the words stay put for a second enter.
-            if command == TALK and not self.refreshing:  # the run stays stopped, and its card is here when you come back
+            if command == TALK:  # the run stays stopped, and its card is here when you come back
                 self.asking, self.series = None, False
                 self.send(TALK, asking.key)
                 return
-            if (words or not typing) and not self.refreshing:
+            if words or not typing:
                 self.drafts.pop(asking.key + asking.command, None)
                 if command == CHOOSE_REPO:
                     self.ask_what_to_prepare(words)
@@ -723,12 +724,23 @@ class Board:
         threading.Thread(target=work, daemon=True).start()
 
     def send(self, *args: str) -> None:
-        """Commands can take a while on GitHub or Jira, so the board keeps drawing."""
-        if self.refreshing:
-            return
-        self.refreshing = True
+        """Commands can take a while on GitHub or Jira, so the board keeps drawing, and a key pressed meanwhile waits its turn. The same command twice runs once."""
+        with self.sending:
+            if args in self.pending:
+                return
+            self.pending.append(args)
+            if self.refreshing:
+                return
+            self.refreshing = True
+        threading.Thread(target=self.work_through, daemon=True).start()
 
-        def work() -> None:
+    def work_through(self) -> None:
+        while True:
+            with self.sending:
+                if not self.pending:
+                    self.refreshing = False
+                    return
+                args = self.pending[0]
             try:
                 self.engine.tools.workshop(*args)
                 if args[0] != "refresh":
@@ -736,9 +748,8 @@ class Board:
             except STOPS as failed:
                 self.say(str(failed))
                 self.failed = True
-            self.refreshing = False
-
-        threading.Thread(target=work, daemon=True).start()
+            with self.sending:
+                self.pending.pop(0)
 
     def say(self, text: str) -> None:
         self.message, self.said = text, self.clock()
@@ -789,8 +800,7 @@ class Board:
         return [Line([Span(" "), *chips]), plain()]
 
     def footer(self, width: int = 120) -> Line:
-        if self.refreshing:
-            return Line([Span("Working...", "dim")])
+        busy = [Span(f"Working{f', {queued} queued' if (queued := len(self.pending) - 1) > 0 else ''}... ", "dim")] if self.refreshing else []
         if self.message and self.clock() - self.said < MESSAGE_SECONDS:
             return Line([Span(self.message, "yellow")])
         if self.finding:
@@ -808,7 +818,7 @@ class Board:
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG)
         offers += [(f"esc clear /{self.filter}", ESCAPE)] if self.filter and not self.open else [("/ filter", FIND)] * (self.tab != USAGE and not self.open)
         common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run and run.pane) + [("o link", ord("o"))] * bool(self.link(lines)) + [("w wide" if self.phone else "w phone", PHONE), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
-        return Line([part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
+        return Line(busy + [part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def note(self, width: int) -> list[Line]:
         """Grows upward as you type, so what you're answering stays in view."""
