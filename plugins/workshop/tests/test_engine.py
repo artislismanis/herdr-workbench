@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from workshop.engine import CI_NONE, CI_SETTLE, PREFIX, STEP_TIMEOUT, RESTACK_STEP, RESTACKS, Engine, Park, ci_state  # noqa: E402
+from workshop.engine import CI_NONE, CI_SETTLE, PREFIX, PROD_CHECK, STEP_TIMEOUT, RESTACK_STEP, RESTACKS, Engine, Park, ci_state  # noqa: E402
 from workshop.pipeline import load  # noqa: E402
 from workshop.shell import ToolError  # noqa: E402
 from workshop.sources import Comment, Item, PrepareSource, PullRequestSource, SweepSource, Ticket  # noqa: E402
@@ -418,6 +418,7 @@ class Deploy(unittest.TestCase):
         self.merged("dev")
         run = self.engine.land(self.delivered())
         self.tools.reaches = True
+        self.engine.clock = lambda: 1000.0 + PROD_CHECK
         run = self.engine.land(run)
         self.assertEqual((run.landed, run.deployed, self.source.moves[-1]), ("merged", "prod", "merged"))
         self.assertEqual(self.tools.asked_reach[-1][1:], (self.URL, "abc", ["main", "master"]))
@@ -468,6 +469,7 @@ class Deploy(unittest.TestCase):
         self.engine._finish(run)
         self.assertEqual((run.status, run.landed), ("done", ""))
         self.tools.reaches = True
+        self.engine.clock = lambda: 1000.0 + PROD_CHECK
         run = self.engine.land(run)
         self.assertEqual((run.landed, run.deployed), ("merged", "prod"))
         self.assertEqual([e["environment"] for e in self.engine.store.history() if e["type"] == "deployed"], ["preprod", "prod"])
@@ -501,6 +503,19 @@ class Deploy(unittest.TestCase):
             run = self.engine.land(run)
         self.assertEqual(run.worktree, "")
         self.assertNotIn("kept_worktree", [e["type"] for e in self.engine.store.history()])
+
+    def test_preprod_looks_for_prod_every_half_hour_not_every_tick(self):
+        now = [1000.0]
+        self.engine.clock = lambda: now[0]
+        self.merged("dev")
+        run = self.engine.land(self.delivered())
+        asked = len(self.tools.asked_reach)
+        self.engine.land(self.engine.store.load(run.repo, run.key))
+        self.assertEqual(len(self.tools.asked_reach), asked)
+        now[0] += 31 * 60
+        self.tools.reaches = True
+        run = self.engine.land(self.engine.store.load(run.repo, run.key))
+        self.assertEqual((len(self.tools.asked_reach), run.deployed), (asked + 1, "prod"))
 
     def test_preprod_is_told_once(self):
         self.merged("dev")
