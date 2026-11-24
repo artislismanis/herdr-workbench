@@ -141,3 +141,17 @@ class History(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LeadOutsideTheLock(unittest.TestCase):
+    def apply(self, asked_now: str) -> mock.Mock:
+        engine = mock.Mock()
+        with mock.patch.object(cli.lead, "question", return_value=asked_now), mock.patch.object(cli.lead, "settle") as settle:
+            cli.ask_lead(engine, {}, [("r", "1", "question", {"question": "Which table?"})])
+        return settle
+
+    def test_what_it_found_applies_while_the_run_still_asks_it(self):
+        self.apply("Which table?").assert_called_once()
+
+    def test_an_answer_given_meanwhile_wins(self):
+        self.apply("").assert_not_called()

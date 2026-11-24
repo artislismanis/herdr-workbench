@@ -256,16 +256,17 @@ def start_sweeps(engine: Engine, cfg: dict[str, Any]) -> None:
                 print(f"{name}: {sweep} sweep didn't start: {failed}")
 
 
-def check_chat(engine: Engine, cfg: dict[str, Any]) -> None:
-    """Costs tokens, so only in working hours, spaced out, and never against a limit. A failed check waits for the next, and keeps what it knew."""
+def check_chat(engine: Engine, cfg: dict[str, Any], root: Path | None = None) -> None:
+    """Costs tokens, so only in working hours, spaced out, and never against a limit. A failed check waits for the next, and keeps what it knew. Given the lock's folder, the agent runs outside the lock and only the save takes it."""
     chat = chat_of(cfg)
     saved = engine.store.read(CHAT)
     if chat is None or not engine.throttle.working() or engine.throttle.hold_new(0):
         return
     if engine.clock() - saved.get("checked", 0) < cfg["chat"].get("check_minutes", 30) * 60:
         return
-    saved["checked"] = engine.clock()
-    engine.store.write(CHAT, saved)
+    checked = engine.clock()
+    save = (lambda work: locked(root, work, PATIENCE)) if root else (lambda work: work())
+    save(lambda: engine.store.write(CHAT, engine.store.read(CHAT) | {"checked": checked}))
 
     def wanted(url: str) -> bool:
         try:
@@ -278,7 +279,12 @@ def check_chat(engine: Engine, cfg: dict[str, Any]) -> None:
     except (*STOPS,) as failed:
         print(f"chat: {failed}")
         return
-    engine.store.write(CHAT, saved | {"found": chat.seen(found, saved.get("found", {}))})
+
+    def record() -> None:
+        now = engine.store.read(CHAT)  # read again, as a reply sent meanwhile marks what it answered
+        engine.store.write(CHAT, now | {"found": chat.seen(found, now.get("found", {}))})
+
+    save(record)
 
 
 def being_prepared(engine: Engine, name: str, key: str) -> bool:
@@ -381,28 +387,48 @@ def keep(engine: Engine, run: Run, text: str) -> str:
     return f"Kept as a standing decision for {run.repo}."
 
 
-def ask_lead(engine: Engine, cfg: dict[str, Any]) -> None:
+def consult_lead(engine: Engine, cfg: dict[str, Any]) -> list[tuple[str, str, str, dict[str, Any]]]:
+    """The lead agent's looks, which change no run, so they run outside the lock."""
+    found: list[tuple[str, str, str, dict[str, Any]]] = []
+    settings = cfg.get("lead", {})
     for run in engine.store.all():
-        lead.look_stopped(engine, lead.look(engine, run, cfg.get("lead", {})), cfg.get("lead", {}))
+        if seen := lead.consult(engine, run, settings):
+            found.append((run.repo, run.key, "question", seen))
+        elif stop := lead.consult_stopped(engine, run, settings):
+            found.append((run.repo, run.key, "stop", stop))
+    return found
+
+
+def ask_lead(engine: Engine, cfg: dict[str, Any], consulted: list[tuple[str, str, str, dict[str, Any]]] | None = None) -> None:
+    """Applies what the lead agent found, only where the run still asks the same thing: you may have answered meanwhile."""
+    for repo, key, kind, found in consult_lead(engine, cfg) if consulted is None else consulted:
+        run = engine.store.load(repo, key)
+        if kind == "question" and lead.question(run) == found["question"]:
+            lead.settle(engine, run, found)
+        elif kind == "stop" and lead.stopped(run) == found["seen"]["question"]:
+            lead.settle_stopped(engine, run, found)
 
 
 def timed_tick(engine: Engine, cfg: dict[str, Any], root: Path) -> None:
     """Reads that change nothing run outside the lock, so what you ask for meanwhile waits less. The board polls after, even when the workshop is full."""
     read_limits(engine)
     warm_tickets(engine)
+    consulted = consult_lead(engine, cfg)
+    check_chat(engine, cfg, root)
     started = time.monotonic()
-    if locked(root, lambda: tick(engine, cfg)):
+    if locked(root, lambda: tick(engine, cfg, consulted)):
         print(f"Held the lock for {time.monotonic() - started:.1f}s")
     poll(cfg, engine.store)
 
 
-def tick(engine: Engine, cfg: dict[str, Any]) -> None:
-    """Move every run on, then start ready tickets while there's room. Polling costs no tokens, except the lead agent's look at a new question or stop."""
+def tick(engine: Engine, cfg: dict[str, Any], consulted: list[tuple[str, str, str, dict[str, Any]]] | None = None) -> None:
+    """Move every run on, then start ready tickets while there's room. Polling costs no tokens, except the lead agent's look at a new question or stop. Given what the lead agent found outside the lock, the chat check ran there too."""
     advance_all(engine)
-    ask_lead(engine, cfg)
+    ask_lead(engine, cfg, consulted)
     check_tickets(engine)
     restack_all(engine)
-    check_chat(engine, cfg)
+    if consulted is None:
+        check_chat(engine, cfg)
     start_ready(engine, cfg)
     start_sweeps(engine, cfg)
 
