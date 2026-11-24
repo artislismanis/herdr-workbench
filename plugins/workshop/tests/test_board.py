@@ -1268,13 +1268,18 @@ class Keys(unittest.TestCase):
         self.assertIsNone(self.board.asking)
         self.tools.workshop.assert_not_called()
 
-    def test_enter_during_another_command_keeps_your_words(self):
+    def test_enter_during_another_command_queues_your_words_behind_it(self):
         self.stopped()
-        self.board.press(ord("a"))
-        self.type_in("keep me")
-        self.board.refreshing = True
-        self.board.press(10)
-        self.assertEqual((self.board.asking.command, self.board.typed), ("retry", "keep me"))
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(ord("r"))
+            self.board.press(ord("a"))
+            self.type_in("keep me")
+            self.board.press(10)
+            self.assertIsNone(self.board.asking)
+            self.assertIn("1 queued", "".join(span.text for span in self.board.footer().spans))
+            thread.call_args.kwargs["target"]()
+        self.assertEqual(self.tools.workshop.call_args_list[:2], [mock.call("refresh"), mock.call("retry", "1", "keep me")])
+        self.assertFalse(self.board.refreshing)
 
     def reported(self):
         self.board.press(10)
