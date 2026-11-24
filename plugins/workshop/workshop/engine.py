@@ -54,6 +54,7 @@ RESTACKS = 3  # conflicts an agent resolves for one run before it waits on you
 ENVIRONMENTS = {"main": "prod", "master": "prod", "dev": "preprod", "preprod": "preprod"}  # a repo can name its own
 NO_STEPS = {"none", "n/a", "nothing", "no"}
 CI_SETTLE = 90  # seconds after a push or rerun before the checks count, so ones that haven't registered yet don't read as passed or failed
+PROD_CHECK = 30 * 60  # seconds between looks for a preprod merge in prod, as each look fetches and diffs
 CI_MINUTES = 60
 COPILOT_MINUTES = 20
 CI_NONE = 600  # seconds with no checks at all before a delivery counts the repo as having no CI
@@ -340,6 +341,8 @@ class Engine:
 
     def land(self, run: Run) -> Run:
         """Follow a finished run's PR, so the ticket shows where the review has got to."""
+        if run.deployed == "preprod" and run.merged_by and not run.worktree and self.clock() - run.prod_checked < PROD_CHECK:
+            return run
         try:
             pr = self.tools.pr_state(run.pr)
             run.opened = run.opened or not pr["isDraft"]
@@ -376,6 +379,9 @@ class Engine:
             self._tidy(run, "" if run.branch.endswith(AFTER_BRANCH) else pr["headRefOid"])
         if self._check_after_merge(run, pr):
             return
+        if place == "preprod":
+            run.prod_checked = self.clock()
+            self.save(run)
         if place == "preprod" and not self.tools.reached(Path(run.repo_path), run.pr, pr["mergeCommit"]["oid"], [branch for branch, kind in kinds.items() if kind == "prod"]):
             return
         if place:
