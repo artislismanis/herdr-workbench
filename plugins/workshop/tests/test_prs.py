@@ -116,6 +116,13 @@ class Fetch(unittest.TestCase):
         empty = {"nodes": []}
         return {"data": {"viewer": {"login": ME}, "mine": empty, "requested": empty, "reviewed": empty, "merged_mine": empty, "merged_reviewed": empty, **{k: {"nodes": v} for k, v in lists.items()}}}
 
+    def test_each_list_is_its_own_query(self):
+        reply = self.data()
+        reply["data"]["asked0"] = None
+        with mock.patch("workshop.prs.run_json", return_value=reply) as call:
+            fetch("", 0.0, {"u": 1.0})
+        self.assertEqual(sorted(c.args[-1].count("search(") for c in call.call_args_list), [0, 1, 1, 1, 1, 1])
+
     def test_a_pr_found_twice_shows_once_and_keeps_the_request(self):
         same = pr("them", reviews=[review(ME, "COMMENTED", "older")])
         with mock.patch("workshop.prs.run_json", return_value=self.data(requested=[same], reviewed=[same])):
@@ -128,7 +135,7 @@ class Fetch(unittest.TestCase):
         reply["data"]["asked0"] = asked
         with mock.patch("workshop.prs.run_json", return_value=reply) as call:
             found = fetch("", 0.0, {asked["url"]: 1.0})
-        self.assertIn("resource(url:", call.call_args.args[-1])
+        self.assertTrue(any("resource(url:" in sent.args[-1] for sent in call.call_args_list))
         self.assertEqual([(p["move"], p["state"], p["chat"]) for p in found], [("you", "needs review", True)])
 
     def test_chat_only_means_a_github_request_isnt_yours(self):

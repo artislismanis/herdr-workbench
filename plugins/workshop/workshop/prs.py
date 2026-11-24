@@ -1,6 +1,7 @@
-"""Open PRs by whose move it is. One GraphQL call covers them all, and the board only reads what this saves."""
+"""Open PRs by whose move it is. One GraphQL call a list, run side by side, and the board only reads what this saves."""
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -149,9 +150,12 @@ def fetch(scope: str, now: float, asked: dict[str, float] | None = None, chat_on
     """Asked is PRs someone asked you about elsewhere, which GitHub can't search for, and when. Chat_only is for teams where a GitHub request says nothing, as CODEOWNERS adds everyone."""
     asked = asked or {}
     parts = searches(scope, now)
-    body = "".join(f"{alias}: search(query: {json.dumps(query)}, type: ISSUE, first: {size}) {{ nodes {{ ...pr }} }}\n" for alias, (query, size) in parts.items())
-    body += "".join(f"asked{n}: resource(url: {json.dumps(url)}) {{ ...pr }}\n" for n, url in enumerate(asked))
-    data = run_json("gh", "api", "graphql", "-f", f"query=query {{ viewer {{ login }}\n{body}}}\n{FIELDS}")["data"]
+    bodies = [f"{alias}: search(query: {json.dumps(query)}, type: ISSUE, first: {size}) {{ nodes {{ ...pr }} }}\n" for alias, (query, size) in parts.items()]
+    bodies += ["".join(f"asked{n}: resource(url: {json.dumps(url)}) {{ ...pr }}\n" for n, url in enumerate(asked))] if asked else []
+    # GitHub gives up on a query after 10 seconds with a 502, and all the lists in one query take about that long.
+    with ThreadPoolExecutor(len(bodies)) as pool:
+        replies = pool.map(lambda body: run_json("gh", "api", "graphql", "-f", f"query=query {{ viewer {{ login }}\n{body}}}\n{FIELDS}")["data"], bodies)
+    data = {key: value for reply in replies for key, value in reply.items()}
     me = data["viewer"]["login"]
     requested = set() if chat_only else {pr["url"] for pr in data["requested"]["nodes"]}
     found: dict[str, dict[str, Any]] = {}
