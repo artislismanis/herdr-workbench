@@ -341,7 +341,7 @@ class Engine:
 
     def land(self, run: Run) -> Run:
         """Follow a finished run's PR, so the ticket shows where the review has got to."""
-        if run.deployed == "preprod" and run.merged_by and not run.worktree and self.clock() - run.prod_checked < PROD_CHECK:
+        if not self.prod_due(run):
             return run
         try:
             pr = self.tools.pr_state(run.pr)
@@ -361,6 +361,12 @@ class Engine:
         except STOPS as failed:
             self.store.event(run, "check_failed", reason=str(failed))
         return run
+
+    def prod_due(self, run: Run) -> bool:
+        return not (run.deployed == "preprod" and run.merged_by and not run.worktree and self.clock() - run.prod_checked < PROD_CHECK)
+
+    def prod_branches(self, run: Run) -> list[str]:
+        return [branch for branch, kind in (run.environments or ENVIRONMENTS).items() if kind == "prod"]
 
     def _merged(self, run: Run, pr: dict[str, Any]) -> None:
         """A branch is an environment. Only prod ends a run, so a ticket stays open while its work is in preprod."""
@@ -382,7 +388,7 @@ class Engine:
         if place == "preprod":
             run.prod_checked = self.clock()
             self.save(run)
-        if place == "preprod" and not self.tools.reached(Path(run.repo_path), run.pr, pr["mergeCommit"]["oid"], [branch for branch, kind in kinds.items() if kind == "prod"]):
+        if place == "preprod" and not self.tools.reached(Path(run.repo_path), run.pr, pr["mergeCommit"]["oid"], self.prod_branches(run)):
             return
         if place:
             self._reach(run, "prod")

@@ -71,6 +71,15 @@ def temp_folder() -> str:
 
 
 class Tools:
+    def warm(self, read: str, *args: Any) -> Any:
+        """A read made before the lock, for the next same call to use once."""
+        found = getattr(self, read)(*args)
+        self.__dict__.setdefault("warmed", {})[(read, *map(repr, args))] = found
+        return found
+
+    def _warmed(self, read: str, *args: Any) -> Any:
+        return self.__dict__.get("warmed", {}).pop((read, *map(repr, args)), None)
+
     def identity_ok(self, repo: Path) -> bool:
         settings = ("user.name", "user.email")
         return all(subprocess.run(["git", "config", s], cwd=repo, capture_output=True).returncode == 0 for s in settings)
@@ -170,6 +179,8 @@ class Tools:
             run("gh", "pr", "edit", number, "--add-reviewer", ",".join(who), cwd=repo)
 
     def pr_state(self, url: str) -> dict[str, Any]:
+        if (hit := self._warmed("pr_state", url)) is not None:
+            return hit
         pr = run_json("gh", "pr", "view", url, "--json", "state,isDraft,reviewDecision,headRefOid,baseRefName,body,mergeCommit,mergedBy,latestReviews")
         # GitHub leaves the decision blank on a branch whose rules ask for no review, though people approved it.
         if not pr.get("reviewDecision"):
@@ -234,6 +245,8 @@ class Tools:
 
     def reached(self, repo: Path, pr: str, commit: str, branches: list[str]) -> bool:
         """Whether a merged PR is on any of these branches. Promotions can squash, so if its commit isn't there, its changes can be."""
+        if (hit := self._warmed("reached", repo, pr, commit, branches)) is not None:
+            return hit
         changes = run("gh", "pr", "diff", pr, cwd=repo)
         for branch in branches:
             if subprocess.run(["git", "fetch", "-q", "origin", branch], cwd=repo, capture_output=True).returncode != 0:

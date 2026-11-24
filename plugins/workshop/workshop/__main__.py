@@ -20,7 +20,7 @@ from .board import show
 from .boardview import full_pile, waiting
 from .chat import CHAT, Chat
 from .doctor import doctor
-from .engine import MANUAL, PREFIX, STOPS, ci_state, SWEEP_EVERY, SWEEPS, Engine, Park
+from .engine import ENVIRONMENTS, MANUAL, PREFIX, STOPS, ci_state, SWEEP_EVERY, SWEEPS, Engine, Park
 from .pipeline import PipelineError, load
 from .remind import remind
 from .schedule import schedule
@@ -300,6 +300,19 @@ def advance_all(engine: Engine) -> None:
             engine.advance(run)
 
 
+def warm_tickets(engine: Engine) -> None:
+    """The GitHub reads check_tickets makes, done before the lock so a tick holds it briefly. One that differs by then is read again live."""
+    for run in engine.store.all():
+        if run.status != "done" or not run.pr or run.landed or not engine.prod_due(run):
+            continue
+        try:
+            pr = engine.tools.warm("pr_state", run.pr)
+            if pr["state"] == "MERGED" and (run.environments or ENVIRONMENTS).get(pr.get("baseRefName", run.base)) == "preprod":
+                engine.tools.warm("reached", Path(run.repo_path), run.pr, pr["mergeCommit"]["oid"], engine.prod_branches(run))
+        except STOPS:
+            pass  # check_tickets reads it live and reports what failed
+
+
 def check_tickets(engine: Engine) -> None:
     for run in engine.store.all():
         if run.reviewing and not run.claimed and not run.landed:
@@ -373,15 +386,23 @@ def ask_lead(engine: Engine, cfg: dict[str, Any]) -> None:
         lead.look_stopped(engine, lead.look(engine, run, cfg.get("lead", {})), cfg.get("lead", {}))
 
 
+def timed_tick(engine: Engine, cfg: dict[str, Any], root: Path) -> None:
+    """Reads that change nothing run outside the lock, so what you ask for meanwhile waits less. The board polls after, even when the workshop is full."""
+    read_limits(engine)
+    warm_tickets(engine)
+    started = time.monotonic()
+    if locked(root, lambda: tick(engine, cfg)):
+        print(f"Held the lock for {time.monotonic() - started:.1f}s")
+    poll(cfg, engine.store)
+
+
 def tick(engine: Engine, cfg: dict[str, Any]) -> None:
     """Move every run on, then start ready tickets while there's room. Polling costs no tokens, except the lead agent's look at a new question or stop."""
-    read_limits(engine)
     advance_all(engine)
     ask_lead(engine, cfg)
     check_tickets(engine)
     restack_all(engine)
     check_chat(engine, cfg)
-    poll(cfg, engine.store)  # before the limits below, or a full workshop stops the board updating
     start_ready(engine, cfg)
     start_sweeps(engine, cfg)
 
@@ -717,7 +738,7 @@ def main(argv: list[str]) -> int:
     try:
         match command:
             case "tick":
-                locked(root, lambda: tick(engine, cfg))
+                timed_tick(engine, cfg, root)
             case "advance":
                 locked(root, lambda: advance_all(engine), ADVANCE_WAIT)  # an agent's event comes once, so a busy tick mustn't drop it
             case "start":
@@ -787,6 +808,7 @@ def main(argv: list[str]) -> int:
                 print(stats(engine.store.history()))
             case "refresh":
                 read_limits(engine)
+                warm_tickets(engine)
                 locked(root, lambda: (advance_talks(engine), check_tickets(engine)))
                 show_refresh(cfg, engine.store)
             case "board":

@@ -25,5 +25,16 @@ class ApprovalWithoutARule(unittest.TestCase):
         self.assertEqual(decision("", "COMMENTED"), "")
 
 
+
+
+class WarmedReads(unittest.TestCase):
+    def test_a_warmed_read_is_used_once_then_read_live(self):
+        tools = Tools()
+        with mock.patch("workshop.tools.run_json", side_effect=[{"reviewDecision": "APPROVED", "n": 1}, {"reviewDecision": "APPROVED", "n": 2}]) as live:
+            tools.warm("pr_state", "u")
+            self.assertEqual([tools.pr_state("u")["n"], tools.pr_state("u")["n"]], [1, 2])
+        self.assertEqual(live.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -119,12 +119,16 @@ class Jira(unittest.TestCase):
 
 
 class Tick(unittest.TestCase):
-    def test_a_full_workshop_still_polls(self):
+    def test_a_full_workshop_still_polls_and_only_after_the_lock(self):
         engine = mock.Mock()
         engine.store.all.return_value = [mock.Mock(status="running", blocked_at=0)]
-        with mock.patch.object(cli, "poll") as polled:
-            cli.tick(engine, {"repos": {}, "max_active": 1})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            free = []
+            with mock.patch.object(cli, "poll", side_effect=lambda *a: free.append(cli.locked(root, lambda: None))) as polled, mock.patch.object(cli, "read_limits"), mock.patch.object(cli, "warm_tickets"):
+                cli.timed_tick(engine, {"repos": {}, "max_active": 1}, root)
         polled.assert_called_once()
+        self.assertEqual(free, [True])
 
 
 class History(unittest.TestCase):
