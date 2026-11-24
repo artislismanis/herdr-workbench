@@ -1253,12 +1253,12 @@ class Engine:
             suffix = f"-{step['id']}-{attempt}"
             run.step_agent = run.agent[: AGENT_NAME - len(suffix)] + suffix
             run.step_pane = "" if run.solo else self.tools.split(run.pane, work)
-            self.tools.start_agent(run.step_agent, run.step_pane or run.pane, self.store.files(run), step.get("model", ""), step.get("advisor", ""))
+            self.tools.start_agent(run.step_agent, run.step_pane or run.pane, self.store.files(run), step.get("model", ""), step.get("advisor", ""), Path(run.worktree) if run.worktree else None)
             agent = run.step_agent
         else:
             agent = run.agent
             if self.tools.agent_status(agent) == "gone":
-                self.tools.start_agent(agent, run.pane, self.store.files(run), step.get("model", ""), step.get("advisor", ""))
+                self.tools.start_agent(agent, run.pane, self.store.files(run), step.get("model", ""), step.get("advisor", ""), Path(run.worktree) if run.worktree else None)
         if step.get("again") and not run.on_a_pr:
             run.checking = self.tools.snapshot(work)
         revising = step.get("proposes") and run.revised
@@ -1490,7 +1490,7 @@ class Engine:
         """The run's own agent answers your self-review, on the model of the first step it ran."""
         first = next((s for s in run.pipeline["steps"] if s["kind"] == "agent" and not s.get("fresh")), {})
         if self.tools.agent_status(run.agent) == "gone":
-            self.tools.start_agent(run.agent, run.pane, self.store.files(run), first.get("model", ""), first.get("advisor", ""))
+            self.tools.start_agent(run.agent, run.pane, self.store.files(run), first.get("model", ""), first.get("advisor", ""), Path(run.worktree) if run.worktree else None)
             self.tools.point_review(Path(run.worktree), run.pane)
         told = len(list(self.store.files(run).glob("prompt-self-review-*.md")))
         sent = self.store.files(run) / f"prompt-self-review-{told + 1}.md"
