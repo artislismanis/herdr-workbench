@@ -126,14 +126,20 @@ def write(files: Path, seen: dict[str, Any]) -> None:
 
 def look_stopped(engine: Engine, run: Run, settings: dict[str, Any]) -> Run:
     """One look per stop, and one retry per step a run. What it found shows on the board either way."""
+    found = consult_stopped(engine, run, settings)
+    return settle_stopped(engine, run, found) if found else run
+
+
+def consult_stopped(engine: Engine, run: Run, settings: dict[str, Any]) -> dict[str, Any] | None:
+    """The agent's part, which changes no run, so it can run outside the lock."""
     reason = stopped(run)
     if not reason or settings.get("enabled") is False:
-        return run
+        return None
     files = engine.store.files(run)
     step = run.current["id"] if run.current else ""
     earlier = seen_of(files)
     if earlier.get("question") == reason or step in earlier.get("retried", []) or spent_today(engine) >= settings.get("daily_usd", DAILY_USD):
-        return run
+        return None
     named = re.search(r"See (\S+?)\.?$", reason)
     report = Path(named[1]) if named else files / f"{step}.md"
     listing = "\n".join(sorted(p.name for p in files.iterdir())) if files.is_dir() else ""
@@ -147,6 +153,12 @@ def look_stopped(engine: Engine, run: Run, settings: dict[str, Any]) -> Run:
         retry, note, seen["suggest"] = found.get("retry") is True, str(found.get("note") or "").strip(), str(found.get("why") or "").strip()
     except (*STOPS, TypeError, AttributeError) as failed:
         engine.store.event(run, "check_failed", reason=f"lead agent: {failed}")
+    return {"seen": seen, "retry": retry, "note": note, "step": step}
+
+
+def settle_stopped(engine: Engine, run: Run, found: dict[str, Any]) -> Run:
+    seen, retry, note, step = found["seen"], found["retry"], found["note"], found["step"]
+    files = engine.store.files(run)
     if not retry:
         write(files, seen)
         engine.store.event(run, "lead_left", suggest=seen["suggest"])
@@ -162,14 +174,20 @@ def look_stopped(engine: Engine, run: Run, settings: dict[str, Any]) -> Run:
 
 def look(engine: Engine, run: Run, settings: dict[str, Any]) -> Run:
     """One look per question. An answer needs the line it came from, and that line must be in the decisions."""
+    seen = consult(engine, run, settings)
+    return settle(engine, run, seen) if seen else run
+
+
+def consult(engine: Engine, run: Run, settings: dict[str, Any]) -> dict[str, str] | None:
+    """The agent's part, which changes no run, so it can run outside the lock."""
     asked = question(run)
     if not asked or settings.get("enabled") is False:
-        return run
+        return None
     files = engine.store.files(run)
     if seen_of(files).get("question") == asked:
-        return run
+        return None
     if spent_today(engine) >= settings.get("daily_usd", DAILY_USD):
-        return run
+        return None
     repo = Path(run.repo_path)
     workflow = workflow_source(repo, run.repo)
     rules = decisions(workflow)
@@ -183,7 +201,11 @@ def look(engine: Engine, run: Run, settings: dict[str, Any]) -> Run:
         engine.store.event(run, "check_failed", reason=f"lead agent: {failed}")
     if seen["answer"] and not (seen["rule"] and seen["rule"] in rules + claude_md):
         seen["suggest"], seen["answer"] = seen["suggest"] or seen["answer"], ""  # an answer it can't trace back is only a suggestion
-    write(files, seen)
+    return seen
+
+
+def settle(engine: Engine, run: Run, seen: dict[str, str]) -> Run:
+    write(engine.store.files(run), seen)
     if not seen["answer"]:
         engine.store.event(run, "lead_left", suggest=seen["suggest"])
         return run
