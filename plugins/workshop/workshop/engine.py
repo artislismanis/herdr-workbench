@@ -263,16 +263,16 @@ class Engine:
         if note:
             self._note(run, "answers.md", f"Q: {run.reason}\n\nA: {note}")
 
-    def _let_go(self, run: Run) -> None:
+    def _let_go(self, run: Run, keep: bool = True) -> None:
         self._ask_file(run).unlink(missing_ok=True)
-        self._let_go_of_step(run)
+        self._let_go_of_step(run, keep)
 
-    def _let_go_of_step(self, run: Run) -> None:
+    def _let_go_of_step(self, run: Run, keep: bool = True) -> None:
         if run.step_pane:
             self.tools.close_pane(run.step_pane)
             if run.worktree and run.pane:  # hunk sends to the last agent it saw here, and that pane has gone
                 self.tools.point_review(Path(run.worktree), run.pane)
-        elif run.solo and run.step_agent and self._pane_kept(run):  # its pane holds the workspace open, so a new one takes over first
+        elif keep and run.solo and run.step_agent and self._pane_kept(run):  # its pane holds the workspace open, so a new one takes over first
             old, run.pane = run.pane, self.tools.split(run.pane, Path(run.worktree))
             self.tools.close_pane(old)
         run.step_pane, run.step_agent = "", ""
@@ -330,7 +330,7 @@ class Engine:
         self._check(run, "drop")
         self._post(run, f"Dropped. {reason}".strip())
         self.store.event(run, "dropped", reason=reason)
-        self._let_go(run)
+        self._let_go(run, keep=False)  # nothing runs on, so a lost worktree needs no pane
         run.status, run.landed, run.reason, run.blocked_at, run.your_turn = "done", "dropped", reason, 0.0, False
         self._move(run, "dropped")
         self.save(run)
