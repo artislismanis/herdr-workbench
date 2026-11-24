@@ -180,6 +180,7 @@ class Filling(unittest.TestCase):
         with (
             mock.patch.object(cli, "read_limits"),
             mock.patch.object(cli, "advance_all"),
+            mock.patch.object(cli, "ask_lead"),
             mock.patch.object(cli, "check_tickets"),
             mock.patch.object(cli, "poll"),
             mock.patch.object(cli, "save_skipped"),

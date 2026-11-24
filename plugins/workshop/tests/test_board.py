@@ -60,9 +60,11 @@ class LeadOnUsage(unittest.TestCase):
             {"at": "2026-11-23T10:00:01Z", "type": "lead_left", "suggest": "Merge them yourself.", "key": "DE-1"},
             {"at": "2026-11-22T09:00:00Z", "type": "lead_answered", "rule": "Profile: dev", "key": "DE-2"},
             {"at": "2026-11-01T09:00:00Z", "type": "lead_answered", "rule": "Old", "key": "DE-3"},
+            {"at": "2026-11-23T11:00:00Z", "type": "lead_retried", "step": "qa", "why": "A test hung once.", "key": "DE-4"},
         ]
         text = joined(usage_view([], events, None, self.NOW))
-        self.assertIn("This week 1 answered, 1 left for you   $0.25 today", text)
+        self.assertIn("This week 1 answered, 1 retried, 1 left for you   $0.25 today", text)
+        self.assertIn("DE-4  retried qa: A test hung once.", text)
         self.assertIn("DE-1  left for you, suggests: Merge them yourself.", text)
         self.assertNotIn("DE-3", text)
 
