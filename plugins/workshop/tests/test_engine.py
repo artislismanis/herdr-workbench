@@ -1743,15 +1743,16 @@ class FakeTools:
     tips, conflict = {}, False
 
     def tip(self, work, branch):
-        return self.tips[branch]
+        return self.tips.get(branch, self.heads[0])
 
     def move_onto(self, work, base, old):
         if self.conflict:
             raise Conflict("moving onto x hit a conflict")
         self.moved = [*getattr(self, "moved", []), (base, old)]
 
-    def force_push(self, work, branch):
+    def force_push(self, work, branch, lease=""):
         self.forced = [*getattr(self, "forced", []), branch]
+        self.leases = [*getattr(self, "leases", []), lease]
 
     def retarget(self, work, pr, base):
         self.retargeted = (pr, base)
@@ -1833,6 +1834,31 @@ class PrText(Case):
         self.tools.pr = "https://example.test/pr/1"
         self.written("DE-1 Move the facts\n\n## Description\n\nWhy.\n\n## Related Issue\n\nDE-1")
         self.assertEqual(self.tools.edited, [("https://example.test/pr/1", "DE-1 Move the facts")])
+
+
+class PushAfterRebase(Case):
+    def opened(self):
+        run = self.start()
+        run.pr, run.branch, run.pushed = "https://example.test/pr/1", "workshop/de-1", "old"
+        self.tools.tips = {"workshop/de-1": "old"}
+        return run
+
+    def test_a_branch_moved_onto_its_base_replaces_workshops_own_push(self):
+        run, self.tools.ancestor = self.opened(), False
+        self.engine._push(run, self.root)
+        self.assertEqual((self.tools.forced, self.tools.leases, self.tools.pushes, run.pushed), (["workshop/de-1"], ["old"], 0, "one"))
+
+    def test_someone_elses_push_is_never_replaced(self):
+        run, self.tools.ancestor = self.opened(), False
+        self.tools.tips = {"workshop/de-1": "theirs"}
+        with self.assertRaisesRegex(Park, "Someone else pushed"):
+            self.engine._push(run, self.root)
+        self.assertFalse(getattr(self.tools, "forced", []))
+
+    def test_new_commits_on_top_push_as_usual(self):
+        run = self.opened()
+        self.engine._push(run, self.root)
+        self.assertEqual((self.tools.pushes, getattr(self.tools, "forced", []), run.pushed), (1, [], "one"))
 
 
 class RefusedCommit(Case):

@@ -443,8 +443,8 @@ class Tools:
             subprocess.run(["git", "rebase", "--abort"], cwd=work, capture_output=True)
             raise Conflict(f"moving onto {base} hit a conflict")
 
-    def force_push(self, work: Path, branch: str) -> None:
-        run("git", "push", "--force-with-lease", "origin", branch, cwd=work)
+    def force_push(self, work: Path, branch: str, lease: str = "") -> None:
+        run("git", "push", f"--force-with-lease={branch}:{lease}" if lease else "--force-with-lease", "origin", branch, cwd=work)
 
     def retarget(self, work: Path, pr: str, base: str) -> None:
         run("gh", "pr", "edit", pr, "--base", base, cwd=work)
