@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -261,6 +262,16 @@ class Sweeps(unittest.TestCase):
     def test_dropping_one_takes_its_checkout(self):
         run = self.engine.drop(self.swept([self.CREATE]), "Not now")
         self.assertEqual((run.landed, len(self.tools.removed)), ("dropped", 1))
+
+    def test_a_drop_needs_no_pane_once_the_checkout_has_gone(self):
+        run = self.start()
+        self.tools.statuses[run.step_agent] = "gone"
+        run = self.engine.advance(run)
+        self.tools.lost = {run.pane}
+        shutil.rmtree(run.worktree)
+        with mock.patch.object(self.tools, "linked", side_effect=ToolError("herdr worktree failed: worktree path not found")):
+            run = self.engine.drop(run, "Again")
+        self.assertEqual((run.status, run.landed, run.worktree), ("done", "dropped", ""))
         self.ticket.create.assert_not_called()
 
     def test_a_broken_file_is_a_stop_not_a_quiet_nothing(self):
