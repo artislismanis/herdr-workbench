@@ -4,6 +4,7 @@
 # Usage: hunk-pr-push [--as comment|approve|request-changes|draft] [--body <text>] [--before <command>] [--no-approve <reason>] [worktree]
 # --before runs after your go and just before a visible review, so both land together.
 # --no-approve takes approving off the table, and says why.
+# Exits 2 on a cancel, so a caller never counts it as posted.
 set -euo pipefail
 
 die() { printf 'hunk-pr-push: %s\n' "$*" >&2; exit 1; }
@@ -80,7 +81,7 @@ if [ -z "$as" ]; then
     a) as=approve ;;
     r) as=request-changes ;;
     d) as=draft ;;
-    *) echo "Cancelled."; exit 0 ;;
+    *) echo "Cancelled."; exit 2 ;;
   esac
 fi
 
@@ -104,7 +105,7 @@ fi
 [ "$as" = approve ] || [ -n "$body" ] || [ "$count" -gt 0 ] || die "nothing to post: no agent notes in this review."
 if [ "$as" = approve ] && [ "$(jq '.autoMergeRequest != null' <<<"$pr")" = true ]; then
   read -rp "Auto-merge is on, so approving may merge this PR. Approve? [y/N] " answer || answer=n
-  [ "$answer" = y ] || { echo "Cancelled."; exit 0; }
+  [ "$answer" = y ] || { echo "Cancelled."; exit 2; }
 fi
 
 if [ -n "$before" ] && [ "$own" = 0 ] && [ "$as" != draft ]; then

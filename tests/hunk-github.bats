@@ -153,10 +153,10 @@ AGENT_NOTE='{"source": "agent", "author": "claude", "filePath": "f.txt", "newRan
   echo "$stderr" | grep -q "CI is failing."
 }
 
-@test "push: enter on its own posts nothing" {
+@test "push: enter on its own posts nothing, and says so in its exit code" {
   notes "{\"comments\": [$AGENT_NOTE]}"
   run bash -c "echo | '$REPO_ROOT/bin/hunk-pr-push' '$REPO'"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 2 ]
   [ ! -e "$STUB/posted.json" ]
 }
 
@@ -238,7 +238,7 @@ AGENT_NOTE='{"source": "agent", "author": "claude", "filePath": "f.txt", "newRan
   jq '.autoMergeRequest = {}' "$STUB/pr.json" >"$STUB/x" && mv "$STUB/x" "$STUB/pr.json"
   notes "{\"comments\": [$AGENT_NOTE]}"
   run bash -c "echo n | '$REPO_ROOT/bin/hunk-pr-push' --as approve '$REPO'"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 2 ]
   [ ! -e "$STUB/posted.json" ]
 }
 

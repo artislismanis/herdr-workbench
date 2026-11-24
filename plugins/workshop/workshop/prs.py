@@ -95,7 +95,9 @@ def their_move(pr: dict[str, Any], reviews: dict[str, dict[str, Any]], head: str
     if pr["isDraft"]:
         return "others", "draft"
     if requested:
-        return "you", "re-review" if mine else "needs review"
+        # A push dismisses an approval, and a dismissed review is still one you gave.
+        before = mine or any((r["author"] or {}).get("login") == me for r in pr["reviews"]["nodes"])
+        return "you", "re-review" if before else "needs review"
     if mine is None:
         return "others", "open"
     if mine["state"] == "APPROVED":
