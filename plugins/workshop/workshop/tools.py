@@ -51,13 +51,23 @@ def slug(key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", key.lower()).strip("-")
 
 
-def permission_mode() -> str:
-    """Yours, from your own Claude settings. A repo's own default, such as plan, would stop an agent nobody is watching."""
+def claude_settings() -> dict[str, Any]:
     path = Path(os.environ.get("CLAUDE_CONFIG_DIR", "~/.claude")).expanduser() / "settings.json"
     try:
-        return json.loads(path.read_text(encoding="utf-8")).get("permissions", {}).get("defaultMode") or "default"
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return "default"
+        return {}
+
+
+def permission_mode() -> str:
+    """Yours, from your own Claude settings. A repo's own default, such as plan, would stop an agent nobody is watching."""
+    return claude_settings().get("permissions", {}).get("defaultMode") or "default"
+
+
+def temp_folder() -> str:
+    """Where your Claude settings keep temp files, so the checks workshop runs keep theirs there too and off a /tmp held in memory."""
+    env = claude_settings().get("env", {})
+    return env.get("TMPDIR") or env.get("CLAUDE_CODE_TMPDIR") or ""
 
 
 class Tools:

@@ -544,3 +544,33 @@ class Cli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TempFolder(unittest.TestCase):
+    def settings(self, env):
+        tmp = tempfile.mkdtemp()
+        Path(tmp, "settings.json").write_text(json.dumps({"env": env}), encoding="utf-8")
+        return tmp
+
+    def started(self, env, before=None):
+        claude = self.settings(env)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": claude, "WORKSHOP_CONFIG": str(Path(claude, "none.toml"))}):
+            os.environ.pop("TMPDIR", None)
+            if before:
+                os.environ["TMPDIR"] = before
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                main(["list"])
+            return os.environ.get("TMPDIR")
+
+    def test_the_checks_keep_temp_files_where_claude_does(self):
+        folder = str(Path(tempfile.mkdtemp(), "claude-tmp"))
+        self.assertEqual(self.started({"CLAUDE_CODE_TMPDIR": folder}), folder)
+        self.assertTrue(Path(folder).is_dir())
+
+    def test_tmpdir_in_the_settings_wins(self):
+        folder = tempfile.mkdtemp()
+        self.assertEqual(self.started({"CLAUDE_CODE_TMPDIR": tempfile.mkdtemp(), "TMPDIR": folder}), folder)
+
+    def test_a_tmpdir_you_set_stays(self):
+        mine = tempfile.mkdtemp()
+        self.assertEqual(self.started({"TMPDIR": "/elsewhere"}, before=mine), mine)
