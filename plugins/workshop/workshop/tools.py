@@ -64,6 +64,22 @@ def permission_mode() -> str:
     return claude_settings().get("permissions", {}).get("defaultMode") or "default"
 
 
+def keep_on_resume(work: Path, model: str, advisor: str) -> None:
+    """herdr brings agents back after a restart with a bare claude --resume, which drops the flags above. The checkout's local settings outlast that, and win over a repo's own, such as an opusplan that turns Sonnet once a plan is approved."""
+    path = work / ".claude" / "settings.local.json"
+    found = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    found |= {k: v for k, v in (("model", model), ("advisorModel", advisor)) if v}
+    found.setdefault("permissions", {})["defaultMode"] = permission_mode()
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(found, indent=2) + "\n", encoding="utf-8")
+    if subprocess.run(["git", "check-ignore", "-q", str(path)], cwd=work).returncode != 0:
+        # Fixes are committed with git add -A, so the file must never ride along.
+        exclude = Path(run("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=work).strip()) / "info" / "exclude"
+        exclude.parent.mkdir(exist_ok=True)
+        with exclude.open("a", encoding="utf-8") as out:
+            out.write("/.claude/settings.local.json\n")
+
+
 def temp_folder() -> str:
     """Where your Claude settings keep temp files, so the checks workshop runs keep theirs there too and off a /tmp held in memory."""
     env = claude_settings().get("env", {})
@@ -361,9 +377,11 @@ class Tools:
         return json.loads(done.stdout)["result"]["agent"]["agent_status"]
         return json.loads(done.stdout)["result"]["agent"]["agent_status"]
 
-    def start_agent(self, name: str, pane: str, files: Path, model: str = "", advisor: str = "") -> None:
+    def start_agent(self, name: str, pane: str, files: Path, model: str = "", advisor: str = "", work: Path | None = None) -> None:
         # Run files stay out of the repo, so agents need leave to reach them. Settings given here win over the repo's.
         settings = ["--settings", json.dumps({"advisorModel": advisor})] if advisor else []
+        if work is not None:
+            keep_on_resume(work, model, advisor)
         run("herdr", "agent", "start", name, "--kind", "claude", "--pane", pane, "--", "--add-dir", str(files), "--permission-mode", permission_mode(), *(["--model", model] if model else []), *settings)
 
     def talk(self, pane: str, files: Path, text: str) -> None:

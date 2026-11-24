@@ -1725,7 +1725,7 @@ class FakeTools:
     def screen(self, pane):
         return self.screens.get(pane, "")
 
-    def start_agent(self, name, pane, files, model="", advisor=""):
+    def start_agent(self, name, pane, files, model="", advisor="", work=None):
         self.started.append(name)
         self.files = files
         self.models[name] = model

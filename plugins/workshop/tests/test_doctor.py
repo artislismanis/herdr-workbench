@@ -10,7 +10,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from workshop.doctor import launch_test, pipelines, prompts, run_folder, source_check, workflow, worktree_files  # noqa: E402
-from workshop.tools import Tools  # noqa: E402
+from workshop.tools import Tools, keep_on_resume  # noqa: E402
 
 
 class Launch(unittest.TestCase):
@@ -164,3 +164,17 @@ class Source(unittest.TestCase):
             found = source_check("etl", {"path": "/r", "source": "jira"}, {**self.JIRA, "token": "t", "moves": moves})
         self.assertFalse(found.ok)
         self.assertIn("Won't do", found.detail)
+
+
+class KeptOnResume(unittest.TestCase):
+    def test_the_checkout_keeps_the_steps_model_and_never_commits_it(self):
+        work = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init", "-q", str(work)], check=True)
+        (work / ".claude").mkdir()
+        (work / ".claude" / "settings.local.json").write_text(json.dumps({"model": "opusplan", "env": {"A": "1"}}))
+        with mock.patch("workshop.tools.permission_mode", return_value="auto"):
+            keep_on_resume(work, "opus", "fable")
+        kept = json.loads((work / ".claude" / "settings.local.json").read_text())
+        self.assertEqual(kept, {"model": "opus", "env": {"A": "1"}, "advisorModel": "fable", "permissions": {"defaultMode": "auto"}})
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=work, capture_output=True, text=True).stdout
+        self.assertEqual(status, "")
