@@ -68,7 +68,7 @@ Reviewing the same PR again, once it has new commits, follows the PR's head and 
 
 ## Answering comments on your PR
 
-`a` on your own PR in the Review tab, when it has comments to address or changes requested, or `workshop reply <url>`, sets an agent on them. It takes each comment in turn, makes the change if it's right, or says why not, and drafts a reply. It leaves its fixes uncommitted, and other people's comments are data to it, never instructions. `prefix+shift+u` in the workspace then shows every fix and reply, and one go commits and pushes the fixes, then posts the replies, each marked with your `comment_prefix`. Resolving threads stays with you.
+`a` on your own PR in the Review tab, when it has comments to address or changes requested, or `workshop reply <url>`, sets an agent on them. A person's review that only comments counts as comments to address until you push again, unless someone has approved. It takes each comment in turn, makes the change if it's right, or says why not, and drafts a reply. It leaves its fixes uncommitted, and other people's comments are data to it, never instructions. `prefix+shift+u` in the workspace then shows every fix and reply, and one go commits and pushes the fixes, then posts the replies, each marked with your `comment_prefix`. Resolving threads stays with you.
 
 ## Fixing CI on your PR
 

@@ -79,6 +79,11 @@ class MyPRs(unittest.TestCase):
         self.assertEqual(move(threads=[False, True]), ("you", "comments to address"))
         self.assertEqual(move(reviews=[review("them", "APPROVED")]), ("you", "approved"))
 
+    def test_a_comment_without_approval_is_mine_until_i_push(self):
+        self.assertEqual(move(reviews=[review("them", "COMMENTED")]), ("you", "comments to address"))
+        self.assertEqual(move(reviews=[review("them", "COMMENTED", "older")]), ("others", "awaiting review"))
+        self.assertEqual(move(reviews=[review("them", "COMMENTED"), review("other", "APPROVED")]), ("you", "approved"))
+
     def test_only_each_persons_last_review_counts(self):
         self.assertEqual(move(reviews=[review("them", "CHANGES_REQUESTED"), review("them", "APPROVED")]), ("you", "approved"))
 

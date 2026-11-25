@@ -87,6 +87,9 @@ def my_move(pr: dict[str, Any], reviews: dict[str, dict[str, Any]], head: str, f
         return "you", "comments to address"
     if any(r["state"] == "APPROVED" for r in reviews.values()):
         return "you", "approved"
+    # A comment in the review summary leaves no thread. A push since then is the answer to it.
+    if any(r["state"] == "COMMENTED" and reviewed_commit(r) == head for r in reviews.values()):
+        return "you", "comments to address"
     return "others", "awaiting review"
 
 
