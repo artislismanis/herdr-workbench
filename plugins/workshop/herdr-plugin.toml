@@ -17,6 +17,12 @@ title = "Workshop: open the board"
 contexts = ["global"]
 command = ["bin/workshop", "open-board"]
 
+[[actions]]
+id = "lead"
+title = "Workshop: talk to the lead"
+contexts = ["global"]
+command = ["bin/workshop", "lead"]
+
 # An agent changing state is the moment a run can move, so nothing has to poll for it.
 [[events]]
 on = "pane.agent_status_changed"

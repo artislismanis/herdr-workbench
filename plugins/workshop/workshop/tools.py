@@ -19,6 +19,8 @@ from .shell import ToolError, run, run_json
 
 BOARD = "workshop"  # the board's workspace
 BOARD_TAB = "Dashboard"
+LEAD_TAB = "Lead"
+LEAD_BRIEF = Path(__file__).parent.parent / "lead-chat.md"
 OPEN_BOARD = "prefix+shift+b opens it on the board."
 REVIEW_WAIT = 40  # half-second checks while hunk starts
 # Running a repo's checks leaves these behind, even where it doesn't ignore them.
@@ -162,6 +164,24 @@ class Tools:
         run("herdr", "tab", "rename", made["result"]["tab"]["tab_id"], BOARD_TAB)
         run("herdr", "pane", "run", made["result"]["root_pane"]["pane_id"], f"exec {Path.home()}/.local/bin/workshop board")
         self._to_top(made["result"]["workspace"]["workspace_id"])
+
+    def open_lead(self, home: Path) -> None:
+        """A Claude session to talk things through with, in a tab beside the board. A second press goes back to it."""
+        self.open_board()
+        space = next(s["workspace_id"] for s in run_json("herdr", "workspace", "list")["result"]["workspaces"] if s.get("label") == BOARD)
+        for tab in run_json("herdr", "tab", "list", "--workspace", space)["result"]["tabs"]:
+            if tab["label"] == LEAD_TAB:
+                run("herdr", "tab", "focus", tab["tab_id"])
+                return
+        home.mkdir(parents=True, exist_ok=True)
+        # Files, not flags, as herdr brings an agent back with a bare claude --resume.
+        (home / "CLAUDE.md").write_text(LEAD_BRIEF.read_text(encoding="utf-8"), encoding="utf-8")
+        (home / ".claude").mkdir(exist_ok=True)
+        (home / ".claude" / "settings.local.json").write_text(json.dumps({"model": "opus", "permissions": {"defaultMode": permission_mode()}}, indent=2) + "\n", encoding="utf-8")
+        made = run_json("herdr", "tab", "create", "--workspace", space, "--cwd", str(home), "--label", LEAD_TAB, "--focus")
+        talked = any((Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(home))).glob("*.jsonl"))
+        # Typed, not herdr agent start, which fails while the first open waits for you to trust the folder.
+        run("herdr", "pane", "run", made["result"]["root_pane"]["pane_id"], f"claude --add-dir {shlex.quote(str(Path.home()))}" + (" --continue" if talked else ""))
 
     def _to_top(self, workspace: str) -> None:
         # Only the socket API can reorder workspaces. The board works anywhere, so failing here doesn't matter.
