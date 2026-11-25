@@ -248,6 +248,12 @@ A run that stops by itself gets a look too: a test that hung, an agent that went
 - The Usage tab shows what it did this week: how many questions it answered and left for you, its five latest with the line it used or what it suggests, and its spend today.
 - `[lead] enabled = false` turns it off.
 
+### Talk to the lead
+
+`L` on the board opens a Lead tab beside the board, with a Claude session to talk to. Ask it what is going on, what to do next or to fix a stuck run. It reads the state and runs `workshop` commands for you, and asks before it merges, posts or touches preprod or prod. `workshop lead` and the herdr action do the same. A second press goes back to the tab. Closing it loses nothing: the next one picks up the last talk. The first time, Claude asks you to trust the folder.
+
+Its rules are in `lead-chat.md` in the plugin. Workshop writes them to `~/.local/state/workshop/lead/CLAUDE.md` each time the tab opens. It runs on Opus, in your own permission mode.
+
 ## Concluding a stopped run
 
 A stopped run always has a way out: `a` or `d` on the board, or from the terminal or the ticket:

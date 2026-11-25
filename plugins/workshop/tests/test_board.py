@@ -1,6 +1,7 @@
 import collections
 import curses
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -1064,6 +1065,12 @@ class Keys(unittest.TestCase):
             thread.call_args.kwargs["target"]()
         self.tools.workshop.assert_called_once_with("refresh")
         self.assertFalse(self.board.refreshing)
+
+    def test_capital_l_opens_the_lead_chat(self):
+        with mock.patch("workshop.board.threading.Thread") as thread:
+            self.board.press(ord("L"))
+            thread.call_args.kwargs["target"]()
+        self.tools.workshop.assert_called_once_with("lead")
 
     def stopped(self, status="parked", step=0):
         self.store.save(run("1", status, step=step, reason="Stuck", pane="w1:p1"))
@@ -2256,6 +2263,39 @@ class Panel(Mouse):
         width = self.wide()
         self.board.mouse(160, 10, curses.BUTTON5_PRESSED, width)
         self.assertEqual((self.board.side, self.board.selected(self.board.lines(width))), (3, ("r", "1")))
+
+
+class OpenLead(unittest.TestCase):
+    SPACES = {"result": {"workspaces": [{"workspace_id": "w2", "label": "workshop"}]}}
+
+    def test_goes_back_to_an_open_lead_tab(self):
+        tabs = {"result": {"tabs": [{"tab_id": "w2:t1", "label": "Dashboard"}, {"tab_id": "w2:t2", "label": "Lead"}]}}
+        with mock.patch.object(Tools, "open_board"), mock.patch("workshop.tools.run_json", side_effect=[self.SPACES, tabs]), mock.patch("workshop.tools.run") as called:
+            Tools().open_lead(Path("/nowhere"))
+        called.assert_called_once_with("herdr", "tab", "focus", "w2:t2")
+
+    def test_opens_a_tab_that_keeps_its_model_and_picks_up_the_last_talk(self):
+        tabs = {"result": {"tabs": [{"tab_id": "w2:t1", "label": "Dashboard"}]}}
+        made = {"result": {"root_pane": {"pane_id": "w2:p5"}}}
+        with tempfile.TemporaryDirectory() as folder:
+            home, lead = Path(folder), Path(folder) / "state" / "lead"
+            (home / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(lead))).mkdir(parents=True)
+            (home / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(lead)) / "a.jsonl").write_text("{}")
+            with mock.patch.object(Tools, "open_board"), mock.patch("workshop.tools.run_json", side_effect=[self.SPACES, tabs, made]) as asked, mock.patch("workshop.tools.run") as called, mock.patch("workshop.tools.Path.home", return_value=home), mock.patch("workshop.tools.permission_mode", return_value="auto"):
+                Tools().open_lead(lead)
+            self.assertIn("lead engineer", (lead / "CLAUDE.md").read_text())
+            self.assertEqual(json.loads((lead / ".claude" / "settings.local.json").read_text()), {"model": "opus", "permissions": {"defaultMode": "auto"}})
+        asked.assert_called_with("herdr", "tab", "create", "--workspace", "w2", "--cwd", str(lead), "--label", "Lead", "--focus")
+        self.assertEqual(called.call_args.args[:4], ("herdr", "pane", "run", "w2:p5"))
+        self.assertEqual(called.call_args.args[4], f"claude --add-dir {home} --continue")
+
+    def test_a_first_talk_starts_fresh(self):
+        tabs = {"result": {"tabs": []}}
+        made = {"result": {"root_pane": {"pane_id": "w2:p5"}}}
+        with tempfile.TemporaryDirectory() as folder:
+            with mock.patch.object(Tools, "open_board"), mock.patch("workshop.tools.run_json", side_effect=[self.SPACES, tabs, made]), mock.patch("workshop.tools.run") as called, mock.patch("workshop.tools.Path.home", return_value=Path(folder)):
+                Tools().open_lead(Path(folder) / "lead")
+        self.assertNotIn("--continue", called.call_args.args[4])
 
 
 class OpenBoard(unittest.TestCase):

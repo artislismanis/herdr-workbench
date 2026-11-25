@@ -1,4 +1,4 @@
-"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status [--json] | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | merge <url> | merge-listed <[repo/]key> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | keep <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board"""
+"""Usage: workshop tick | advance | start <repo> <key> [--override] [--restart] | status [--json] | needs-you | explain <[repo/]key> | resume <[repo/]key> | pr <url> [--claimed|--silent] | reply <url> | talk <[repo/]key> | merge <url> | merge-listed <[repo/]key> | claim <[repo/]key> | review <[repo/]key> | sample | prepare <[repo/]key or idea> | sweep <repo> <name> | finish | approve <[repo/]key> | reject <[repo/]key> <note> | answer <[repo/]key> <text> | keep <[repo/]key> <text> | retry <[repo/]key> [note] | pass <[repo/]key> [note] | drop <[repo/]key> [reason] | list | doctor [--no-launch] | schedule [<every>|off] | stats | refresh | board | open-board | lead"""
 
 import fcntl
 import json
@@ -40,7 +40,7 @@ TICKET_KEY = re.compile(r"\d+|[A-Z][A-Z0-9]*-\d+")
 TITLE = 72
 STACK_DEPTH = 5  # layers at most: more needs a new plan, not another layer
 # Each command and how many arguments it needs.
-COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "merge": 1, "merge-listed": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "keep": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0}
+COMMANDS = {"tick": 0, "advance": 0, "start": 2, "status": 0, "needs-you": 0, "explain": 1, "resume": 1, "pr": 1, "reply": 1, "fix-ci": 1, "talk": 1, "rerequest": 1, "merge": 1, "merge-listed": 1, "claim": 1, "review": 1, "prepare": 1, "sample": 0, "sweep": 2, "finish": 0, "approve": 1, "reject": 2, "answer": 2, "keep": 2, "retry": 1, "pass": 1, "drop": 1, "list": 0, "doctor": 0, "schedule": 0, "stats": 0, "refresh": 0, "board": 0, "open-board": 0, "lead": 0}
 
 
 SHOWN_SECONDS = 1  # long enough to see it worked, with nothing to dismiss
@@ -841,6 +841,8 @@ def main(argv: list[str]) -> int:
                 show(engine, cfg)
             case "open-board":
                 engine.tools.open_board()
+            case "lead":
+                engine.tools.open_lead(root / "lead")
         return 0
     except (Park, PipelineError, ToolError, KeyError) as stop:
         print(f"workshop: {stop.args[0] if isinstance(stop, KeyError) and stop.args else stop}", file=sys.stderr)  # a KeyError quotes its message

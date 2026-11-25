@@ -56,6 +56,7 @@ CLAIM = ord("m")
 MERGE = ord("M")
 PREPARE = ord("p")
 FIND = ord("/")
+LEAD = ord("L")
 TALK = "talk"
 CHOOSE_REPO = "choose-repo"  # stays on the board: its answer leads to the next question
 RENEWED = ("re-review", "new commits")
@@ -426,6 +427,8 @@ class Board:
             self.tab, self.viewing, self.offset, self.side, self.filter = (self.tab + (1 if key == TAB_KEY else -1)) % len(TABS), "", 0, 0, ""
         elif key == ord("r"):
             self.refresh()
+        elif key == LEAD:
+            self.send("lead")
         elif key == ord("g"):
             self.jump(self.open or self.selected(lines))
         elif key == ord("o") and (url := self.link(lines)):
@@ -817,7 +820,7 @@ class Board:
         offers += [("M merge", MERGE)] * bool(self.mergeable(lines))
         offers += [("p prepare", PREPARE)] * (self.tab == BACKLOG)
         offers += [(f"esc clear /{self.filter}", ESCAPE)] if self.filter and not self.open else [("/ filter", FIND)] * (self.tab != USAGE and not self.open)
-        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run and run.pane) + [("o link", ord("o"))] * bool(self.link(lines)) + [("w wide" if self.phone else "w phone", PHONE), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
+        common = [("g review" if run and self.engine.review_ready(run) else "g workspace", ord("g"))] * bool(run and run.pane) + [("o link", ord("o"))] * bool(self.link(lines)) + [("w wide" if self.phone else "w phone", PHONE), ("L lead", LEAD), ("r refresh", ord("r"))] + ([] if self.open else [("q quit", ord("q"))])
         return Line(busy + [part for label, key in (stopped or moves) + offers + common for part in (Span(f" {label} ", "button", f"key:{key}"), Span(" "))])
 
     def note(self, width: int) -> list[Line]:
