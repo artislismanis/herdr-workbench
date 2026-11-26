@@ -174,7 +174,7 @@ def begin_reply(engine: Engine, cfg: dict[str, Any], url: str) -> Run:
     source = ReplySource(path)
     key = f"reply-{number}"
     again = engine.store.exists(name, key) and engine.review_ready(engine.store.load(name, key))
-    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("reply_pipeline", "reply"), path, name), source, restart=again, pr=url.rstrip("/"), replying=True)
+    return engine.start(name, key, path, source.details(key)["baseRefName"], load(repo.get("reply_pipeline", "reply"), path, name), source, restart=again, commands=repo.get("commands"), pr=url.rstrip("/"), replying=True)
 
 
 def begin_fix_ci(engine: Engine, cfg: dict[str, Any], url: str) -> Run:

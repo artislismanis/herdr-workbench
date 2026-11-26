@@ -1,2 +1,19 @@
 # Comments on your own PR to fixes and draft replies. Nothing is pushed or posted until your go.
-steps = ["reply"]
+# Replies alone end there. A small fix runs the repo's checks. Rework waits for your yes to its plan,
+# then is built, checked and reviewed as a ticket is.
+steps = ["reply", "approve", "implement", "qa", "ai-review"]
+
+[step.reply]
+then.REPLIED = { last = "reply" }
+then.FIXED = { goto = "qa", max = 1, last = "qa" }
+
+[step.approve]
+stage = "Review"
+report = "reply"
+ask = "Is this the right rework?"
+go = "Start the rework"
+then.REJECTED = { goto = "reply", max = 2, prompt = "reply-replan.md" }
+
+[step.implement]
+stage = "Review"
+prompt = "reply-rework.md"

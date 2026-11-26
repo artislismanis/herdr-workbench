@@ -1254,16 +1254,69 @@ class Replies(unittest.TestCase):
         self.tools.behind = 1
         self.engine = Engine(self.tools, Store(self.root / "state"), lambda run: self.source, FakeThrottle(), clock=lambda: 1000.0)
 
-    def start(self, restart=False):
-        return self.engine.start("r", "reply-7", self.root, "main", load("reply"), self.source, restart=restart, pr=self.URL, replying=True)
+    BRIEF = "## Decision\nWhat: replies\nWhy: comments\nBackground: none\nBottom line: post\nAsk: post them?\n\n"
 
-    def finished(self, replies='[{"comment": 12, "reply": "Fixed"}, {"comment": null, "reply": "Thanks"}]'):
-        run = self.start()
+    def start(self, restart=False, commands=None):
+        return self.engine.start("r", "reply-7", self.root, "main", load("reply"), self.source, restart=restart, commands=commands, pr=self.URL, replying=True)
+
+    def finished(self, replies='[{"comment": 12, "reply": "Fixed"}, {"comment": null, "reply": "Thanks"}]', verdict="REPLIED", commands=None):
+        run = self.start(commands=commands)
+        return self.answer(run, replies, verdict)
+
+    def answer(self, run, replies, verdict):
         files = self.engine.store.files(run)
-        (files / "reply.md").write_text("Done\n")
+        (files / "reply.md").write_text(f"{self.BRIEF}Done\n\nVERDICT: {verdict}\n")
         (files / "replies.json").write_text(replies)
         self.tools.statuses[run.agent] = "idle"
         return self.engine.advance(run)
+
+    def qa_ends(self, run, code):
+        (self.engine.store.files(run) / "qa.exit").write_text(f"{code}\n")
+        return self.engine.advance(run)
+
+    def prompted(self, step):
+        return [text for _, text in self.tools.prompts if f"prompt-{step}-" in text]
+
+    def test_replies_alone_run_no_checks(self):
+        run = self.finished(commands={"qa": "make test"})
+        self.assertEqual((run.status, self.tools.commands), ("done", []))
+
+    def test_a_small_fix_runs_the_repos_checks_and_nothing_after(self):
+        run = self.finished(verdict="FIXED", commands={"qa": "make test"})
+        self.assertEqual((run.current["id"], self.tools.commands), ("qa", ["make test"]))
+        run = self.qa_ends(run, 0)
+        self.assertEqual(run.status, "done")
+        self.assertEqual(self.prompted("ai-review"), [])
+
+    def test_a_small_fix_that_fails_the_checks_is_fixed_and_keeps_its_replies(self):
+        run = self.qa_ends(self.finished(verdict="FIXED", commands={"qa": "make test"}), 1)
+        self.assertEqual(run.current["id"], "implement")
+        self.assertIn("The repo's checks failed", self.prompted("implement")[-1])
+        self.assertEqual(len(self.engine.replies(run)), 2)
+        (self.engine.store.files(run) / "implement.md").write_text("Fixed the test\n")
+        self.tools.statuses[run.agent] = "idle"
+        run = self.qa_ends(self.engine.advance(run), 0)
+        self.assertEqual((run.status, len(self.engine.replies(run))), ("done", 2))
+
+    def test_rework_waits_for_your_yes_to_its_plan(self):
+        run = self.finished(verdict="REWORK", commands={"qa": "make test"})
+        self.assertEqual((run.status, run.current["id"]), ("waiting", "approve"))
+        self.assertEqual(self.prompted("implement"), [])
+
+    def test_your_yes_builds_the_rework_then_checks_and_reviews_it(self):
+        run = self.engine.approve(self.finished(verdict="REWORK", commands={"qa": "make test"}))
+        self.assertEqual(run.current["id"], "implement")
+        self.assertIn("Rework plan", self.prompted("implement")[-1])
+        (self.engine.store.files(run) / "implement.md").write_text("Built the plan\n")
+        self.tools.statuses[run.agent] = "idle"
+        run = self.qa_ends(self.engine.advance(run), 0)
+        self.assertEqual(run.current["id"], "ai-review")
+        self.assertEqual(len(self.engine.replies(run)), 2)
+
+    def test_a_rejected_plan_goes_back_to_be_planned_again(self):
+        run = self.engine.reject(self.finished(verdict="REWORK"), "smaller, please")
+        self.assertEqual(run.current["id"], "reply")
+        self.assertIn("wants changes to it", self.prompted("reply")[-1])
 
     def test_nothing_leaves_until_your_go(self):
         run = self.finished()

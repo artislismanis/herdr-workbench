@@ -55,10 +55,12 @@ stage = "Deploy"
 kind = "draft_pr"
 
 # Comments on your own PR to fixes and draft replies. Nothing is pushed or posted until your go.
+# The verdict says what it did: replied only, made small fixes, or planned rework that needs your yes.
 [step.reply]
 stage = "Review"
 kind = "agent"
 prompt = "reply-pr.md"
+verdict = ["REPLIED", "FIXED", "REWORK"]
 
 # One talk per stage. Your yes to the agent's summary is the go, and nothing reaches the ticket before it.
 [step.requirements]

@@ -16,7 +16,7 @@ GATE_KEYS = {"id", "stage", "kind", "report", "section", "label", "proposals", "
 COMMAND_KEYS = {"id", "stage", "kind", "minutes", "verdict", "then"}
 COMMAND_VERDICTS = ["PASS", "FAILED"]
 CI_KEYS = {"id", "stage", "kind", "minutes", "then"}
-RULE_KEYS = {"goto", "max", "prompt", "park"}
+RULE_KEYS = {"goto", "max", "prompt", "park", "last"}
 SHIPPED = Path(__file__).resolve().parent.parent / "pipelines"
 STEPS = SHIPPED.parent / "steps.toml"  # workshop's steps, which pipelines list by name
 MARK = "<!-- workshop -->"  # above it, how to do the step, which a repo or you can replace; below, how it reports back
@@ -89,8 +89,10 @@ def _check_prompt(where: str, name: Any) -> None:
 def _check_rule(where: str, rule: Any, ids: set[str]) -> None:
     if not isinstance(rule, dict) or set(rule) - RULE_KEYS:
         raise PipelineError(f"{where}: a rule takes only {sorted(RULE_KEYS)}")
-    if ("goto" in rule) == ("park" in rule):
-        raise PipelineError(f"{where}: a rule needs exactly one of goto or park")
+    if ("goto" in rule) == ("park" in rule) and not set(rule) == {"last"}:
+        raise PipelineError(f"{where}: a rule needs exactly one of goto or park, or only a last step")
+    if "last" in rule and ("park" in rule or rule["last"] not in ids):
+        raise PipelineError(f"{where}: last names the step a route ends on, after a goto or alone: {rule['last']}")
     if "goto" in rule:
         if rule["goto"] not in ids:
             raise PipelineError(f"{where}: goto names an unknown step: {rule['goto']}")
