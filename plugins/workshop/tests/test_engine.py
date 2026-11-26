@@ -720,6 +720,14 @@ class Prepare(unittest.TestCase):
         self.assertNotEqual(run.step_agent, agent)
         self.assertIn(pane, self.tools.closed)
 
+    def test_only_your_yes_to_the_design_moves_the_ticket(self):
+        forwarded = []
+        self.ticket.forward = lambda key, move: forwarded.append((key, move))
+        run = self.agree(self.start())
+        self.assertEqual(forwarded, [])
+        self.agree(run, "design", "### How\n\nLike so.\n\nQUEUE: hold\nVERDICT: READY\n")
+        self.assertEqual(forwarded, [("7", "designed")])
+
     def finished(self):
         return self.design("### How\n\nLike so.\n\nQUEUE: hold\nVERDICT: READY\n")
 

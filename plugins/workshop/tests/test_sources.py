@@ -218,6 +218,14 @@ class PrepareTickets(unittest.TestCase):
         self.source.enqueue("prep-AB-12")
         self.inner.move.assert_called_once_with("AB-12", "queued")
 
+    def test_your_yes_to_the_design_moves_the_ticket_forward(self):
+        self.source.move("prep-AB-12", "designed")
+        self.inner.forward.assert_called_once_with("AB-12", "designed")
+
+    def test_a_talk_makes_no_other_move(self):
+        self.source.move("prep-AB-12", "working")
+        self.inner.forward.assert_not_called()
+
     def test_jira_keys_keep_their_shape(self):
         self.source.get("prep-AB-12")
         self.inner.get.assert_called_once_with("AB-12")
@@ -583,6 +591,28 @@ class JiraBoard(unittest.TestCase):
         self.assertEqual(self.calls, [])
         with self.assertRaises(ValueError):
             source.move("DE-1", "blocked")
+
+    def forward_from(self, status):
+        source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "moves": {"designed": "Refined"}, "route": ["Backlog", "Refined", "To Do"]})
+        self.calls = []
+
+        def call(method, path, body=None):
+            self.calls.append((method, path, body))
+            if path == "issue/DE-1?fields=status":
+                return {"fields": {"status": {"name": status}}}
+            return {"transitions": [{"id": "3", "name": "Refine", "to": {"name": "Refined"}}]}
+
+        source._call = call
+        source.forward("DE-1", "designed")
+        return [c for c in self.calls if c[0] == "POST"]
+
+    def test_a_forward_move_takes_a_ticket_on_from_before_the_status(self):
+        self.assertEqual(self.forward_from("Backlog"), [("POST", "issue/DE-1/transitions", {"transition": {"id": "3"}})])
+
+    def test_a_forward_move_never_takes_a_ticket_back_or_off_a_held_status(self):
+        self.assertEqual(self.forward_from("To Do"), [])
+        self.assertEqual(self.forward_from("Refined"), [])
+        self.assertEqual(self.forward_from("Awaiting input"), [])
 
     def test_a_long_move_walks_the_route_to_the_status(self):
         source = JiraSource("etl", "ai", [], {"base_url": "https://x.test/", "email": "a@b", "token": "t", "moves": {"merged": "Ready"}, "route": ["In Progress", "Review", "Dev Done", "Ready"]})

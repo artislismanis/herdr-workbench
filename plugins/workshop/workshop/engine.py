@@ -567,6 +567,8 @@ class Engine:
         source.publish(run.key, step["section"], text, step["label"])
         source.signed(run.key, f"{self.mark}Signed off the {step['section'].lower()}.")
         self.store.event(run, "signed_off", step=step["id"], section=step["section"])
+        if step["label"] == "designed":
+            self._move(run, "designed")
         if len(parts) > 1:
             self._split(run, source, parts)
 
