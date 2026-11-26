@@ -1815,6 +1815,9 @@ class FakeTools:
     def mark_ready(self, work, pr):
         self.readied = pr
 
+    def mark_draft(self, work, pr):
+        self.drafted = pr
+
     def review_open(self, work):
         return self.open_already
 
@@ -2825,6 +2828,14 @@ class SelfReview(Case):
         run = self.finish_agent(run, "ws-de-1-ai-review-2", "ai-review", "VERDICT: PASS\n")
         self.assertEqual(run.status, "done")
         self.assertTrue(self.tools.reloads[-1])
+
+    def test_a_plan_on_an_open_pr_turns_it_back_to_a_draft_and_builds(self):
+        run = self.to_draft()
+        run.opened = True
+        (self.kept() / "rework.md").write_text("Rename x to y.", encoding="utf-8")
+        run = self.engine.rework(run)
+        self.assertEqual((run.status, run.current["id"], run.opened), ("running", "implement", False))
+        self.assertEqual(self.tools.drafted, run.pr)
 
     def test_no_plan_leaves_the_draft_with_you(self):
         run = self.to_draft()

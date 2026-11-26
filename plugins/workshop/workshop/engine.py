@@ -1509,8 +1509,11 @@ class Engine:
     def rework(self, run: Run) -> Run:
         """The plan you agreed in self-review is built, checked and reviewed again before the draft comes back to you."""
         plan = self.store.files(run) / "rework.md"
-        if not self.reviewable(run) or not plan.exists() or "implement" not in [s["id"] for s in run.pipeline["steps"]]:
+        if not self.delivered(run) or not plan.exists() or "implement" not in [s["id"] for s in run.pipeline["steps"]]:
             return run
+        if run.opened:  # back to a draft, so reviewers wait and the result comes back to you before it reopens
+            self.tools.mark_draft(Path(run.worktree), run.pr)
+            run.opened = False
         kept = self.store.files(run) / "rework-plan.md"
         self._keep_earlier(kept)
         plan.rename(kept)
