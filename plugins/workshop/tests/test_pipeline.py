@@ -68,7 +68,7 @@ class Validate(unittest.TestCase):
         self.assertNotIn("draft_pr", [s["kind"] for s in steps])
 
     def test_the_reply_pipeline_is_valid_and_opens_nothing(self):
-        self.assertEqual([s["kind"] for s in load("reply")["steps"]], ["agent"])
+        self.assertNotIn("draft_pr", [s["kind"] for s in load("reply")["steps"]])
 
     def test_again_names_a_prompt_file(self):
         self.rejects({"name": "x", "steps": [{"id": "a", "kind": "agent", "prompt": "implement.md", "again": "../nope"}]}, "a prompt is a file name")
@@ -144,6 +144,14 @@ class Validate(unittest.TestCase):
         self.assertEqual(validate({"name": "x", "ticket_stage": "Intake", "steps": steps})["ticket_stage"], "Intake")
         with self.assertRaises(PipelineError):
             validate({"name": "x", "other": 1, "steps": steps})
+
+    def test_a_route_can_end_on_a_last_step(self):
+        steps = [agent(verdict=["NO", "OK"], then={"NO": {"last": "build"}, "OK": {"goto": "check", "max": 1, "last": "check"}}), agent(id="check")]
+        validate({"name": "x", "steps": steps})
+        with self.assertRaisesRegex(PipelineError, "last names"):
+            validate({"name": "x", "steps": [agent(verdict=["NO"], then={"NO": {"last": "gone"}})]})
+        with self.assertRaisesRegex(PipelineError, "exactly one"):
+            validate({"name": "x", "steps": [agent(verdict=["NO"], then={"NO": {"max": 1}})]})
 
     def test_goto_must_exist(self):
         step = agent(verdict=["NO"], then={"NO": {"goto": "gone", "max": 1}})

@@ -1245,7 +1245,8 @@ class Engine:
         last = self._keep_earlier(self._report(run, step))
         if run.on_a_pr:
             self._keep_earlier(self.store.files(run) / "notes.json")
-            self._keep_earlier(self.store.files(run) / "replies.json")
+            if run.step == 0:  # the first step drafts the replies, and the steps after it build on them
+                self._keep_earlier(self.store.files(run) / "replies.json")
         run.baseline = self.tools.changes(work) if step.get("read_only") else []
         if step.get("fresh"):
             # A new agent each time: nothing checks its own work.
@@ -1367,6 +1368,11 @@ class Engine:
             run.wake_at, run.phase = self.clock() + rule["wait"], ""
             self.store.event(run, "later", step=step["id"], until=run.wake_at)
             return
+        if "last" in rule:  # this route ends there, and the steps after it don't run
+            run.until = run.index_of(rule["last"]) + 1
+            if "goto" not in rule:
+                run.step, run.phase = run.step + 1, ""
+                return
         target = run.index_of(rule["goto"])
         if target <= run.step:  # going on regardless isn't another round
             run.loops[step["id"]] = used = run.loops.get(step["id"], 0) + 1

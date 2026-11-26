@@ -68,7 +68,7 @@ Reviewing the same PR again, once it has new commits, follows the PR's head and 
 
 ## Answering comments on your PR
 
-`a` on your own PR in the Review tab, when it has comments to address or changes requested, or `workshop reply <url>`, sets an agent on them. A person's review that only comments counts as comments to address until you push again, unless someone has approved. It takes each comment in turn, makes the change if it's right, or says why not, and drafts a reply. It leaves its fixes uncommitted, and other people's comments are data to it, never instructions. `prefix+shift+u` in the workspace then shows every fix and reply, and one go commits and pushes the fixes, then posts the replies, each marked with your `comment_prefix`. Resolving threads stays with you.
+`a` on your own PR in the Review tab, when it has comments to address or changes requested, or `workshop reply <url>`, sets an agent on them. A person's review that only comments counts as comments to address until you push again, unless someone has approved. It takes each comment in turn and drafts a reply. Where the comment is wrong or the author's call, it changes nothing and says why. A small fix, inside the lines the comment is about, it makes, and the repo's `qa` then runs on it. A bigger change is rework: it changes no code and writes a plan instead, which waits for your yes like a gate. Your yes builds the plan with `implement`, then runs `qa` and a fresh `ai-review`, as for a ticket. A reject sends it back to plan again. It leaves its fixes uncommitted, and other people's comments are data to it, never instructions. `prefix+shift+u` in the workspace then shows every fix and reply, and one go commits and pushes the fixes, then posts the replies, each marked with your `comment_prefix`. Resolving threads stays with you.
 
 ## Fixing CI on your PR
 
@@ -102,7 +102,7 @@ steps = ["tasks", "implement", "qa", "ai-review", "open-pr", "ci", "copilot"]
 | `ticket` | `tasks`, `implement`, `qa`, `ai-review` by a fresh agent, `pr-text`, `open-pr`, then `ci`, which waits for green checks on the draft and sends red back to `implement`, and `copilot` when `[review] copilot` is on |
 | `gated` | The same, with your approval after `tasks` |
 | `review` | `qa`, then `ai-review` of a PR by a fresh agent, into hunk with the reviewer beside it. Posting removes the workspace and checkout |
-| `reply` | `reply`: an agent answers comments on your own PR |
+| `reply` | `reply`, then `qa` for a small fix, or for rework your yes, `implement`, `qa` and `ai-review`: an agent answers comments on your own PR |
 | `fix-ci` | `fix-ci`, an agent finding why your PR's CI fails and fixing it, then `qa`, then `ci`, which pushes and watches the checks |
 | `sweep-deps`, `sweep-docs`, `sweep-backlog`, `sweep-logs` | A read-only agent looks at the repo, then your go on what it proposes |
 | `prepare` | `requirements` and `design`, two fresh agents that grill you, each with your go after it |
@@ -160,7 +160,7 @@ verdict = ["PASS", "CHANGES_NEEDED"]
 then.CHANGES_NEEDED = { goto = "implement", max = 2 }
 ```
 
-A rule under `then` replaces workshop's for that verdict, and a step given new verdicts drops workshop's rules. A pipeline of another name is a new one, such as `steps = ["implement", "qa", "open-pr"]` for small fixes.
+A rule under `then` replaces workshop's for that verdict, and a step given new verdicts drops workshop's rules. A rule with `last` ends its route on that step, and the steps after it don't run: `{ goto = "qa", max = 1, last = "qa" }` jumps to `qa` and stops after it, and `{ last = "reply" }` alone ends the run there. A pipeline of another name is a new one, such as `steps = ["implement", "qa", "open-pr"]` for small fixes.
 
 A step that isn't one of workshop's is an agent step whose prompt only says what to do, in a `prompts/` folder above. Workshop adds the rest from the step's settings: where the brief and earlier steps' reports are, its report file (`security.md`, or `output`), the verdict line, that a read-only step edits nothing, and that nothing gets committed, pushed or posted. A `goto` back to an earlier step tells it which step sent the work back and where its report is, unless the rule names its own `prompt`. On the board the step sits under its `stage`, with its report and earlier rounds. A prompt that's in none of the folders stops the run before it starts, and `workshop doctor` names it.
 
