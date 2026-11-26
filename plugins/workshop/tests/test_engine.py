@@ -2567,7 +2567,7 @@ class Review(Case):
 
     def test_notes_land_in_hunk_and_the_rest_are_listed(self):
         text = self.engine.review(self.finished())
-        self.assertEqual(self.tools.reviews[-1], ("p1", "origin/main"))
+        self.assertEqual(self.tools.reviews[-1], ("p1", "abc123"))
         self.assertEqual([n["summary"] for n in self.tools.review_notes], ["Look", "PR-level: b.py:9 Elsewhere"])
         self.assertIn("Loaded 2 note(s)", text)
 
@@ -2579,7 +2579,7 @@ class Review(Case):
 
     def test_a_finished_run_opens_its_own_review(self):
         self.finished()
-        self.assertEqual(self.tools.reviews, [("p1", "origin/main")])
+        self.assertEqual(self.tools.reviews, [("p1", "abc123")])
 
     def test_a_review_that_wont_open_leaves_the_run_delivered(self):
         def fails(pane, work, base, reload=False):
