@@ -536,6 +536,15 @@ class JiraSource:
                 return
         raise ValueError(f"{key} didn't reach {target}")
 
+    def forward(self, key: str, move: str) -> None:
+        """A move that only goes forward: a ticket already at or past the status on the route, or off it, stays put."""
+        target = self.moves.get(move, ("", None))[0]
+        if target in self.route:
+            status = self._call("GET", f"issue/{key}?fields=status")["fields"]["status"]["name"]
+            if status not in self.route[: self.route.index(target)]:
+                return
+        self.move(key, move)
+
     def comments(self, key: str, since: float) -> list[Comment]:
         me = self._call("GET", "myself")["accountId"]
         found = []
@@ -908,7 +917,9 @@ class PrepareSource:
         pass
 
     def move(self, key: str, move: str) -> None:
-        pass
+        # A talk isn't delivery, so the only move is your yes to the design, and only on a board that has the status for it.
+        if move == "designed" and (forward := getattr(self.ticket, "forward", None)):
+            forward(self._key(key), move)
 
 
 class SweepSource:
