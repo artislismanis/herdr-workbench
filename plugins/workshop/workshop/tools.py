@@ -535,6 +535,9 @@ class Tools:
     def mark_ready(self, work: Path, pr: str) -> None:
         run("gh", "pr", "ready", pr, cwd=work)
 
+    def mark_draft(self, work: Path, pr: str) -> None:
+        run("gh", "pr", "ready", pr, "--undo", cwd=work)
+
     def edit_pr(self, work: Path, pr: str, title: str, body: str) -> None:
         run("gh", "pr", "edit", pr, "--title", title, "--body", body, cwd=work)
 
