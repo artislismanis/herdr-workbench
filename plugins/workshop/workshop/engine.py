@@ -775,7 +775,7 @@ class Engine:
         if self.tools.review_open(work) and not fresh:  # reloading would drop what's been added since
             return "Already open in hunk."
         # A PR shows what GitHub shows: against where it branched, not against wherever its base has got to.
-        files = self.tools.open_review(run.pane, work, self.tools.fork_point(work, run.base) if run.on_a_pr else f"origin/{run.base}", fresh)
+        files = self.tools.open_review(run.pane, work, self.tools.fork_point(work, run.base), fresh)
         self.tools.point_review(work, run.step_pane or run.pane)  # your comments go to whoever answers for the change
         placed, outside = place(load_notes(kept / "notes.json"), files)
         self.tools.replace_notes(work, placed)
